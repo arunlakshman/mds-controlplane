@@ -142,7 +142,6 @@ func (n *simNode) exec(acts []runtime.Action) {
 			delete(n.timers, a.ID)
 		case runtime.ControlPlaneReply:
 			n.s.clients.reply(n, a)
-		case runtime.RecordFact:
 		case runtime.StopForRestart:
 			n.s.stats.Trips++
 			n.crash("stop for restart: " + a.Cause)

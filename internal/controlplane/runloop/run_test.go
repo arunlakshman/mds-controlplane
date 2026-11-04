@@ -146,7 +146,6 @@ func TestDeliverDataAndDispatch(t *testing.T) {
 			return []runtime.Action{
 				runtime.SetTimer{ID: 1, Gen: 1, After: runtime.Duration(time.Hour)},
 				runtime.CancelTimer{ID: 1},
-				runtime.RecordFact{Fact: runtime.Fact{}},
 				runtime.LogAppend{Req: 1},
 			}
 		case 1:
@@ -154,17 +153,15 @@ func TestDeliverDataAndDispatch(t *testing.T) {
 		}
 		return nil
 	}
-	facts := 0
 	b := runloop.Dependencies{
 		Clock: fakeClock{}, Env: testEnv{}, Inbox: in,
-		Facts: func(runtime.Fact) { facts++ },
 	}
 	ex := &fakeExec{}
 	if err := runloop.Run(t.Context(), b, ex, func(runtime.Environment, runtime.NodeInstance) runtime.Machine { return m }, runtime.NodeInstance{}); err != nil {
 		t.Fatal(err)
 	}
-	if facts != 1 || len(ex.got) != 1 {
-		t.Fatalf("facts=%d io=%d", facts, len(ex.got))
+	if len(ex.got) != 1 {
+		t.Fatalf("io=%d", len(ex.got))
 	}
 }
 

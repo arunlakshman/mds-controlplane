@@ -46,7 +46,7 @@ type InboxWriter interface {
 	Closed() <-chan struct{}
 }
 
-// Executor runs I/O only. The loop handles RecordFact, timers, StopForRestart, ShutdownDone and
+// Executor runs I/O only. The loop handles timers, StopForRestart, ShutdownDone and
 // returns an error on an unknown action. Exactly one IOResult per IOCall, with the
 // same RequestID, delivered to the InboxWriter and never on the caller's goroutine.
 // Execute MUST NOT block: it hands work to goroutines/queues.
@@ -62,7 +62,6 @@ type Dependencies struct {
 	Classifier   ErrorClassifier
 	Env          runtime.Environment // crypto-seeded Rand, inert FaultInjector, logging Assertions
 	Inbox        *Inbox              // shared with the Executor and readers; Run closes it on return
-	Facts        func(runtime.Fact)  // optional: receives RecordFact facts (tracing)
 	Shutdown     <-chan struct{}     // optional: closing it asks Run for a graceful stop (see StopOnSignal)
 	StopGrace    runtime.Duration    // time the machine gets after Shutdown to emit ShutdownDone
 }

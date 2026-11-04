@@ -130,11 +130,6 @@ type StopForRestart struct{ Cause string }
 // the incarnation, but it is not a fault: the simulator counts it as a graceful stop.
 type ShutdownDone struct{}
 
-// ---- observability ----
-
-// RecordFact appends a fact to the timeline (simulator: invariants read it; prod: tracing).
-type RecordFact struct{ Fact Fact }
-
 func (SetTimer) isAction()          {}
 func (CancelTimer) isAction()       {}
 func (ObjectPut) isAction()         {}
@@ -148,7 +143,6 @@ func (LogRead) isAction()           {}
 func (LogGetEnd) isAction()         {}
 func (LogDeleteOld) isAction()      {}
 func (LogClaimEpoch) isAction()     {}
-func (RecordFact) isAction()        {}
 func (StopForRestart) isAction()    {}
 func (ShutdownDone) isAction()      {}
 

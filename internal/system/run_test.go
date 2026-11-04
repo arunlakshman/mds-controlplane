@@ -132,15 +132,13 @@ func TestCtxCancelStops(t *testing.T) {
 	}
 }
 
-func TestTimerFiresAndEmitFact(t *testing.T) {
-	var facts []runtime.Fact
+func TestTimerFires(t *testing.T) {
 	m := &fakeMachine{}
 	b, ex, f := setup(m)
-	b.Facts = func(f runtime.Fact) { facts = append(facts, f) }
 	m.script = func(n int, body runtime.EventData) []runtime.Action {
 		switch n {
 		case 0:
-			return []runtime.Action{runtime.RecordFact{}, runtime.SetTimer{ID: 3, Gen: 4, After: runtime.Duration(time.Millisecond)}}
+			return []runtime.Action{runtime.SetTimer{ID: 3, Gen: 4, After: runtime.Duration(time.Millisecond)}}
 		default:
 			if tf, ok := body.(runtime.TimerFired); ok && tf.ID == 3 && tf.Gen == 4 {
 				return []runtime.Action{runtime.ShutdownDone{}}
@@ -150,9 +148,6 @@ func TestTimerFiresAndEmitFact(t *testing.T) {
 	}
 	if err := Run(t.Context(), b, ex, f, runtime.NodeInstance{}); err != nil {
 		t.Fatal(err)
-	}
-	if len(facts) != 1 {
-		t.Fatalf("facts = %v", facts)
 	}
 }
 
@@ -168,7 +163,6 @@ func TestDispatchTimers(t *testing.T) {
 			runtime.SetTimer{ID: 1, After: runtime.Duration(time.Hour)}, // replace
 			runtime.CancelTimer{ID: 1},
 			runtime.CancelTimer{ID: 99}, // missing
-			runtime.RecordFact{},        // Facts is nil
 			runtime.ShutdownDone{},
 		}
 	}

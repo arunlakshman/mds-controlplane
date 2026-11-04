@@ -32,7 +32,6 @@ type Dependencies struct {
 	Clock     runtime.Clock
 	Env       runtime.Environment
 	Inbox     *Inbox
-	Facts     func(runtime.Fact)
 	Shutdown  <-chan struct{}
 	StopGrace runtime.Duration
 	// Inject, if non-nil, carries work that must run on the loop goroutine
@@ -167,10 +166,6 @@ func (r *eventLoop) dispatch(acts []runtime.Action) (bool, error) {
 		switch a := a.(type) {
 		case runtime.IOCall:
 			r.exec.Execute(a)
-		case runtime.RecordFact:
-			if r.b.Facts != nil {
-				r.b.Facts(a.Fact)
-			}
 		case runtime.SetTimer:
 			r.setTimer(a)
 		case runtime.CancelTimer:
