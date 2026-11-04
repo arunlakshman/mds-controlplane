@@ -92,8 +92,8 @@ property name.
 
 Because the log is the truth about the order of writes, an operation whose
 answer was lost ("maybe applied") needs no special case: it is in the log or it
-is not. The model lives behind a two-method interface in `spec.go`, the only
-file that imports `speccheck`.
+is not. The model (`internal/spec`) lives behind a one-method interface (`spec.Model`).
+`spec.go` in the simulator is the only file that imports it.
 
 Coverage: a campaign prints which replica paths no seed reached (claims,
 take-over, fencing, restore from checkpoint, trimmed log, lost slot, bad

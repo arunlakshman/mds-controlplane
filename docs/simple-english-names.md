@@ -50,6 +50,8 @@ Rules used for the right column:
 
 ## 1. Packages (folder names)
 
+Historical: `speccheck`, `speccheck/checker` and `specsystem` were removed. The reference model is now `internal/spec`.
+
 | Current | Simple English |
 |---|---|
 | `veritas` | `speccheck` |

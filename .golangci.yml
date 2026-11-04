@@ -89,7 +89,7 @@ linters:
     rules:
       - linters: [forbidigo]
         text: 'panic'
-        path: '^(internal/runtime|internal/verify/simulator|ops/tools|internal/verify/speccheck)/|_test\.go$'
+        path: '^(internal/runtime|internal/verify/simulator|ops/tools)/|_test\.go$'
       - linters: [forbidigo]
         text: 'panic'
         path: '^internal/controlplane/(metadata|kv|groups/storage|topics)/'

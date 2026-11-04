@@ -14,7 +14,7 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign install-hooks it-postgres
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres
 
 build: proto fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
@@ -75,6 +75,12 @@ sim:
 
 sim-campaign:
 	go run ./cmd/cpsim -seeds $(SIM_SEEDS) -scenario all
+
+# The conformance, crash and failure-injection tests with 2000 checks each
+# (rapid default is 100). Not part of build. To replay one failure, see
+# internal/spec/README.md.
+spec-long:
+	go test ./internal/controlplane/controlplanetest -run 'Conform|Crash|FailureInjection' -count=1 -timeout 60m -rapid.checks=2000
 
 # Log tests against a real PostgreSQL in Docker (needs Docker). Not part of build.
 it-postgres:
