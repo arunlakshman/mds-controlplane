@@ -23,5 +23,5 @@
 3. Quiet must go through `fault.Injector.SetQuiet` (suppresses `Fault` only).
 
 ## Evidence
-- Corpus gate: `cpsim -scenario basic -seed 17` -> `hash=180fbfc68e5f9ab8`; `cpsim -scenario chaos -seed 42` -> `hash=e5384ad2691ef87e`.
+- Corpus gate: `cpsim -scenario basic -seed 17` -> `hash=f79ae0cb6ac19047`; `cpsim -scenario chaos -seed 42` -> `hash=841e92a10f1559f3`.
 - `go test ./internal/verify/simulator/...` and `make determinism` after the move.
