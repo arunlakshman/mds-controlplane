@@ -37,6 +37,19 @@ cat ops/tools/determinismcheck/allow.txt >"$allow"
 echo context >>"$allow"
 go run ./ops/tools/determinismcheck -allow "$allow" "$sim"
 
+echo "== real time stays out of the gated packages"
+# Only live and the production adapters may read real time or real randomness.
+# The import allow-list lets every package of this module in, so check the
+# whole dependency tree of each gated package for the real-time packages.
+realtime='internal/system/(live|realclock)$|manifesterio/dst/(realclock|syncclock)$'
+for p in "${pkgs[@]}" "$sim"; do
+  if bad=$(go list -deps "$p" | grep -E "$realtime"); then
+    echo "gated package $p depends on a real-time package:" >&2
+    echo "$bad" >&2
+    exit 1
+  fi
+done
+
 echo "== dependency audit records"
 # Only code that the deterministic packages really run needs an audit record.
 # The generated gRPC API (internal/controlplane/api/v1) is the input/output
