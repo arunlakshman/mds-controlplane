@@ -20,14 +20,14 @@ func TestReadWaitsForFreshTail(t *testing.T) {
 	if !ok {
 		t.Fatalf("catch-up timer missing in %v", acts)
 	}
-	tailA := m.Step(runtime.Event{At: 1, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})[0].(runtime.LogGetEnd)
-	got := m.Step(runtime.Event{At: 2, Body: runtime.ControlPlaneDeliver{
+	tailA := stepAt(m, 1, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})[0].(runtime.LogGetEnd)
+	got := stepAt(m, 2, runtime.ControlPlaneDeliver{
 		From: runtime.NodeInstance{Node: "b"}, Req: 7, Op: contract.DescribeTopics{},
-	}})
+	})
 	if len(got) != 0 {
 		t.Fatalf("read answered at once: %v", got)
 	}
-	acts = m.Step(runtime.Event{At: 3, Body: runtime.LogGetEndDone{Req: tailA.Req, Err: runtime.OK, Outcome: runtime.Applied}})
+	acts = stepAt(m, 3, runtime.LogGetEndDone{Req: tailA.Req, Err: runtime.OK, Outcome: runtime.Applied})
 	for _, a := range acts {
 		if _, isReply := a.(runtime.ControlPlaneReply); isReply {
 			t.Fatalf("read answered from a tail check that started before it: %v", acts)
@@ -37,8 +37,8 @@ func TestReadWaitsForFreshTail(t *testing.T) {
 	if !ok {
 		t.Fatalf("catch-up timer missing in %v", acts)
 	}
-	tailB := m.Step(runtime.Event{At: 4, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})[0].(runtime.LogGetEnd)
-	acts = m.Step(runtime.Event{At: 5, Body: runtime.LogGetEndDone{Req: tailB.Req, Err: runtime.OK, Outcome: runtime.Applied}})
+	tailB := stepAt(m, 4, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})[0].(runtime.LogGetEnd)
+	acts = stepAt(m, 5, runtime.LogGetEndDone{Req: tailB.Req, Err: runtime.OK, Outcome: runtime.Applied})
 	for _, a := range acts {
 		if r, isReply := a.(runtime.ControlPlaneReply); isReply && r.Done.Req == 7 && r.Done.Err == runtime.OK {
 			return
@@ -50,10 +50,10 @@ func TestReadWaitsForFreshTail(t *testing.T) {
 // A node that is not Ready refuses a read at once, so the bridge can fail over.
 func TestReadRefusedWhenNotReady(t *testing.T) {
 	m := newMachine(t, replica.Config{Writer: "s1", CatchUpEvery: runtime.Millisecond})
-	m.Step(runtime.Event{Body: runtime.NodeStarted{}})
-	acts := m.Step(runtime.Event{At: 1, Body: runtime.ControlPlaneDeliver{
+	step(m, runtime.NodeStarted{})
+	acts := stepAt(m, 1, runtime.ControlPlaneDeliver{
 		From: runtime.NodeInstance{Node: "b"}, Req: 8, Op: contract.DescribeTopics{},
-	}})
+	})
 	if len(acts) != 1 {
 		t.Fatalf("want one reply, got %v", acts)
 	}

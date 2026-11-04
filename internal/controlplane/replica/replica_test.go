@@ -1,6 +1,10 @@
 package replica_test
 
 import (
+	"github.com/manifesterio/dst/assert"
+	"github.com/manifesterio/dst/fault"
+	"github.com/manifesterio/dst/rng"
+	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/dst/sim"
 	"testing"
 
@@ -91,9 +95,22 @@ func newMachineEnv(t *testing.T, config replica.Config) (*replica.Replica, *test
 	return replica.New(config)(env, runtime.NodeInstance{Node: "cp-0"}), env
 }
 
-func step(m *replica.Replica, body runtime.EventData) []any {
-	return m.Step(runtime.Event{Body: body})
+// testContext is the sim.Context of a unit test. The replica only reads the time from it.
+type testContext struct{ now sched.TimeNs }
+
+func (c testContext) Now() sched.TimeNs     { return c.now }
+func (testContext) Wall() sched.TimeNs      { return 0 }
+func (testContext) Rand() *rng.Rand         { return rng.New(1) }
+func (testContext) Faults() *fault.Injector { return fault.New(rng.New(1)) }
+func (testContext) Assert() *assert.Log     { return assert.New(nil) }
+
+// stepAt gives body to the replica at time at.
+func stepAt(m *replica.Replica, at runtime.NodeTime, body runtime.EventData) []any {
+	return m.Step(testContext{now: sched.TimeNs(at)}, body)
 }
+
+// step gives body to the replica at time zero.
+func step(m *replica.Replica, body runtime.EventData) []any { return stepAt(m, 0, body) }
 
 func noop(id string) []byte {
 	return metadata.Encode(metadata.Entry{ID: id, Kind: metadata.KindNoop})

@@ -40,16 +40,16 @@ func findClaim(acts []any) (runtime.LogClaimEpoch, bool) {
 // last step (the tail check that makes the node Ready).
 func bootEmpty(t *testing.T, m *replica.Replica, at runtime.NodeTime) []any {
 	t.Helper()
-	acts := m.Step(runtime.Event{At: at, Body: runtime.NodeStarted{}})
+	acts := stepAt(m, at, runtime.NodeStarted{})
 	timer, ok := asTimer(acts[0])
 	if !ok {
 		t.Fatalf("Started = %v, want SetTimer", acts)
 	}
-	acts = m.Step(runtime.Event{At: at, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
+	acts = stepAt(m, at, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
-	acts = m.Step(runtime.Event{At: at, Body: runtime.LogGetEndDone{
+	acts = stepAt(m, at, runtime.LogGetEndDone{
 		Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if !m.Ready() {
 		t.Fatal("not Ready after empty catch-up")
 	}
@@ -64,9 +64,9 @@ func winClaim(t *testing.T, m *replica.Replica, acts []any, epoch uint64, at run
 	if !ok {
 		t.Fatalf("no LogClaimEpoch in %v", acts)
 	}
-	acts = m.Step(runtime.Event{At: at, Body: runtime.LogClaimEpochDone{
+	acts = stepAt(m, at, runtime.LogClaimEpochDone{
 		Req: claim.Req, Epoch: epoch, Owner: claim.Owner, Won: true, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	fence, ok := findAppend(acts)
 	if !ok {
 		t.Fatalf("won claim emitted %v, want the fence LogAppend", acts)
@@ -78,7 +78,7 @@ func winClaim(t *testing.T, m *replica.Replica, acts []any, epoch uint64, at run
 	if !ok || got != epoch {
 		t.Fatalf("fence epoch = %d (ok=%v), want %d", got, ok, epoch)
 	}
-	last := m.Step(runtime.Event{At: at, Body: runtime.LogAppendDone{Req: fence.Req, Slot: fence.Slot, Err: runtime.OK, Outcome: runtime.Applied}})
+	last := stepAt(m, at, runtime.LogAppendDone{Req: fence.Req, Slot: fence.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	if !m.IsActive() || m.Epoch() != epoch {
 		t.Fatalf("after the fence: active=%v epoch=%d, want active epoch %d", m.IsActive(), m.Epoch(), epoch)
 	}
@@ -97,10 +97,10 @@ func tickAfterSilence(t *testing.T, m *replica.Replica, boot []any, at runtime.N
 	if !ok {
 		t.Fatalf("catch-up timer missing in %v", boot)
 	}
-	acts := m.Step(runtime.Event{At: at, Body: runtime.TimerFired{ID: catch.ID, Gen: catch.Gen}})
+	acts := stepAt(m, at, runtime.TimerFired{ID: catch.ID, Gen: catch.Gen})
 	check := acts[0].(runtime.LogGetEnd)
-	m.Step(runtime.Event{At: at, Body: runtime.LogGetEndDone{Req: check.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied}})
-	return m.Step(runtime.Event{At: at, Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})
+	stepAt(m, at, runtime.LogGetEndDone{Req: check.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied})
+	return stepAt(m, at, runtime.TimerFired{ID: role.ID, Gen: role.Gen})
 }
 
 func TestStandbyRefuseOfferNoAppend(t *testing.T) {
@@ -203,9 +203,9 @@ func TestLostClaimLearnsEpochAndWaits(t *testing.T) {
 		t.Fatalf("no claim in %v", acts)
 	}
 	// Another node won epoch 5 first.
-	acts = m.Step(runtime.Event{At: later, Body: runtime.LogClaimEpochDone{
+	acts = stepAt(m, later, runtime.LogClaimEpochDone{
 		Req: claim.Req, Epoch: 5, Owner: "other", Won: false, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if m.IsActive() || m.Epoch() != 0 {
 		t.Fatalf("lost claim made the node a writer: active=%v epoch=%d", m.IsActive(), m.Epoch())
 	}
@@ -217,7 +217,7 @@ func TestLostClaimLearnsEpochAndWaits(t *testing.T) {
 	if !ok {
 		t.Fatal("role timer missing")
 	}
-	if got, ok := findClaim(m.Step(runtime.Event{At: later + runtime.NodeTime(runtime.Millisecond), Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})); ok {
+	if got, ok := findClaim(stepAt(m, later+runtime.NodeTime(runtime.Millisecond), runtime.TimerFired{ID: role.ID, Gen: role.Gen})); ok {
 		t.Fatalf("claimed again right after a loss: %+v", got)
 	}
 }
@@ -233,7 +233,7 @@ func TestClaimThatTimedOutButLandedIsAccepted(t *testing.T) {
 		t.Fatalf("no claim at boot in %v", boot)
 	}
 	// The answer to the first claim is lost: the node does not know the result.
-	m.Step(runtime.Event{Body: runtime.LogClaimEpochDone{Req: claim.Req, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}})
+	step(m, runtime.LogClaimEpochDone{Req: claim.Req, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied})
 	if m.IsActive() || m.Epoch() != 0 {
 		t.Fatal("unknown claim result made the node a writer")
 	}
@@ -245,14 +245,14 @@ func TestClaimThatTimedOutButLandedIsAccepted(t *testing.T) {
 	if !ok || again.Expect != 0 {
 		t.Fatalf("second claim = %v, want LogClaimEpoch{Expect 0}", acts)
 	}
-	acts = m.Step(runtime.Event{At: later, Body: runtime.LogClaimEpochDone{
+	acts = stepAt(m, later, runtime.LogClaimEpochDone{
 		Req: again.Req, Epoch: 1, Owner: "w", Won: false, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	fence, ok := findAppend(acts)
 	if !ok {
 		t.Fatalf("accepted claim emitted %v, want the fence LogAppend", acts)
 	}
-	m.Step(runtime.Event{At: later, Body: runtime.LogAppendDone{Req: fence.Req, Slot: fence.Slot, Err: runtime.OK, Outcome: runtime.Applied}})
+	stepAt(m, later, runtime.LogAppendDone{Req: fence.Req, Slot: fence.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	if !m.IsActive() || m.Epoch() != 1 {
 		t.Fatalf("active=%v epoch=%d, want active epoch 1", m.IsActive(), m.Epoch())
 	}
@@ -270,9 +270,9 @@ func TestFencedByNewerEpochEntry(t *testing.T) {
 	foreign := replica.EncodeEnvelopedForTest(2, "other", metadata.Encode(metadata.Entry{
 		ID: "other/e2/1", Kind: metadata.KindNoop,
 	}))
-	acts = m.Step(runtime.Event{Body: runtime.LogAppendDone{
+	acts = step(m, runtime.LogAppendDone{
 		Req: ap.Req, Slot: ap.Slot, Taken: true, Existing: foreign, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if m.IsActive() || m.Epoch() != 0 {
 		t.Fatalf("fenced writer still active: active=%v epoch=%d", m.IsActive(), m.Epoch())
 	}
@@ -300,9 +300,9 @@ func TestLostSlotToOlderEpochIsRetried(t *testing.T) {
 	old := replica.EncodeEnvelopedForTest(1, "old", metadata.Encode(metadata.Entry{
 		ID: "old/e1/9", Kind: metadata.KindNoop,
 	}))
-	acts = m.Step(runtime.Event{Body: runtime.LogAppendDone{
+	acts = step(m, runtime.LogAppendDone{
 		Req: ap.Req, Slot: ap.Slot, Taken: true, Existing: old, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if !m.IsActive() {
 		t.Fatal("writer stepped down because of an older epoch")
 	}
@@ -321,11 +321,11 @@ func TestRestoringNodeNeverClaimsOrWrites(t *testing.T) {
 		TakeoverAfter: take, Heartbeat: take, CheckpointPrefix: "checkpoint/",
 	})
 	list := startRestore(t, m)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req}})
+	acts := step(m, runtime.ObjectListDone{Req: list.Req})
 	catch, _ := findTimer(acts, 1)
-	acts = m.Step(runtime.Event{Body: runtime.TimerFired{ID: catch.ID, Gen: catch.Gen}})
+	acts = step(m, runtime.TimerFired{ID: catch.ID, Gen: catch.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
-	boot := m.Step(runtime.Event{Body: runtime.LogGetEndDone{Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied}})
+	boot := step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied})
 	role, ok := findTimer(boot, replica.TimerRole)
 	if !ok {
 		t.Fatalf("role timer missing in %v", boot)
@@ -337,24 +337,24 @@ func TestRestoringNodeNeverClaimsOrWrites(t *testing.T) {
 	if !ok {
 		t.Fatalf("catch-up timer missing in %v", last)
 	}
-	acts = m.Step(runtime.Event{At: 1, Body: runtime.TimerFired{ID: catch.ID, Gen: catch.Gen}})
+	acts = stepAt(m, 1, runtime.TimerFired{ID: catch.ID, Gen: catch.Gen})
 	tail = acts[0].(runtime.LogGetEnd)
-	acts = m.Step(runtime.Event{At: 1, Body: runtime.LogGetEndDone{Req: tail.Req, Tail: 5, Err: runtime.OK, Outcome: runtime.Applied}})
+	acts = stepAt(m, 1, runtime.LogGetEndDone{Req: tail.Req, Tail: 5, Err: runtime.OK, Outcome: runtime.Applied})
 	read := acts[0].(runtime.LogRead)
-	acts = m.Step(runtime.Event{At: 1, Body: runtime.LogReadDone{
+	acts = stepAt(m, 1, runtime.LogReadDone{
 		Req: read.Req, Err: runtime.OK, Outcome: runtime.Applied,
 		Entries: []runtime.LogEntry{{Slot: 3, Data: noop("late")}},
-	}})
+	})
 	relist, ok := acts[len(acts)-1].(runtime.ObjectList)
 	if !ok || m.IsActive() || m.Ready() {
 		t.Fatalf("want a restore (ObjectList), not active, not ready; got %v active=%v ready=%v", acts, m.IsActive(), m.Ready())
 	}
 	// The list fails, so the node still does not know whether a checkpoint exists.
-	m.Step(runtime.Event{At: 2, Body: runtime.ObjectListDone{Req: relist.Req, Err: runtime.ErrTimeout}})
+	stepAt(m, 2, runtime.ObjectListDone{Req: relist.Req, Err: runtime.ErrTimeout})
 
 	// While it restores, the role timer must not make it claim or write.
 	for _, at := range []runtime.NodeTime{runtime.NodeTime(take) + 1, runtime.NodeTime(2 * take), runtime.NodeTime(10 * take)} {
-		acts = m.Step(runtime.Event{At: at, Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})
+		acts = stepAt(m, at, runtime.TimerFired{ID: role.ID, Gen: role.Gen})
 		if c, ok := findClaim(acts); ok {
 			t.Fatalf("restoring node claimed at %d: %+v", at, c)
 		}
@@ -384,7 +384,7 @@ func TestHeartbeatEmitsNoopWhenIdle(t *testing.T) {
 		t.Fatalf("role timer missing in %v", ready)
 	}
 
-	acts := m.Step(runtime.Event{At: 0, Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})
+	acts := stepAt(m, 0, runtime.TimerFired{ID: role.ID, Gen: role.Gen})
 	if ap, ok := findAppend(acts); ok {
 		t.Fatalf("role tick at boot appended %#v, want silence until heartbeat", ap)
 	}
@@ -394,7 +394,7 @@ func TestHeartbeatEmitsNoopWhenIdle(t *testing.T) {
 	}
 
 	due := runtime.NodeTime(hb + runtime.Millisecond)
-	acts = m.Step(runtime.Event{At: due, Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})
+	acts = stepAt(m, due, runtime.TimerFired{ID: role.ID, Gen: role.Gen})
 	ap, ok := findAppend(acts)
 	if !ok {
 		t.Fatalf("idle heartbeat actions = %v, want LogAppend", acts)
@@ -415,7 +415,7 @@ func TestHeartbeatEmitsNoopWhenIdle(t *testing.T) {
 		t.Fatalf("role rearm after heartbeat missing in %v", acts)
 	}
 
-	acts = m.Step(runtime.Event{At: due + 1, Body: runtime.TimerFired{ID: role.ID, Gen: role.Gen}})
+	acts = stepAt(m, due+1, runtime.TimerFired{ID: role.ID, Gen: role.Gen})
 	if ap, ok := findAppend(acts); ok {
 		t.Fatalf("in-flight heartbeat appended again: %#v", ap)
 	}

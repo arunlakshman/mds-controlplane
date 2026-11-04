@@ -139,8 +139,7 @@ func (n *simNode) step(cx dstsim.Context, body any) []any {
 		n.held = append(n.held, body)
 		return nil
 	}
-	ev := runtime.Event{At: runtime.NodeTime(cx.Now()), Wall: runtime.RealTime(cx.Wall()), Body: body.(runtime.EventData)}
-	acts := n.m.Step(ev)
+	acts := n.m.Step(cx, body)
 	return n.outbound(acts)
 }
 
@@ -150,16 +149,14 @@ type clientReply struct {
 	reply runtime.ControlPlaneReply
 }
 
-// outbound turns the actions of one Step into dst values, in order.
-// StopForRestart and ShutdownDone end the incarnation and nothing after them runs.
+// outbound turns what one Step returned into what the runner takes, in order.
+// Timers pass as they are. A Crash or an Exit ends the incarnation and nothing
+// after it runs; the controller is told so it can restart or mark the node down.
+// A reply to a client goes to the client pool, an IO call to the storage.
 func (n *simNode) outbound(acts []any) []any {
 	var out []any
 	for _, a := range acts {
 		switch a := a.(type) {
-		case runtime.SetTimer:
-			out = append(out, dstsim.SetTimer{ID: uint64(a.ID), After: sched.TimeNs(a.After), Body: runtime.TimerFired{ID: a.ID, Gen: a.Gen}})
-		case runtime.CancelTimer:
-			out = append(out, dstsim.CancelTimer{ID: uint64(a.ID)})
 		case dstsim.SetTimer, dstsim.CancelTimer:
 			out = append(out, a) // the replica speaks dst already
 		case dstsim.Crash: // the replica tripped
@@ -169,11 +166,6 @@ func (n *simNode) outbound(acts []any) []any {
 			return append(out, a, dstsim.Send{To: ctlID, Body: shutDown{idx: n.idx}})
 		case runtime.ControlPlaneReply:
 			out = append(out, clientReply{node: n.idx, reply: a})
-		case runtime.StopForRestart:
-			d := runtime.Duration(n.s.rand.Between(int64(100*runtime.Millisecond), int64(500*runtime.Millisecond)))
-			return append(out, dstsim.Crash{Cause: a.Cause}, dstsim.Send{To: ctlID, Body: tripped{idx: n.idx, cause: a.Cause, in: d}})
-		case runtime.ShutdownDone:
-			return append(out, dstsim.Exit{}, dstsim.Send{To: ctlID, Body: shutDown{idx: n.idx}})
 		case runtime.IOCall:
 			out = append(out, a)
 		default:

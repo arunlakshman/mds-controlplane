@@ -14,7 +14,7 @@ var brokerFrom = runtime.NodeInstance{Node: "b1"}
 // returns the reply the broker gets.
 func writeOp(t *testing.T, m *replica.Replica, request runtime.RequestID, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	t.Helper()
-	ap := onlyAppend(t, m.Step(runtime.Event{Body: runtime.ControlPlaneDeliver{From: brokerFrom, Req: request, Op: operation}}))
+	ap := onlyAppend(t, step(m, runtime.ControlPlaneDeliver{From: brokerFrom, Req: request, Op: operation}))
 	acts := step(m, runtime.LogAppendDone{Req: ap.Req, Slot: ap.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	for _, a := range acts {
 		if r, ok := a.(runtime.ControlPlaneReply); ok && r.To == brokerFrom {
@@ -33,12 +33,12 @@ func writeOp(t *testing.T, m *replica.Replica, request runtime.RequestID, operat
 // reply comes out. It returns the reply and the catch-up timer to use next.
 func readOp(t *testing.T, m *replica.Replica, timer timerView, request runtime.RequestID, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, timerView) {
 	t.Helper()
-	if acts := m.Step(runtime.Event{Body: runtime.ControlPlaneDeliver{From: brokerFrom, Req: request, Op: operation}}); len(acts) != 0 {
+	if acts := step(m, runtime.ControlPlaneDeliver{From: brokerFrom, Req: request, Op: operation}); len(acts) != 0 {
 		t.Fatalf("read answered at once: %v", acts)
 	}
 	for range 3 {
-		tail := m.Step(runtime.Event{Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})[0].(runtime.LogGetEnd)
-		acts := m.Step(runtime.Event{Body: runtime.LogGetEndDone{Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied}})
+		tail := step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})[0].(runtime.LogGetEnd)
+		acts := step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied})
 		next, hasNext := findTimer(acts, 1)
 		if hasNext {
 			timer = next
@@ -150,7 +150,7 @@ func TestOnControlPlaneDeliverReadsAnswerBroker(t *testing.T) {
 // with ErrInvalid and nothing reaches the log.
 func TestOnControlPlaneDeliverUnknownOpInvalid(t *testing.T) {
 	m := newMachine(t, replica.Config{Writer: "w"})
-	acts := m.Step(runtime.Event{Body: runtime.ControlPlaneDeliver{From: brokerFrom, Req: 9, Op: nil}})
+	acts := step(m, runtime.ControlPlaneDeliver{From: brokerFrom, Req: 9, Op: nil})
 	if len(acts) != 1 {
 		t.Fatalf("actions = %v, want one reply", acts)
 	}

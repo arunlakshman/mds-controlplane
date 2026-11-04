@@ -129,7 +129,7 @@ func (n *Node) Start(ctx context.Context) error {
 	m := replica.New(n.config.Machine)(n.config.Env, n.config.Self)
 	n.m.Store(m)
 	cfg := live.Config{
-		Process:   replica.AsProcess(string(n.config.Self.Node), m),
+		Process:   m,
 		Boot:      runtime.NodeStarted{Self: n.config.Self},
 		Stop:      func(deadline sched.TimeNs) any { return runtime.StopRequest{Deadline: runtime.NodeTime(deadline)} },
 		StopGrace: time.Duration(n.config.StopGrace),
@@ -257,7 +257,7 @@ func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []any) er
 		}
 		acts := fn(m)
 		n.flushAnswers(m)
-		return replica.Outbound(acts)
+		return acts
 	}:
 	case <-ctx.Done():
 		return ctx.Err()

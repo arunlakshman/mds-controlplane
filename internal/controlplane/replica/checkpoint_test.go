@@ -18,7 +18,7 @@ func ckptKey(slot runtime.LogPosition) string { return fmt.Sprintf("checkpoint/%
 // the list of checkpoint objects.
 func startRestore(t *testing.T, m *replica.Replica) runtime.ObjectList {
 	t.Helper()
-	acts := m.Step(runtime.Event{At: 0, Body: runtime.NodeStarted{}})
+	acts := stepAt(m, 0, runtime.NodeStarted{})
 	list, ok := acts[0].(runtime.ObjectList)
 	if len(acts) != 1 || !ok || list.Prefix != "checkpoint/" {
 		t.Fatalf("Started = %v, want one ObjectList checkpoint/", acts)
@@ -47,12 +47,12 @@ func TestRestoreOnStartedThenReady(t *testing.T) {
 		CheckpointPrefix: "checkpoint/",
 	})
 	list := startRestore(t, m)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(1), ckptKey(2)}}})
+	acts := step(m, runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(1), ckptKey(2)}})
 	get, ok := acts[0].(runtime.ObjectGet)
 	if !ok || get.Ref.Key != ckptKey(2) {
 		t.Fatalf("action = %#v, want ObjectGet of the newest checkpoint %s", acts[0], ckptKey(2))
 	}
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.ObjectGetDone{Req: get.Req, Data: snap, Err: runtime.OK}})
+	acts = stepAt(m, 0, runtime.ObjectGetDone{Req: get.Req, Data: snap, Err: runtime.OK})
 	if m.Applied() != 2 {
 		t.Fatalf("Applied after restore = %d, want 2", m.Applied())
 	}
@@ -60,11 +60,11 @@ func TestRestoreOnStartedThenReady(t *testing.T) {
 		t.Fatal("Ready before catch-up")
 	}
 	timer := mustTimer(t, acts[0])
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
+	acts = stepAt(m, 0, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
-	m.Step(runtime.Event{At: 0, Body: runtime.LogGetEndDone{
+	stepAt(m, 0, runtime.LogGetEndDone{
 		Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if !m.Ready() {
 		t.Fatal("Ready after restore catch-up")
 	}
@@ -86,13 +86,13 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	})
 	// NodeStarted, empty list, catch-up, Ready, claim, fence entry, active (rank 0).
 	list := startRestore(t, m)
-	acts := m.Step(runtime.Event{At: 0, Body: runtime.ObjectListDone{Req: list.Req}})
+	acts := stepAt(m, 0, runtime.ObjectListDone{Req: list.Req})
 	timer := mustTimer(t, acts[0])
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
+	acts = stepAt(m, 0, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.LogGetEndDone{
+	acts = stepAt(m, 0, runtime.LogGetEndDone{
 		Req: tail.Req, Tail: 0, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if !m.Ready() {
 		t.Fatal("not Ready after catch-up")
 	}
@@ -107,9 +107,9 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	if !ok {
 		t.Fatalf("checkpoint timer missing in %v", acts)
 	}
-	acts = m.Step(runtime.Event{At: runtime.NodeTime(20 * runtime.Millisecond), Body: runtime.TimerFired{
+	acts = stepAt(m, runtime.NodeTime(20*runtime.Millisecond), runtime.TimerFired{
 		ID: checkpoint.ID, Gen: checkpoint.Gen,
-	}})
+	})
 	put, ok := acts[0].(runtime.ObjectPut)
 	if !ok || put.Key != ckptKey(2) || len(put.Data) == 0 {
 		t.Fatalf("checkpoint action = %#v, want ObjPut", acts[0])
@@ -118,9 +118,9 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	if err != nil || slot != 2 {
 		t.Fatalf("published snapshot slot=%d err=%v, want 2", slot, err)
 	}
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.ObjectPutDone{
+	acts = stepAt(m, 0, runtime.ObjectPutDone{
 		Req: put.Req, Key: put.Key, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	// KeepSlots=2, checkpointSlot=2: below=0, no trim. No older checkpoint to delete.
 	if len(acts) != 0 {
 		t.Fatalf("unexpected actions after the first checkpoint: %v", acts)
@@ -135,16 +135,16 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 		t.Fatalf("Applied = %d, want 4", m.Applied())
 	}
 	// Re-arm checkpoint by firing a fresh gen (timer was re-armed in onCheckpointTimer).
-	acts = m.Step(runtime.Event{At: runtime.NodeTime(40 * runtime.Millisecond), Body: runtime.TimerFired{
+	acts = stepAt(m, runtime.NodeTime(40*runtime.Millisecond), runtime.TimerFired{
 		ID: replica.TimerCheckpoint, Gen: checkpoint.Gen + 1,
-	}})
+	})
 	put = acts[0].(runtime.ObjectPut)
 	if put.Key != ckptKey(4) {
 		t.Fatalf("second checkpoint key = %s, want %s", put.Key, ckptKey(4))
 	}
-	acts = m.Step(runtime.Event{At: 0, Body: runtime.ObjectPutDone{
+	acts = stepAt(m, 0, runtime.ObjectPutDone{
 		Req: put.Req, Key: put.Key, Err: runtime.OK, Outcome: runtime.Applied,
-	}})
+	})
 	if del, ok := acts[len(acts)-1].(runtime.ObjectDelete); !ok || del.Key != ckptKey(2) {
 		t.Fatalf("after put actions = %v, want a final ObjectDelete of the older checkpoint %s", acts, ckptKey(2))
 	}
@@ -156,7 +156,7 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	if trim.Through != 1 {
 		t.Fatalf("LogTrim Through = %d, want 1", trim.Through)
 	}
-	m.Step(runtime.Event{At: 0, Body: runtime.LogDeleteOldDone{Req: trim.Req, Err: runtime.OK, Outcome: runtime.Applied}})
+	stepAt(m, 0, runtime.LogDeleteOldDone{Req: trim.Req, Err: runtime.OK, Outcome: runtime.Applied})
 }
 
 func TestRestoreMissFallsThroughToCatchUp(t *testing.T) {
@@ -165,7 +165,7 @@ func TestRestoreMissFallsThroughToCatchUp(t *testing.T) {
 		CheckpointPrefix: "checkpoint/",
 	})
 	list := startRestore(t, m)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req}})
+	acts := step(m, runtime.ObjectListDone{Req: list.Req})
 	if _, ok := asTimer(acts[0]); !ok {
 		t.Fatalf("after an empty list = %v, want catch-up SetTimer", acts)
 	}
@@ -186,13 +186,13 @@ func TestRestoreReadsAgainOnBadCRC(t *testing.T) {
 
 	m := newMachine(t, replica.Config{Writer: "w", CatchUpEvery: runtime.Millisecond, CheckpointPrefix: "checkpoint/"})
 	list := startRestore(t, m)
-	get := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(5)}}})[0].(runtime.ObjectGet)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectGetDone{Req: get.Req, Data: bad, Err: runtime.OK}})
+	get := step(m, runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(5)}})[0].(runtime.ObjectGet)
+	acts := step(m, runtime.ObjectGetDone{Req: get.Req, Data: bad, Err: runtime.OK})
 	again, ok := acts[0].(runtime.ObjectGet)
 	if len(acts) != 1 || !ok || again.Ref.Key != ckptKey(5) || m.Applied() != 0 {
 		t.Fatalf("want one new ObjectGet of the same key and nothing restored, got %v, applied %d", acts, m.Applied())
 	}
-	m.Step(runtime.Event{Body: runtime.ObjectGetDone{Req: again.Req, Data: buf.Bytes(), Err: runtime.OK}})
+	step(m, runtime.ObjectGetDone{Req: again.Req, Data: buf.Bytes(), Err: runtime.OK})
 	if m.Applied() != 5 {
 		t.Fatalf("Applied after a good read = %d, want 5", m.Applied())
 	}
@@ -202,12 +202,12 @@ func TestRestoreReadsAgainOnBadCRC(t *testing.T) {
 func TestFailedCheckpointListIsRetried(t *testing.T) {
 	m := newMachine(t, replica.Config{Writer: "w", CatchUpEvery: runtime.Millisecond, CheckpointPrefix: "checkpoint/"})
 	list := startRestore(t, m)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req, Err: runtime.ErrUnavailable}})
+	acts := step(m, runtime.ObjectListDone{Req: list.Req, Err: runtime.ErrUnavailable})
 	timer, ok := findTimer(acts, replica.TimerCheckpoint)
 	if !ok || len(acts) != 1 {
 		t.Fatalf("want one checkpoint retry timer, got %v", acts)
 	}
-	acts = m.Step(runtime.Event{At: 1, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
+	acts = stepAt(m, 1, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	if _, ok := acts[0].(runtime.ObjectList); !ok || m.Ready() {
 		t.Fatalf("want a new ObjectList and not Ready, got %v", acts)
 	}
@@ -218,8 +218,8 @@ func TestFailedCheckpointListIsRetried(t *testing.T) {
 func TestVanishedCheckpointIsListedAgain(t *testing.T) {
 	m := newMachine(t, replica.Config{Writer: "w", CatchUpEvery: runtime.Millisecond, CheckpointPrefix: "checkpoint/"})
 	list := startRestore(t, m)
-	get := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(5)}}})[0].(runtime.ObjectGet)
-	acts := m.Step(runtime.Event{Body: runtime.ObjectGetDone{Req: get.Req, Err: runtime.ErrNotFound}})
+	get := step(m, runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(5)}})[0].(runtime.ObjectGet)
+	acts := step(m, runtime.ObjectGetDone{Req: get.Req, Err: runtime.ErrNotFound})
 	if _, ok := acts[0].(runtime.ObjectList); !ok || len(acts) != 1 || m.Ready() {
 		t.Fatalf("want one new ObjectList and not Ready, got %v", acts)
 	}

@@ -153,16 +153,22 @@ func (m *Replica) reseedTopics() {
 	}
 }
 
-// Step takes one event and returns what the machine wants done, in order: dst
-// values (timers, Crash, Exit) and IO calls. Unknown completions and unhandled bodies
-// leave state unchanged. After ShutdownDone, every event is a no-op.
-func (m *Replica) Step(event runtime.Event) []any {
+var _ sim.Process = (*Replica)(nil)
+
+// ID implements sim.Process: the name of the node.
+func (m *Replica) ID() sim.ProcessID { return sim.ProcessID(m.self.Node) }
+
+// Step implements sim.Process. The inbox value must be a runtime.EventData. It
+// returns what the machine wants done, in order: dst values (timers, Crash,
+// Exit) and IO calls. Unknown completions and unhandled values leave the state
+// unchanged. After Exit or Crash, every value is a no-op.
+func (m *Replica) Step(cx sim.Context, inbox any) []any {
 	if m.exited {
 		return nil
 	}
-	m.now = event.At
+	m.now = runtime.NodeTime(cx.Now())
 	var acts []any
-	switch body := event.Body.(type) {
+	switch body := inbox.(type) {
 	case runtime.NodeStarted:
 		acts = m.onStarted()
 	case runtime.StopRequest:
