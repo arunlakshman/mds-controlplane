@@ -6,6 +6,7 @@ import (
 	"github.com/manifesterio/dst/assert"
 	"github.com/manifesterio/dst/check"
 	dstclock "github.com/manifesterio/dst/clock"
+	"github.com/manifesterio/dst/eng"
 	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/dst/sched"
 	dstsim "github.com/manifesterio/dst/sim"
@@ -159,7 +160,7 @@ func newSim(cfg Config) (*sim, error) {
 		byProp: map[string]int{}, applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
 		hash: trace.New(),
 	}
-	s.runner = dstsim.New(dstsim.Config{Seed: cfg.Seed, WallStart: sched.TimeNs(wallStart), MaxPops: maxSteps + 1})
+	s.runner = dstsim.New(dstsim.Config{Seed: cfg.Seed, WallStart: sched.TimeNs(wallStart), MaxPops: maxSteps + 1, OnStep: s.onStep})
 	s.rand, s.sched = s.runner.Rand(), s.runner.Sched()
 	s.clock = dstclock.New(s.sched, sched.TimeNs(wallStart))
 	s.env = newEnv(s.rand, s.addFailure)
@@ -219,9 +220,20 @@ func (s *sim) noteBoot(n *simNode) {
 	s.tracef("%s boots (boot %d)", n.name(), n.boots)
 }
 
-// observe runs after every Step: it folds the state into the trace hash and
-// checks the properties that can be checked on one node.
-func (s *sim) observe(n *simNode, body runtime.EventData, acts []runtime.Action) {
+// onStep is dst's Config.OnStep hook. It runs after every Step of a node: it
+// folds the state into the trace hash, keeps the trace ring, and checks the
+// properties that can be checked on one node. A step that did not run the
+// machine (the node is down or paused and keeps the value) is not observed.
+func (s *sim) onStep(info dstsim.StepInfo) {
+	if info.Who == ctlID {
+		return
+	}
+	n := s.nodeOf(eng.ActorID(info.Who))
+	if !n.up || n.paused {
+		return
+	}
+	body, _ := info.Inbox.(runtime.EventData)
+	acts := info.Out
 	h := &s.hash
 	h.Uint64(uint64(s.now()))
 	h.Uint64(uint64(n.idx))

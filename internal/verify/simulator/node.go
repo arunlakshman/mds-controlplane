@@ -144,7 +144,6 @@ func (n *simNode) step(cx dstsim.Context, body any) []any {
 	}
 	ev := runtime.Event{At: runtime.NodeTime(cx.Now()), Wall: runtime.RealTime(cx.Wall()), Body: body.(runtime.EventData)}
 	acts := n.m.Step(ev)
-	n.s.observe(n, ev.Body, acts)
 	return n.outbound(acts)
 }
 
@@ -167,13 +166,10 @@ func (n *simNode) outbound(acts []runtime.Action) []any {
 		case runtime.ControlPlaneReply:
 			out = append(out, clientReply{node: n.idx, reply: a})
 		case runtime.StopForRestart:
-			n.s.stats.Trips++
-			n.down("stop for restart: " + a.Cause)
 			d := runtime.Duration(n.s.rand.Between(int64(100*runtime.Millisecond), int64(500*runtime.Millisecond)))
-			return append(out, dstsim.Crash{Cause: a.Cause}, dstsim.Send{To: ctlID, Body: bootLater{idx: n.idx, in: d}})
+			return append(out, dstsim.Crash{Cause: a.Cause}, dstsim.Send{To: ctlID, Body: tripped{idx: n.idx, cause: a.Cause, in: d}})
 		case runtime.ShutdownDone:
-			n.down("shutdown")
-			return append(out, dstsim.Exit{})
+			return append(out, dstsim.Exit{}, dstsim.Send{To: ctlID, Body: shutDown{idx: n.idx}})
 		case runtime.IOCall:
 			out = append(out, a)
 		default:
@@ -188,11 +184,13 @@ const ctlID dstsim.ProcessID = "sim-ctl"
 
 // Messages to the controller.
 type (
-	bootNode  struct{ idx int } // start a new incarnation now
-	bootLater struct {
-		idx int
-		in  runtime.Duration
-	} // start one after a delay
+	bootNode struct{ idx int } // start a new incarnation now
+	tripped  struct {
+		idx   int
+		cause string
+		in    runtime.Duration
+	} // the node asked to be stopped for a restart; start it again after in
+	shutDown struct{ idx int } // the node ended on purpose
 	killNode struct {
 		idx       int
 		why       string
@@ -215,8 +213,13 @@ func (c controller) Step(_ dstsim.Context, inbox any) []any {
 		}
 		n.start()
 		return []any{dstsim.Restart{Who: nodeID(m.idx), New: &nodeProc{n: n}, Boot: runtime.NodeStarted{Self: n.inst}}}
-	case bootLater:
+	case tripped:
+		s.stats.Trips++
+		s.nodes[m.idx].down("stop for restart: " + m.cause)
 		return []any{dstsim.SetTimer{ID: uint64(m.idx), After: sched.TimeNs(m.in), Body: bootNode{idx: m.idx}}}
+	case shutDown:
+		s.nodes[m.idx].down("shutdown")
+		return nil
 	case killNode:
 		return []any{
 			dstsim.Crash{Who: nodeID(m.idx), Cause: m.why},
