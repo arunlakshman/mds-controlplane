@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/arunlakshman/dst/assert"
+	dstclock "github.com/arunlakshman/dst/clock"
+	"github.com/arunlakshman/dst/rng"
+	"github.com/arunlakshman/dst/sched"
 	"github.com/arunlakshman/dst/trace"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -72,8 +75,9 @@ type seenPrefix struct {
 type sim struct {
 	cfg      Config
 	scenario Scenario
-	rand     *Rand
-	sched    *scheduler
+	rand     *rng.Rand
+	sched    *sched.Scheduler // shares its event heap with clock
+	clock    *dstclock.Clock
 	env      *env
 	store    *storage
 	nodes    []*simNode
@@ -127,7 +131,7 @@ func bodyText(b runtime.EventData) string {
 // tracef writes a note about something that is not a step (a crash, a partition).
 func (s *sim) tracef(format string, args ...any) {
 	if s.cfg.Trace != nil {
-		s.cfg.Trace(fmt.Sprintf("t=%dms %s", s.sched.now()/int64(runtime.Millisecond), fmt.Sprintf(format, args...)))
+		s.cfg.Trace(fmt.Sprintf("t=%dms %s", s.now()/int64(runtime.Millisecond), fmt.Sprintf(format, args...)))
 	}
 }
 
@@ -154,12 +158,13 @@ func newSim(cfg Config) (*sim, error) {
 	}
 	cfg.Scenario = sc.Name
 	s := &sim{
-		cfg: cfg, scenario: sc, rand: NewRand(cfg.Seed), faults: sc.Faults, bug: cfg.Bug,
+		cfg: cfg, scenario: sc, rand: rng.New(cfg.Seed), faults: sc.Faults, bug: cfg.Bug,
 		byProp: map[string]int{}, holders: map[uint64]int{}, prefixes: map[runtime.LogPosition]seenPrefix{},
 		applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
 		hash: trace.New(),
 	}
-	s.sched = newScheduler(s.rand)
+	s.sched = sched.New(s.rand)
+	s.clock = dstclock.New(s.sched, sched.TimeNs(wallStart))
 	s.env = newEnv(s.rand, s.addFailure)
 	s.store = newStorage(s)
 	s.oracle = newOracle(s)
@@ -170,13 +175,29 @@ func newSim(cfg Config) (*sim, error) {
 	return s, nil
 }
 
+// wallStart is the virtual UTC time at the start of every run (2026-01-01).
+const wallStart = int64(1767225600) * int64(runtime.Second)
+
+// Time moves only when the scheduler takes an event. after queues on the heap
+// directly so a node's CancelTimer stays a local token check.
+
+func (s *sim) mono() runtime.NodeTime { return runtime.NodeTime(s.clock.Mono()) }
+func (s *sim) wall() runtime.RealTime { return runtime.RealTime(s.clock.Wall()) }
+func (s *sim) now() int64             { return int64(s.clock.Mono()) }
+func (s *sim) steps() int             { return s.sched.Steps() }
+
+// after queues run to happen d from now. A negative d counts as zero.
+func (s *sim) after(d runtime.Duration, label string, run func()) {
+	s.sched.After(sched.TimeNs(d), label, run)
+}
+
 func (s *sim) addFailure(property, detail string) {
 	if i, seen := s.byProp[property]; seen {
 		s.failures[i].Repeats++
 		return
 	}
 	s.byProp[property] = len(s.failures)
-	s.failures = append(s.failures, Failure{Property: property, Detail: detail, Step: s.sched.steps(), TimeMs: s.sched.now() / int64(runtime.Millisecond)})
+	s.failures = append(s.failures, Failure{Property: property, Detail: detail, Step: s.steps(), TimeMs: s.now() / int64(runtime.Millisecond)})
 }
 
 // violation records a broken property. The run goes on.
@@ -205,11 +226,11 @@ func (s *sim) noteBoot(n *simNode) {
 // checks the properties that can be checked on one node.
 func (s *sim) observe(n *simNode, body runtime.EventData, acts []runtime.Action) {
 	h := &s.hash
-	h.Uint64(uint64(s.sched.now()))
+	h.Uint64(uint64(s.now()))
 	h.Uint64(uint64(n.idx))
 	h.Uint64(n.m.StateHash())
 	h.Uint64(uint64(len(acts)))
-	s.ring[s.rpos%traceRing] = traceLine{step: s.sched.steps(), at: s.sched.now(), node: n.idx, body: body, acts: len(acts)}
+	s.ring[s.rpos%traceRing] = traceLine{step: s.steps(), at: s.now(), node: n.idx, body: body, acts: len(acts)}
 	s.rpos++
 	if s.cfg.Trace != nil {
 		s.cfg.Trace(s.ring[(s.rpos-1)%traceRing].String())

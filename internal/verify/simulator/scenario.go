@@ -128,9 +128,9 @@ func (s *sim) every(mean runtime.Duration, label string, fn func()) {
 			return
 		}
 		fn()
-		s.sched.after(s.gap(mean), label, tick)
+		s.after(s.gap(mean), label, tick)
 	}
-	s.sched.after(s.gap(mean), label, tick)
+	s.after(s.gap(mean), label, tick)
 }
 
 // victim picks the node for a fault: the writer if the scenario aims at it and
@@ -162,7 +162,7 @@ func (s *sim) pauseOne() {
 	}
 	n.pause()
 	s.tracef("%s paused", n.name())
-	s.sched.after(runtime.Duration(s.rand.Between(int64(100*runtime.Millisecond), int64(2*second))), "resume", n.resume)
+	s.after(runtime.Duration(s.rand.Between(int64(100*runtime.Millisecond), int64(2*second))), "resume", n.resume)
 }
 
 func (s *sim) partitionOne() {
@@ -173,5 +173,5 @@ func (s *sim) partitionOne() {
 	n.cut = true
 	s.stats.Partitions++
 	s.tracef("%s is cut off from storage", n.name())
-	s.sched.after(runtime.Duration(s.rand.Between(int64(2*second), int64(5*second))), "heal", func() { n.cut = false })
+	s.after(runtime.Duration(s.rand.Between(int64(2*second), int64(5*second))), "heal", func() { n.cut = false })
 }

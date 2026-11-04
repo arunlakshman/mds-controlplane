@@ -3,6 +3,7 @@ package simulator
 import (
 	"fmt"
 
+	"github.com/arunlakshman/dst/rng"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -22,7 +23,7 @@ func groupName(i int) string { return fmt.Sprintf("g%d", i) }
 // generation and leader that clients have seen, so that most group operations
 // are valid. A wrong guess is fine: the spec says what the right answer is.
 type workload struct {
-	rand    *Rand
+	rand    *rng.Rand
 	nextSeg int
 	nextMem int
 	nextOff int64

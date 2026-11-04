@@ -61,7 +61,7 @@ func (p *clientPool) add(name string) *client {
 func (p *clientPool) start() {
 	for _, c := range p.all {
 		d := runtime.Duration(p.s.rand.Between(int64(20*runtime.Millisecond), int64(200*runtime.Millisecond)))
-		p.s.sched.after(d, "client-start", c.issue)
+		p.s.after(d, "client-start", c.issue)
 	}
 }
 
@@ -111,7 +111,7 @@ func (p *clientPool) reply(n *simNode, a runtime.ControlPlaneReply) {
 		return
 	}
 	prefix := n.replica().Applied()
-	p.s.sched.after(p.s.store.netDelay(), "client-reply", func() { c.receive(a.Done, prefix) })
+	p.s.after(p.s.store.netDelay(), "client-reply", func() { c.receive(a.Done, prefix) })
 }
 
 // issue starts the next random operation, unless the quiet tail has started.
@@ -121,11 +121,11 @@ func (c *client) issue() {
 		c.idle = true
 		return
 	}
-	nowMs := int64(s.sched.Mono()) / int64(runtime.Millisecond)
+	nowMs := int64(s.mono()) / int64(runtime.Millisecond)
 	op, write := c.pool.w.next(nowMs)
 	c.begin(&opState{op: op, write: write, node: -1, then: func() {
 		think := runtime.Duration(s.rand.Between(int64(10*runtime.Millisecond), int64(120*runtime.Millisecond)))
-		s.sched.after(think, "client-think", c.issue)
+		s.after(think, "client-think", c.issue)
 	}})
 }
 
@@ -149,8 +149,8 @@ func (c *client) attempt() {
 	op.snap = p.s.oracle.snapshotFor(op.op)
 	node := p.s.nodes[op.node]
 	deliver := runtime.ControlPlaneDeliver{From: c.from, Req: req, Op: op.op}
-	p.s.sched.after(p.s.store.netDelay(), "client-request", func() { node.deliverNow(deliver) })
-	p.s.sched.after(clientTimeout, "client-timeout", func() {
+	p.s.after(p.s.store.netDelay(), "client-request", func() { node.deliverNow(deliver) })
+	p.s.after(clientTimeout, "client-timeout", func() {
 		if c.cur == op && op.req == req {
 			c.answered(runtime.ControlPlaneDone{Req: req, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}, 0)
 		}
@@ -194,7 +194,7 @@ func (c *client) answered(d runtime.ControlPlaneDone, prefix runtime.LogPosition
 	}
 	s.stats.Retries++
 	backoff := runtime.Duration(op.attempts) * 60 * runtime.Millisecond
-	s.sched.after(backoff, "client-retry", func() {
+	s.after(backoff, "client-retry", func() {
 		if c.cur == op {
 			c.attempt()
 		}

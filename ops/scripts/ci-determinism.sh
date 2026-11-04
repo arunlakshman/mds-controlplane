@@ -6,7 +6,7 @@
 #   the property-based tests (pgregory.net/rapid) are not either.
 # The simulator engine (internal/verify/simulator) is checked too, with one more
 # allowed import: context, because the in-memory log API takes a context. Its
-# campaign runner (simulator/campaign) uses goroutines and wall time on purpose,
+# campaign runner (cmd/cpsim) uses goroutines and wall time on purpose,
 # to run many seeds at once, so it is not in the gate.
 # Other control-plane packages (kv, topics, groups, metadata, membership) use sync,
 # time or other banned things and are not in this gate yet.

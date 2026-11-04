@@ -109,7 +109,7 @@ twice prints the same hash for each scenario; this also holds across processes,
 which have different map iteration orders. The engine is in the determinism
 gate (`ops/scripts/ci-determinism.sh`): no goroutines, no map ranges, no
 imports outside the allow-list (plus `context`). The campaign runner
-(`internal/verify/simulator/campaign`) uses goroutines to run seeds in parallel
+(`cmd/cpsim`, on `dst/campaign`) uses goroutines to run seeds in parallel
 and the wall clock only to print the duration; it is not in the gate.
 
 ## Read a failure

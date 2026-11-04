@@ -104,13 +104,13 @@ func (o *oracle) record(op *opState, d runtime.ControlPlaneDone, prefix runtime.
 	}
 	if op.write {
 		s.stats.Acked++
-		o.acks = append(o.acks, ackRec{op: op.op, done: d, at: int64(s.sched.Mono())})
+		o.acks = append(o.acks, ackRec{op: op.op, done: d, at: int64(s.mono())})
 		o.raiseFloors(op.op, d)
 		s.clients.w.acked(op.op)
 		return
 	}
 	s.stats.ReadsOK++
-	o.reads = append(o.reads, readRec{op: op.op, done: d, prefix: prefix, at: int64(s.sched.Mono()), final: op.final})
+	o.reads = append(o.reads, readRec{op: op.op, done: d, prefix: prefix, at: int64(s.mono()), final: op.final})
 	o.checkRead(op, d)
 	o.observeRead(op.op, d)
 }

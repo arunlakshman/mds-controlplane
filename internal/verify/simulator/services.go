@@ -112,9 +112,9 @@ func (st *storage) decide(call runtime.IOCall) callMode {
 // that sent it; a dead incarnation drops it.
 func (st *storage) dispatch(n *simNode, call runtime.IOCall) {
 	inc := n.inst.Inc
-	st.s.sched.after(st.netDelay(), "io-exec", func() {
+	st.s.after(st.netDelay(), "io-exec", func() {
 		res, back := st.execute(n, call)
-		st.s.sched.after(back, "io-done", func() { n.deliver(inc, res) })
+		st.s.after(back, "io-done", func() { n.deliver(inc, res) })
 	})
 }
 

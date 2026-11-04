@@ -3,6 +3,7 @@ package simulator
 import (
 	"github.com/arunlakshman/dst/assert"
 	"github.com/arunlakshman/dst/fault"
+	"github.com/arunlakshman/dst/rng"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -10,15 +11,15 @@ import (
 // points, and the assertions. Assertions never panic: a false Always is
 // recorded as a failure and the run goes on.
 type env struct {
-	rand *Rand
+	rand *rng.Rand
 	inj  *fault.Injector
 	log  *assert.Log
 }
 
-func newEnv(rand *Rand, fail func(property, detail string)) *env {
+func newEnv(rand *rng.Rand, fail func(property, detail string)) *env {
 	return &env{
 		rand: rand,
-		inj:  fault.New(rand.Rand),
+		inj:  fault.New(rand),
 		log:  assert.New(fail),
 	}
 }
@@ -34,7 +35,11 @@ func (e *env) Uint64() uint64 { return e.rand.Uint64() }
 func (e *env) Intn(n int) int { return e.rand.Intn(n) }
 
 // NewID implements runtime.Rand.
-func (e *env) NewID() runtime.ID { return e.rand.NewID() }
+func (e *env) NewID() runtime.ID {
+	var id runtime.ID
+	e.rand.Bytes(id[:])
+	return id
+}
 
 // Maybe implements runtime.FaultInjector.
 func (e *env) Maybe(site runtime.FaultPointID) bool {

@@ -68,7 +68,7 @@ func (n *simNode) crash(why string) {
 
 // restartAfter boots the node again after d, unless it is already up.
 func (n *simNode) restartAfter(d runtime.Duration) {
-	n.s.sched.after(d, "restart", func() {
+	n.s.after(d, "restart", func() {
 		if !n.up {
 			n.boot()
 		}
@@ -91,7 +91,7 @@ func (n *simNode) resume() {
 	held := n.held
 	n.held = nil
 	for _, fn := range held {
-		n.s.sched.after(0, "resume", func() { n.run(fn) })
+		n.s.after(0, "resume", func() { n.run(fn) })
 	}
 }
 
@@ -125,7 +125,7 @@ func (n *simNode) deliverNow(body runtime.EventData) {
 }
 
 func (n *simNode) step(body runtime.EventData) {
-	ev := runtime.Event{At: n.s.sched.Mono(), Wall: n.s.sched.Wall(), Body: body}
+	ev := runtime.Event{At: n.s.mono(), Wall: n.s.wall(), Body: body}
 	acts := n.m.Step(ev)
 	n.s.observe(n, body, acts)
 	n.exec(acts)
@@ -163,7 +163,7 @@ func (n *simNode) setTimer(a runtime.SetTimer) {
 	n.tokens++
 	token, inc := n.tokens, n.inst.Inc
 	n.timers[a.ID] = token
-	n.s.sched.after(a.After, "timer", func() {
+	n.s.after(a.After, "timer", func() {
 		if n.up && n.inst.Inc == inc && n.timers[a.ID] == token {
 			n.deliver(inc, runtime.TimerFired{ID: a.ID, Gen: a.Gen})
 		}

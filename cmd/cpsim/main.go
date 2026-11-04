@@ -7,12 +7,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	dstcampaign "github.com/arunlakshman/dst/campaign"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/manifesterio/mds-controlplane/internal/verify/simulator"
-	"github.com/manifesterio/mds-controlplane/internal/verify/simulator/campaign"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -62,23 +62,23 @@ func runOne(base simulator.Config, scenario string, seed uint64, stdout, stderr 
 
 func runCampaign(base simulator.Config, names []string, first uint64, seeds int, stdout, stderr io.Writer) int {
 	code := 0
-	var sum campaign.Summary
+	var total dstcampaign.Summary
 	for _, name := range names {
 		c := base
 		c.Scenario = name
-		out, err := campaign.RunCampaign(c, first, seeds)
+		out, err := runSeeds(c, first, seeds)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "cpsim:", err)
 			return 2
 		}
-		_, _ = fmt.Fprintln(stdout, out.Line())
-		for _, f := range out.Failed {
+		_, _ = fmt.Fprintln(stdout, out.line())
+		for _, f := range out.failed {
 			_, _ = fmt.Fprintln(stdout, simulator.Report(f))
 			code = 1
 		}
-		sum.Add(out)
+		total.Merge(out.sum)
 	}
-	_, _ = fmt.Fprintln(stdout, sum.Coverage())
+	_, _ = fmt.Fprintln(stdout, coverageText(total))
 	if code != 0 {
 		_, _ = fmt.Fprintln(stdout, "cpsim: FAILED")
 	}
