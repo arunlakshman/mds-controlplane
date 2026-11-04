@@ -1,19 +1,19 @@
-package wireboundary
+package controlplanetest
 
 import (
+	"slices"
+
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Conversions shared by every context: error codes and outcomes, and the
-// types that more than one context uses (topic partitions, segment references,
-// batches and ranges).
-
-// ---- Error and outcome codes ----
+// The test client turns contract operations into generated api/v1 requests and
+// the answers back into contract values. It is test support only: the server has
+// its own conversions, in the other direction (server/topics.go and friends).
 
 // errCodePairs is the one list that ties each runtime error code to its wire code.
-// Both directions read it. To add a code, add one line here, plus the new
+// The test client reads the wire to core direction. To add a code, add one line here, plus the new
 // constant in runtime and the new value in the proto enum. TestErrCodeTableIsComplete
 // fails if a code is missing.
 var errCodePairs = [...]struct {
@@ -37,56 +37,6 @@ var errCodePairs = [...]struct {
 	{runtime.ErrInconsistentGroupProtocol, cpv1.ErrCode_ERR_CODE_INCONSISTENT_GROUP_PROTOCOL},
 	{runtime.ErrTopicExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
 }
-
-// ToCoreErr maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
-func ToCoreErr(c cpv1.ErrCode) runtime.ErrCode {
-	for _, pair := range errCodePairs {
-		if pair.wire == c {
-			return pair.core
-		}
-	}
-	return runtime.ErrIO
-}
-
-// FromCoreErr maps runtime.ErrCode to the wire enum. Unknown values become ERR_CODE_IO.
-func FromCoreErr(c runtime.ErrCode) cpv1.ErrCode {
-	for _, pair := range errCodePairs {
-		if pair.core == c {
-			return pair.wire
-		}
-	}
-	return cpv1.ErrCode_ERR_CODE_IO
-}
-
-// ToCoreOutcome maps a wire Outcome to runtime.Outcome. Unknown values become NotApplied.
-func ToCoreOutcome(o cpv1.Outcome) runtime.Outcome {
-	switch o {
-	case cpv1.Outcome_OUTCOME_MAYBE_APPLIED:
-		return runtime.MaybeApplied
-	case cpv1.Outcome_OUTCOME_APPLIED:
-		return runtime.Applied
-	default:
-		return runtime.NotApplied
-	}
-}
-
-// FromCoreOutcome maps runtime.Outcome to the wire enum.
-func FromCoreOutcome(o runtime.Outcome) cpv1.Outcome {
-	switch o {
-	case runtime.MaybeApplied:
-		return cpv1.Outcome_OUTCOME_MAYBE_APPLIED
-	case runtime.Applied:
-		return cpv1.Outcome_OUTCOME_APPLIED
-	default:
-		return cpv1.Outcome_OUTCOME_NOT_APPLIED
-	}
-}
-
-// ---- Shared pieces ----
-
-// Rule for every "ToCore" function in this package: read the wire message with
-// its Get methods. They accept a nil message and give the zero value, so a
-// missing part becomes a zero value and nothing panics.
 
 // mapSlice converts every element. An empty input gives nil, the same as a
 // loop that appends to a nil slice.
@@ -125,23 +75,6 @@ func pendingBatchFromCore(b contract.PendingBatch) *cpv1.PendingBatch {
 	}
 }
 
-func pendingBatchToCore(b *cpv1.PendingBatch) contract.PendingBatch {
-	return contract.PendingBatch{
-		TopicPartition: topicPartitionToCore(b.GetTp()),
-		Records:        b.GetRecords(),
-		Loc:            segmentRefToCore(b.GetLoc()),
-	}
-}
-
-func batchRangeFromCore(br contract.BatchRange) *cpv1.BatchRange {
-	return &cpv1.BatchRange{
-		Tp:    topicPartitionFromCore(br.TopicPartition),
-		Base:  int64(br.Base),
-		Count: br.Count,
-		Loc:   segmentRefFromCore(br.Loc),
-	}
-}
-
 func batchRangeToCore(br *cpv1.BatchRange) contract.BatchRange {
 	return contract.BatchRange{
 		TopicPartition: topicPartitionToCore(br.GetTp()),
@@ -149,4 +82,55 @@ func batchRangeToCore(br *cpv1.BatchRange) contract.BatchRange {
 		Count:          br.GetCount(),
 		Loc:            segmentRefToCore(br.GetLoc()),
 	}
+}
+
+func topicInfoToCore(t *cpv1.TopicInfo) contract.TopicInfo {
+	return contract.TopicInfo{Name: t.GetName(), Partitions: t.GetPartitions()}
+}
+
+// commitSegmentRequest builds a CommitSegmentRequest from a contract op.
+func commitSegmentRequest(operation contract.CommitSegment) *cpv1.CommitSegmentRequest {
+	return &cpv1.CommitSegmentRequest{
+		SegmentKey: operation.SegmentKey,
+		Batches:    mapSlice(operation.Batches, pendingBatchFromCore),
+	}
+}
+
+// lookupRequest builds a LookupRequest from a contract op.
+func lookupRequest(operation contract.FindSegments) *cpv1.LookupRequest {
+	return &cpv1.LookupRequest{
+		Tp:       topicPartitionFromCore(operation.TopicPartition),
+		From:     int64(operation.From),
+		MaxBytes: operation.MaxBytes,
+	}
+}
+
+// describeTopicsRequest builds a DescribeTopicsRequest from a contract op.
+func describeTopicsRequest(operation contract.DescribeTopics) *cpv1.DescribeTopicsRequest {
+	return &cpv1.DescribeTopicsRequest{Topics: slices.Clone(operation.Topics)}
+}
+
+// commitSegmentAnswer rebuilds a contract.CommitSegmentResp from a response.
+func commitSegmentAnswer(r *cpv1.CommitSegmentResponse) contract.CommitSegmentResp {
+	return contract.CommitSegmentResp{Assigned: mapSlice(r.GetAssigned(), batchRangeToCore)}
+}
+
+// lookupAnswer rebuilds a contract.FindSegmentsResp from a response.
+func lookupAnswer(r *cpv1.LookupResponse) contract.FindSegmentsResp {
+	return contract.FindSegmentsResp{End: contract.Offset(r.GetEnd()), Ranges: mapSlice(r.GetRanges(), batchRangeToCore)}
+}
+
+// describeTopicsAnswer rebuilds a contract.DescribeTopicsResp from a response.
+func describeTopicsAnswer(r *cpv1.DescribeTopicsResponse) contract.DescribeTopicsResp {
+	return contract.DescribeTopicsResp{Topics: mapSlice(r.GetTopics(), topicInfoToCore)}
+}
+
+// toCoreErr maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
+func toCoreErr(c cpv1.ErrCode) runtime.ErrCode {
+	for _, pair := range errCodePairs {
+		if pair.wire == c {
+			return pair.core
+		}
+	}
+	return runtime.ErrIO
 }

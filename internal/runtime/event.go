@@ -66,8 +66,8 @@ type ObjectListDone struct {
 // ---- control plane completions ----
 
 // ControlPlaneDone reports that a control-plane call finished. Resp is the in-process
-// response (nil unless Err == OK). Generated API response messages map through
-// controlplane/wireboundary; typed *Response fields wait for the gRPC cutover so
+// response (nil unless Err == OK). The gRPC server turns it into the generated
+// API response messages (controlplane/server); typed *Response fields wait for the gRPC cutover so
 // runtime does not import grpc (decision 57).
 type ControlPlaneDone struct {
 	Req     RequestID

@@ -5,7 +5,7 @@ package server
 //
 // Where the pieces live:
 //   - wire messages: api/v1 (BrokerInfo, BrokerHeartbeat*)
-//   - conversions: wireboundary, section "Broker heartbeat"
+//   - conversions: the end of this file
 //   - membership: the lease rules (who is alive)
 //   - this file: the handler
 //   - broker side: system/production/lease.go sends the heartbeat and turns the
@@ -21,7 +21,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -29,7 +28,7 @@ import (
 // returns the live broker set (Q4). Only the active node keeps the set, so a
 // standby answers Unavailable and the broker client tries the next address.
 func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbeatRequest) (*cpv1.BrokerHeartbeatResponse, error) {
-	b := wireboundary.BrokerHeartbeatToCore(request)
+	b := brokerHeartbeatToCore(request)
 	if !membership.Valid(b) {
 		return nil, toRPCError(runtime.ErrInvalid, runtime.NotApplied)
 	}
@@ -55,5 +54,35 @@ func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbea
 	if !r.ok {
 		return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 	}
-	return wireboundary.BrokerHeartbeatRespFromCore(r.live), nil
+	return brokerHeartbeatRespFromCore(r.live), nil
+}
+
+// ---- Wire conversions ----
+//
+// The handlers above read generated api/v1 messages and build contract values
+// with these functions, and build the answers back. Each reads the message with
+// its Get methods, so a nil or missing part is a zero value and never a panic.
+
+// Conversions for broker membership: BrokerHeartbeat.
+
+// ---- Data calls ----
+
+// brokerHeartbeatToCore rebuilds the calling broker's address from a request.
+func brokerHeartbeatToCore(request *cpv1.BrokerHeartbeatRequest) contract.BrokerAddr {
+	return brokerInfoToCore(request.GetBroker())
+}
+
+// brokerHeartbeatRespFromCore builds a BrokerHeartbeatResponse from the live set.
+func brokerHeartbeatRespFromCore(live []contract.BrokerAddr) *cpv1.BrokerHeartbeatResponse {
+	return &cpv1.BrokerHeartbeatResponse{Brokers: mapSlice(live, brokerInfoFromCore)}
+}
+
+// ---- Consumer group calls ----
+
+func brokerInfoToCore(b *cpv1.BrokerInfo) contract.BrokerAddr {
+	return contract.BrokerAddr{NodeID: b.GetNodeId(), Host: b.GetHost(), Port: b.GetPort()}
+}
+
+func brokerInfoFromCore(b contract.BrokerAddr) *cpv1.BrokerInfo {
+	return &cpv1.BrokerInfo{NodeId: b.NodeID, Host: b.Host, Port: b.Port}
 }

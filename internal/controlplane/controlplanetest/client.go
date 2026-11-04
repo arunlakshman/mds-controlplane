@@ -15,7 +15,6 @@ import (
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -130,7 +129,7 @@ func convert(name string, err error) error {
 	}
 	for _, d := range st.Details() {
 		if ed, ok := d.(*cpv1.ErrorDetail); ok {
-			return &Error{Code: wireboundary.ToCoreErr(ed.Code)}
+			return &Error{Code: toCoreErr(ed.Code)}
 		}
 	}
 	switch st.Code() {
@@ -169,17 +168,17 @@ func rpc[Req, Resp any](ctx context.Context, c *Client, name string,
 func (c *Client) Call(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error) {
 	switch op := operation.(type) {
 	case contract.CommitSegment:
-		return rpc(ctx, c, "CommitSegment", cpv1.ControlPlaneClient.CommitSegment, wireboundary.CommitSegmentFromCore(op),
+		return rpc(ctx, c, "CommitSegment", cpv1.ControlPlaneClient.CommitSegment, commitSegmentRequest(op),
 			func(r *cpv1.CommitSegmentResponse) runtime.ControlPlaneResponse {
-				return wireboundary.CommitSegmentRespToCore(r)
+				return commitSegmentAnswer(r)
 			})
 	case contract.FindSegments:
-		return rpc(ctx, c, "Lookup", cpv1.ControlPlaneClient.Lookup, wireboundary.LookupFromCore(op),
-			func(r *cpv1.LookupResponse) runtime.ControlPlaneResponse { return wireboundary.LookupRespToCore(r) })
+		return rpc(ctx, c, "Lookup", cpv1.ControlPlaneClient.Lookup, lookupRequest(op),
+			func(r *cpv1.LookupResponse) runtime.ControlPlaneResponse { return lookupAnswer(r) })
 	case contract.DescribeTopics:
-		return rpc(ctx, c, "DescribeTopics", cpv1.ControlPlaneClient.DescribeTopics, wireboundary.DescribeTopicsFromCore(op),
+		return rpc(ctx, c, "DescribeTopics", cpv1.ControlPlaneClient.DescribeTopics, describeTopicsRequest(op),
 			func(r *cpv1.DescribeTopicsResponse) runtime.ControlPlaneResponse {
-				return wireboundary.DescribeTopicsRespToCore(r)
+				return describeTopicsAnswer(r)
 			})
 	case contract.CreateTopic:
 		return rpc(ctx, c, "CreateTopic", cpv1.ControlPlaneClient.CreateTopic,

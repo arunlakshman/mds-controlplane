@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane"
@@ -9,7 +10,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -20,7 +20,7 @@ import (
 //   - server/groups.go: this file. It holds the gRPC group handlers and the
 //     log and read side of the coordinator (nodeGroups, over Node.Exec in
 //     server/topics.go).
-//   - wireboundary/groups.go: maps group requests and responses to and from the
+//   - the end of this file: maps group requests and responses to and from the
 //     wire types.
 //   - groups/storage/module.go, write.go: the group module: the fold of
 //     GroupInstall, GroupAssign, GroupRemove and OffsetCommit, on the key-value store.
@@ -191,17 +191,17 @@ func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out
 
 var (
 	groupJoin = groupReplyCall[groups.JoinReq, groups.JoinResp, *cpv1.JoinGroupResponse]{
-		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, wireboundary.JoinGroupRespFromCore}
+		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, joinGroupRespFromCore}
 	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
-		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, wireboundary.SyncGroupRespFromCore}
+		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, syncGroupRespFromCore}
 	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
-		(*groups.Coordinator).OffsetCommit, groupOutcome, wireboundary.OffsetCommitRespFromCore}
+		(*groups.Coordinator).OffsetCommit, groupOutcome, offsetCommitRespFromCore}
 	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
-		(*groups.Coordinator).OffsetFetch, notApplied, wireboundary.OffsetFetchRespFromCore}
+		(*groups.Coordinator).OffsetFetch, notApplied, offsetFetchRespFromCore}
 	groupList = groupCodeCall[struct{}, []contract.GroupSummary, *cpv1.ListGroupsResponse]{
 		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]contract.GroupSummary, runtime.ErrCode) {
 			return c.ListGroups(ctx)
-		}, notApplied, wireboundary.ListGroupsRespFromCore}
+		}, notApplied, listGroupsRespFromCore}
 )
 
 // notApplied is the outcome of a failed read.
@@ -209,12 +209,12 @@ func notApplied(runtime.ErrCode) runtime.Outcome { return runtime.NotApplied }
 
 // JoinGroup implements ControlPlane.
 func (n *Node) JoinGroup(ctx context.Context, request *cpv1.JoinGroupRequest) (*cpv1.JoinGroupResponse, error) {
-	return groupJoin.run(ctx, n, wireboundary.JoinGroupToCore(request))
+	return groupJoin.run(ctx, n, joinGroupToCore(request))
 }
 
 // SyncGroup implements ControlPlane.
 func (n *Node) SyncGroup(ctx context.Context, request *cpv1.SyncGroupRequest) (*cpv1.SyncGroupResponse, error) {
-	return groupSync.run(ctx, n, wireboundary.SyncGroupToCore(request))
+	return groupSync.run(ctx, n, syncGroupToCore(request))
 }
 
 // GroupHeartbeat implements ControlPlane.
@@ -223,7 +223,7 @@ func (n *Node) GroupHeartbeat(ctx context.Context, request *cpv1.GroupHeartbeatR
 	if err != nil {
 		return nil, err
 	}
-	if code := c.Heartbeat(ctx, wireboundary.HeartbeatToCore(request)); code != runtime.OK {
+	if code := c.Heartbeat(ctx, heartbeatToCore(request)); code != runtime.OK {
 		return nil, toRPCError(code, groupOutcome(code))
 	}
 	return &cpv1.GroupHeartbeatResponse{}, nil
@@ -235,17 +235,17 @@ func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return wireboundary.LeaveGroupRespFromCore(c.LeaveGroup(ctx, wireboundary.LeaveGroupToCore(request))), nil
+	return leaveGroupRespFromCore(c.LeaveGroup(ctx, leaveGroupToCore(request))), nil
 }
 
 // GroupOffsetCommit implements ControlPlane. The answer has one code per partition.
 func (n *Node) GroupOffsetCommit(ctx context.Context, request *cpv1.GroupOffsetCommitRequest) (*cpv1.GroupOffsetCommitResponse, error) {
-	return groupOffsetCommit.run(ctx, n, wireboundary.OffsetCommitToCore(request))
+	return groupOffsetCommit.run(ctx, n, offsetCommitToCore(request))
 }
 
 // GroupOffsetFetch implements ControlPlane.
 func (n *Node) GroupOffsetFetch(ctx context.Context, request *cpv1.GroupOffsetFetchRequest) (*cpv1.GroupOffsetFetchResponse, error) {
-	return groupOffsetFetch.run(ctx, n, wireboundary.OffsetFetchToCore(request))
+	return groupOffsetFetch.run(ctx, n, offsetFetchToCore(request))
 }
 
 // DescribeGroups implements ControlPlane. Any group that fails fails the call.
@@ -255,17 +255,154 @@ func (n *Node) DescribeGroups(ctx context.Context, request *cpv1.DescribeGroupsR
 		return nil, err
 	}
 	var out []groups.GroupDescription
-	for _, name := range wireboundary.DescribeGroupsToCore(request) {
+	for _, name := range describeGroupsToCore(request) {
 		d, code := c.DescribeGroup(ctx, name)
 		if code != runtime.OK {
 			return nil, toRPCError(code, runtime.NotApplied)
 		}
 		out = append(out, groups.GroupDescription{Name: name, DescribeGroupResp: d})
 	}
-	return wireboundary.DescribeGroupsRespFromCore(out), nil
+	return describeGroupsRespFromCore(out), nil
 }
 
 // ListGroups implements ControlPlane.
 func (n *Node) ListGroups(ctx context.Context, _ *cpv1.ListGroupsRequest) (*cpv1.ListGroupsResponse, error) {
 	return groupList.run(ctx, n, struct{}{})
+}
+
+// ---- Wire conversions ----
+//
+// The handlers above read generated api/v1 messages and build contract values
+// with these functions, and build the answers back. Each reads the message with
+// its Get methods, so a nil or missing part is a zero value and never a panic.
+
+// Conversions for the consumer group context.
+
+// joinGroupToCore rebuilds a join call from a request.
+func joinGroupToCore(request *cpv1.JoinGroupRequest) groups.JoinReq {
+	return groups.JoinReq{
+		Group: request.GetGroup(), MemberID: request.GetMemberId(), GroupInstanceID: request.GetGroupInstanceId(),
+		ClientID: request.GetClientId(), ClientHost: request.GetClientHost(),
+		SessionTimeoutMs: request.GetSessionTimeoutMs(), RebalanceTimeoutMs: request.GetRebalanceTimeoutMs(),
+		ProtocolType: request.GetProtocolType(),
+		Protocols: mapSlice(request.GetProtocols(), func(p *cpv1.GroupProtocol) groups.Protocol {
+			return groups.Protocol{Name: p.GetName(), Metadata: p.GetMetadata()}
+		}),
+	}
+}
+
+// joinGroupRespFromCore builds a JoinGroupResponse. The caller checks Err first.
+func joinGroupRespFromCore(r groups.JoinResp) *cpv1.JoinGroupResponse {
+	return &cpv1.JoinGroupResponse{
+		MemberId: r.MemberID, Generation: r.Generation, Protocol: r.Protocol, Leader: r.Leader,
+		Members: mapSlice(r.Members, func(m groups.Member) *cpv1.GroupMember {
+			return &cpv1.GroupMember{MemberId: m.ID, GroupInstanceId: m.InstanceID, Metadata: m.Metadata}
+		}),
+	}
+}
+
+// syncGroupToCore rebuilds a sync call from a request.
+func syncGroupToCore(request *cpv1.SyncGroupRequest) groups.SyncReq {
+	return groups.SyncReq{
+		Group: request.GetGroup(), MemberID: request.GetMemberId(), Generation: request.GetGeneration(),
+		Assignments: mapSlice(request.GetAssignments(), func(a *cpv1.GroupAssignment) groups.Assignment {
+			return groups.Assignment{Member: a.GetMemberId(), Bytes: a.GetAssignment()}
+		}),
+	}
+}
+
+// syncGroupRespFromCore builds a SyncGroupResponse. The caller checks Err first.
+func syncGroupRespFromCore(r groups.SyncResp) *cpv1.SyncGroupResponse {
+	return &cpv1.SyncGroupResponse{Assignment: r.Assignment}
+}
+
+// heartbeatToCore rebuilds a heartbeat call from a request.
+func heartbeatToCore(request *cpv1.GroupHeartbeatRequest) groups.HeartbeatReq {
+	return groups.HeartbeatReq{Group: request.GetGroup(), MemberID: request.GetMemberId(), Generation: request.GetGeneration()}
+}
+
+// leaveGroupToCore rebuilds a leave call from a request.
+func leaveGroupToCore(request *cpv1.LeaveGroupRequest) groups.LeaveReq {
+	return groups.LeaveReq{Group: request.GetGroup(), Members: slices.Clone(request.GetMembers())}
+}
+
+// leaveGroupRespFromCore builds a LeaveGroupResponse from one code per member.
+func leaveGroupRespFromCore(errs []runtime.ErrCode) *cpv1.LeaveGroupResponse {
+	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, fromCoreErr)}
+}
+
+// offsetCommitToCore rebuilds a commit from a request. TimeMs is set by the coordinator.
+func offsetCommitToCore(request *cpv1.GroupOffsetCommitRequest) contract.OffsetCommit {
+	return contract.OffsetCommit{
+		Group: request.GetGroup(), Member: request.GetMemberId(), Generation: request.GetGeneration(),
+		Offsets: mapSlice(request.GetOffsets(), partitionOffsetCommitToCore),
+	}
+}
+
+// offsetCommitRespFromCore builds a GroupOffsetCommitResponse from one code per partition.
+func offsetCommitRespFromCore(r contract.OffsetCommitResp) *cpv1.GroupOffsetCommitResponse {
+	return &cpv1.GroupOffsetCommitResponse{Errs: mapSlice(r.Errs, fromCoreErr)}
+}
+
+// offsetFetchToCore rebuilds an offset fetch from a request.
+func offsetFetchToCore(request *cpv1.GroupOffsetFetchRequest) contract.OffsetFetch {
+	return contract.OffsetFetch{
+		Group:      request.GetGroup(),
+		Partitions: mapSlice(request.GetPartitions(), topicPartitionToCore),
+	}
+}
+
+// offsetFetchRespFromCore builds a GroupOffsetFetchResponse.
+func offsetFetchRespFromCore(r contract.OffsetFetchResp) *cpv1.GroupOffsetFetchResponse {
+	return &cpv1.GroupOffsetFetchResponse{Offsets: mapSlice(r.Offsets, partitionOffsetFromCore)}
+}
+
+func partitionOffsetCommitToCore(o *cpv1.PartitionOffsetCommit) contract.PartitionOffset {
+	return contract.PartitionOffset{
+		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
+	}
+}
+
+func partitionOffsetToCore(o *cpv1.PartitionOffset) contract.PartitionOffset {
+	return contract.PartitionOffset{
+		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
+	}
+}
+
+// describeGroupsToCore rebuilds the group names of a request.
+func describeGroupsToCore(request *cpv1.DescribeGroupsRequest) []string {
+	return slices.Clone(request.GetGroups())
+}
+
+// describeGroupsRespFromCore builds a DescribeGroupsResponse.
+func describeGroupsRespFromCore(groups []groups.GroupDescription) *cpv1.DescribeGroupsResponse {
+	return &cpv1.DescribeGroupsResponse{Groups: mapSlice(groups, groupDescriptionFromCore)}
+}
+
+func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription {
+	return &cpv1.GroupDescription{
+		Name: g.Name, Exists: g.Exists, Generation: g.Generation, ProtocolType: g.ProtocolType,
+		Protocol: g.Protocol, Leader: g.Leader, AssignedGeneration: g.AssignedGeneration, State: g.State,
+		Members: mapSlice(g.Members, func(m contract.GroupMemberInfo) *cpv1.GroupMemberInfo {
+			return &cpv1.GroupMemberInfo{
+				MemberId: m.MemberID, ClientId: m.ClientID, ClientHost: m.ClientHost,
+				GroupInstanceId: m.GroupInstanceID, SessionTimeoutMs: m.SessionTimeoutMs,
+				RebalanceTimeoutMs: m.RebalanceTimeoutMs, JoinedTimeMs: m.JoinedTimeMs,
+				Metadata: m.Metadata, Assignment: m.Assignment,
+			}
+		}),
+	}
+}
+
+// listGroupsRespFromCore builds a ListGroupsResponse.
+func listGroupsRespFromCore(groups []contract.GroupSummary) *cpv1.ListGroupsResponse {
+	return &cpv1.ListGroupsResponse{Groups: mapSlice(groups, func(g contract.GroupSummary) *cpv1.GroupSummary {
+		return &cpv1.GroupSummary{Name: g.Name, ProtocolType: g.ProtocolType, State: g.State}
+	})}
+}
+
+func partitionOffsetFromCore(o contract.PartitionOffset) *cpv1.PartitionOffset {
+	return &cpv1.PartitionOffset{
+		Tp: topicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
+	}
 }

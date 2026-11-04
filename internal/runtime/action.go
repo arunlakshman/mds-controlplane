@@ -47,8 +47,7 @@ type ObjectList struct {
 
 // ControlPlaneCall asks the executor to perform one control-plane RPC. The wire contract
 // is controlplane/api/v1 (decision 57). Op is the in-process vocabulary brokers
-// and simulator use today; controlplane/wireboundary maps Op to generated request
-// messages. Typed *Request fields stay off this struct until the gRPC cutover:
+// and simulator use today; a client turns Op into generated request messages. Typed *Request fields stay off this struct until the gRPC cutover:
 // importing the generated package would pull grpc into runtime's dep closure and
 // fail the determinism audit.
 type ControlPlaneCall struct {

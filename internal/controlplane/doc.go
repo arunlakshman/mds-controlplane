@@ -3,7 +3,7 @@
 // and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/v1) with their own client.
 //
 // The gRPC wire contract is controlplane/api/v1 (decision 57). Veritas remains
-// the independent oracle and shares schema types via wireboundary, not apply code
+// the independent oracle and shares schema types, not apply code
 // (decision 21).
 //
 // Broker membership (heartbeat and the live broker set) is one feature in
@@ -18,9 +18,9 @@
 // # Map of the packages
 //
 //   - api/v1: the gRPC wire contract, defined in controlplane.proto.
-//   - wireboundary: the only place that maps between contract types and the wire
-//     (api/v1) messages. It holds no logic.
-//   - server: the gRPC adapter for the control-plane machine. It has one file
+//   - server: the gRPC adapter for the control-plane machine. Each handler reads the
+//     generated api/v1 message and builds the contract value itself (the conversions
+//     sit at the end of its file). It has one file
 //     per context: topics.go, groups.go, brokers.go and status.go. node.go is
 //     only the node's life: start, stop, the run loop and the roles.
 //   - (outside this tree) internal/system/live: the production runner of a dst

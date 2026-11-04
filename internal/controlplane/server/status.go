@@ -8,7 +8,6 @@ import (
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -35,8 +34,8 @@ func toRPCError(code runtime.ErrCode, outcome runtime.Outcome) error {
 		return nil
 	}
 	detail := &cpv1.ErrorDetail{
-		Code:    wireboundary.FromCoreErr(code),
-		Outcome: wireboundary.FromCoreOutcome(outcome),
+		Code:    fromCoreErr(code),
+		Outcome: fromCoreOutcome(outcome),
 	}
 	s, err := status.New(st, code.String()).WithDetails(detail)
 	if err != nil {

@@ -166,12 +166,12 @@ func TestControlPlaneTestPackageUsedOnlyByTests(t *testing.T) {
 	}
 }
 
-// TestWireBoundaryPackagesDoNotImportWire: runtime and contract
+// TestEnginePackagesDoNotImportWire: runtime and contract
 // (and their sub-packages) must not import the wire packages. Test files count too.
-func TestWireBoundaryPackagesDoNotImportWire(t *testing.T) {
+func TestEnginePackagesDoNotImportWire(t *testing.T) {
 	r := loadRepo(t)
 	guarded := []string{"internal/runtime", "internal/controlplane/contract"}
-	wire := []string{"internal/controlplane/api/v1", "internal/controlplane/wireboundary"}
+	wire := []string{"internal/controlplane/api/v1"}
 	for _, f := range r.files {
 		if !underAny(f.dir, guarded) {
 			continue
@@ -254,7 +254,7 @@ var layerRules = []struct {
 // TestControlPlaneLayers: the domain packages depend inward only. Each one may
 // import the packages in layerRules and the standard library, nothing else. So
 // groups cannot import metadata, nothing in the domain can import an adapter
-// (server, wireboundary, api/v1), and the port executor
+// (server, api/v1), and the port executor
 // cannot import dynamolog or sqllog.
 func TestControlPlaneLayers(t *testing.T) {
 	r := loadRepo(t)

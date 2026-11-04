@@ -3,11 +3,11 @@ package server
 import (
 	"context"
 	"errors"
+	"slices"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -81,17 +81,17 @@ func moduleRPC[R, Out any](ctx context.Context, n *Node, operation runtime.Contr
 
 // CommitSegment implements ControlPlane.
 func (n *Node) CommitSegment(ctx context.Context, request *cpv1.CommitSegmentRequest) (*cpv1.CommitSegmentResponse, error) {
-	return moduleRPC(ctx, n, wireboundary.CommitSegmentToCore(request), wireboundary.CommitSegmentRespFromCore)
+	return moduleRPC(ctx, n, commitSegmentToCore(request), commitSegmentRespFromCore)
 }
 
 // Lookup implements ControlPlane.
 func (n *Node) Lookup(ctx context.Context, request *cpv1.LookupRequest) (*cpv1.LookupResponse, error) {
-	return moduleRPC(ctx, n, wireboundary.LookupToCore(request), wireboundary.LookupRespFromCore)
+	return moduleRPC(ctx, n, lookupToCore(request), lookupRespFromCore)
 }
 
 // DescribeTopics implements ControlPlane.
 func (n *Node) DescribeTopics(ctx context.Context, request *cpv1.DescribeTopicsRequest) (*cpv1.DescribeTopicsResponse, error) {
-	return moduleRPC(ctx, n, wireboundary.DescribeTopicsToCore(request), wireboundary.DescribeTopicsRespFromCore)
+	return moduleRPC(ctx, n, describeTopicsToCore(request), describeTopicsRespFromCore)
 }
 
 // CreateTopic implements ControlPlane.
@@ -102,3 +102,54 @@ func (n *Node) CreateTopic(ctx context.Context, request *cpv1.CreateTopicRequest
 	operation := contract.CreateTopic{Name: request.Topic, Partitions: request.Partitions, FailIfExists: request.FailIfExists}
 	return moduleRPC(ctx, n, operation, func(runtime.ControlPlaneResponse) *cpv1.CreateTopicResponse { return &cpv1.CreateTopicResponse{} })
 }
+
+// ---- Wire conversions ----
+//
+// The handlers above read generated api/v1 messages and build contract values
+// with these functions, and build the answers back. Each reads the message with
+// its Get methods, so a nil or missing part is a zero value and never a panic.
+
+// Conversions for the topics context: CommitSegment, Lookup and DescribeTopics.
+
+func topicInfoFromCore(t contract.TopicInfo) *cpv1.TopicInfo {
+	return &cpv1.TopicInfo{Name: t.Name, Partitions: t.Partitions}
+}
+
+// commitSegmentToCore rebuilds a contract.CommitSegment from a request.
+func commitSegmentToCore(request *cpv1.CommitSegmentRequest) contract.CommitSegment {
+	return contract.CommitSegment{
+		SegmentKey: request.GetSegmentKey(),
+		Batches:    mapSlice(request.GetBatches(), pendingBatchToCore),
+	}
+}
+
+// lookupToCore rebuilds a contract.FindSegments from a request.
+func lookupToCore(request *cpv1.LookupRequest) contract.FindSegments {
+	return contract.FindSegments{
+		TopicPartition: topicPartitionToCore(request.GetTp()),
+		From:           contract.Offset(request.GetFrom()),
+		MaxBytes:       request.GetMaxBytes(),
+	}
+}
+
+// describeTopicsToCore rebuilds a contract.DescribeTopics from a request.
+func describeTopicsToCore(request *cpv1.DescribeTopicsRequest) contract.DescribeTopics {
+	return contract.DescribeTopics{Topics: slices.Clone(request.GetTopics())}
+}
+
+// commitSegmentRespFromCore builds a CommitSegmentResponse from a contract response.
+func commitSegmentRespFromCore(r contract.CommitSegmentResp) *cpv1.CommitSegmentResponse {
+	return &cpv1.CommitSegmentResponse{Assigned: mapSlice(r.Assigned, batchRangeFromCore)}
+}
+
+// lookupRespFromCore builds a LookupResponse from a contract response.
+func lookupRespFromCore(r contract.FindSegmentsResp) *cpv1.LookupResponse {
+	return &cpv1.LookupResponse{End: int64(r.End), Ranges: mapSlice(r.Ranges, batchRangeFromCore)}
+}
+
+// describeTopicsRespFromCore builds a DescribeTopicsResponse from a contract response.
+func describeTopicsRespFromCore(r contract.DescribeTopicsResp) *cpv1.DescribeTopicsResponse {
+	return &cpv1.DescribeTopicsResponse{Topics: mapSlice(r.Topics, topicInfoFromCore)}
+}
+
+// ---- Broker heartbeat ----
