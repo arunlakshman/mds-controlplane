@@ -2,19 +2,6 @@ package runtime
 
 import "testing"
 
-func TestClassOfCoversEveryEvent(t *testing.T) {
-	control := []EventData{
-		NodeStarted{}, StopRequest{}, TimerFired{},
-		ObjectPutDone{}, ObjectGetDone{}, ObjectDeleteDone{}, ObjectListDone{}, ControlPlaneDone{},
-		LogAppendDone{}, LogReadDone{}, LogGetEndDone{}, LogDeleteOldDone{},
-	}
-	for _, b := range control {
-		if InboxKindOf(b) != Control {
-			t.Errorf("%T: want Control", b)
-		}
-	}
-}
-
 func TestErrCodeString(t *testing.T) {
 	want := map[ErrCode]string{
 		OK: "OK", ErrTimeout: "ErrTimeout", ErrUnavailable: "ErrUnavailable",

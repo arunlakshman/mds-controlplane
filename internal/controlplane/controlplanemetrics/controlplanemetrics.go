@@ -122,14 +122,6 @@ func (m *Metrics) APIOptions() []func(*middleware.Stack) error {
 	return m.AWS.APIOptions()
 }
 
-// Logger is the logger of CP lines (slog.Default on a nil Metrics).
-func (m *Metrics) Logger() *slog.Logger {
-	if m == nil || m.log == nil {
-		return slog.Default()
-	}
-	return m.log
-}
-
 // Call is what one HTTP request to the control plane did inside the store. The
 // middleware creates it, the store fills it through the request context, and
 // the middleware logs it as the request's one line. All methods are safe on nil.

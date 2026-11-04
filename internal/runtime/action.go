@@ -16,18 +16,6 @@ type IOCall interface {
 	RequestID() RequestID
 }
 
-// ---- timers ----
-
-// SetTimer asks for TimerFired{ID, Gen} after the given duration of node-local time.
-type SetTimer struct {
-	ID    TimerID
-	Gen   TimerVersion
-	After Duration
-}
-
-// CancelTimer is an optimization only; correctness relies on Gen.
-type CancelTimer struct{ ID TimerID }
-
 // ---- object store ----
 
 // ObjectPut uploads Data under Key.
@@ -117,21 +105,6 @@ type LogDeleteOld struct {
 	Through LogPosition
 }
 
-// ---- lifecycle ----
-
-// StopForRestart asks the runtime to kill this incarnation: the machine's memory can no
-// longer be trusted. It is the last action of its Step; the runtime starts the
-// actions before it, then stops. Sim: same path as a crash, counted separately
-// as a trip. Prod: the loop returns ErrStoppedForRestart and the process exits for its
-// supervisor to restart.
-type StopForRestart struct{ Cause string }
-
-// ShutdownDone is the last action of a graceful shutdown (see StopRequest). Like StopForRestart it ends
-// the incarnation, but it is not a fault: the simulator counts it as a graceful stop.
-type ShutdownDone struct{}
-
-func (SetTimer) isAction()          {}
-func (CancelTimer) isAction()       {}
 func (ObjectPut) isAction()         {}
 func (ObjectGet) isAction()         {}
 func (ObjectDelete) isAction()      {}
@@ -143,8 +116,6 @@ func (LogRead) isAction()           {}
 func (LogGetEnd) isAction()         {}
 func (LogDeleteOld) isAction()      {}
 func (LogClaimEpoch) isAction()     {}
-func (StopForRestart) isAction()    {}
-func (ShutdownDone) isAction()      {}
 
 // RequestID returns the request this action carries.
 func (a ObjectPut) RequestID() RequestID { return a.Req }

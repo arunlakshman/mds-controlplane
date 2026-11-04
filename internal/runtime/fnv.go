@@ -66,9 +66,6 @@ func (h *Hasher) Byte(b byte) { *h = (*h ^ Hasher(b)) * fnvPrime }
 // Uint64Value folds v as 8 little-endian bytes.
 func (h *Hasher) Uint64Value(v uint64) { *h = Hasher(Fnv64Hash(uint64(*h), v)) }
 
-// Int64Value folds v as Uint64Value does.
-func (h *Hasher) Int64Value(v int64) { h.Uint64Value(uint64(v)) }
-
 // Bool folds 1 or 0 as Uint64Value does.
 func (h *Hasher) Bool(b bool) {
 	if b {

@@ -26,7 +26,7 @@ var (
 	ErrKilled = errors.New("killed")
 )
 
-// Clock is the time source. RealClock reads the real time; a test gives its own.
+// Clock is the time source. The production adapters give the real time; a test gives its own.
 type Clock interface {
 	// Mono is the time since the clock started.
 	Mono() sched.TimeNs
@@ -304,21 +304,3 @@ func (c stepContext) Wall() sched.TimeNs      { return c.clock.Wall() }
 func (c stepContext) Rand() *rng.Rand         { return c.rand }
 func (c stepContext) Faults() *fault.Injector { return c.faults }
 func (c stepContext) Assert() *assert.Log     { return c.asserts }
-
-// RealClock is the process clock: Mono counts from its creation with Go's
-// monotonic reading, Wall is the UTC Unix time.
-type RealClock struct{ start time.Time }
-
-// NewRealClock returns a clock anchored at the current time.
-func NewRealClock() RealClock { return RealClock{start: time.Now()} }
-
-// Mono implements Clock.
-func (c RealClock) Mono() sched.TimeNs { return sched.TimeNs(time.Since(c.start)) }
-
-// Wall implements Clock.
-func (RealClock) Wall() sched.TimeNs { return sched.TimeNs(time.Now().UnixNano()) }
-
-// AfterFunc implements Clock.
-func (RealClock) AfterFunc(d sched.TimeNs, f func()) Timer {
-	return time.AfterFunc(time.Duration(d), f)
-}

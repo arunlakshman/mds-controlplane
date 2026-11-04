@@ -26,27 +26,21 @@ func TestLogIOCallsAreIOCalls(t *testing.T) {
 		LogDeleteOldDone{Req: 5, Outcome: Applied},
 	}
 	for _, d := range dones {
-		if InboxKindOf(d) != Control {
-			t.Fatalf("%T: InboxKindOf = %v, want Control", d, InboxKindOf(d))
-		}
 		if d.RequestID() == 0 {
 			t.Fatalf("%T: RequestID zero", d)
 		}
 	}
 }
 
-func TestCPCallAndCPDoneClassOf(t *testing.T) {
+func TestCPCallAndCPDone(t *testing.T) {
 	call := ControlPlaneCall{Req: 9, Op: testOp{}}
 	if call.RequestID() != 9 {
 		t.Fatalf("RequestID = %d", call.RequestID())
 	}
 	done := ControlPlaneDone{Req: 9, Outcome: NotApplied, Err: ErrUnavailable}
-	if InboxKindOf(done) != Control || done.RequestID() != 9 {
-		t.Fatalf("CPDone class/req broken")
+	if done.RequestID() != 9 {
+		t.Fatalf("CPDone request id broken")
 	}
 	offer := ControlPlaneDeliver{From: NodeInstance{Node: "b-0"}, Req: 9, Op: call.Op}
-	if InboxKindOf(offer) != Control {
-		t.Fatalf("CPOffer class = %v", InboxKindOf(offer))
-	}
 	_ = ControlPlaneReply{To: offer.From, Done: done}
 }

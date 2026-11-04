@@ -32,7 +32,7 @@ type Config struct {
 	Clock   runtime.Clock
 	Log     executor.Log
 	Objects executor.ObjectStore
-	// StopGrace is how long the machine gets after Shutdown to ShutdownDone.
+	// StopGrace is how long the machine gets after Shutdown to exit.
 	StopGrace runtime.Duration
 	// BrokerLeaseTTL is how long a broker stays live after its last heartbeat
 	// (default 5s). Brokers send one every interval, so keep it 3x the interval.
@@ -121,7 +121,7 @@ func (c liveClock) AfterFunc(d sched.TimeNs, f func()) live.Timer {
 func (n *Node) Health() *health.Server { return n.health }
 
 // Start launches the run loop. Ready flips health to Serving.
-// ctx bounds only the Ready wait; the loop runs until Close (or a StopForRestart/ShutdownDone).
+// ctx bounds only the Ready wait; the loop runs until Close (or the replica returns Crash or Exit).
 func (n *Node) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	n.cancel = cancel

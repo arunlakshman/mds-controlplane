@@ -1,7 +1,7 @@
 package runtime
 
-// Environment is injected into every StateMachine at construction. It is the only way
-// nondeterminism enters the runtime. Time is NOT here: it arrives on each Event.
+// Environment is injected into every replica at construction. It is the only way
+// nondeterminism enters the runtime. Time is NOT here: it arrives from the process context (sim.Context.Now).
 type Environment interface {
 	Rand
 	FaultInjector

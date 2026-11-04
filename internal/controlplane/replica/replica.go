@@ -113,7 +113,7 @@ type Factory func(env runtime.Environment, self runtime.NodeInstance) *Replica
 
 // New returns the Factory of the control-plane machine. A factory
 // cannot return an error, so a store that cannot open (Config.OpenStore) is
-// remembered and the machine stops with StopForRestart on NodeStarted: the
+// remembered and the machine stops with Crash on NodeStarted: the
 // process cannot serve without its state.
 func New(config Config) Factory {
 	return func(env runtime.Environment, self runtime.NodeInstance) *Replica {

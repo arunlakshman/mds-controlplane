@@ -49,9 +49,6 @@ func allScenarios() []Scenario {
 	}
 }
 
-// Scenarios returns the scenarios in the order they run by default.
-func Scenarios() []Scenario { return allScenarios() }
-
 // ScenarioNames returns the names, in order.
 func ScenarioNames() []string {
 	all := allScenarios()

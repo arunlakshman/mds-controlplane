@@ -154,9 +154,3 @@ func ServeMetrics(ctx context.Context, log *slog.Logger, service, addr string, h
 	log.Info(service+" metrics", "addr", ln.Addr().String())
 	return nil
 }
-
-// LogAndExit logs err and exits 1.
-func LogAndExit(log *slog.Logger, err error) {
-	log.Error("fatal", "err", err.Error())
-	os.Exit(1)
-}

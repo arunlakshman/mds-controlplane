@@ -1,13 +1,5 @@
 package runtime
 
-// Event is the input to Step. The runtime (prod) or simulator stamps At and
-// Wall when the event is dequeued, so At never decreases in Step order.
-type Event struct {
-	At   NodeTime // node-local monotonic now
-	Wall RealTime // UTC now
-	Body EventData
-}
-
 // EventData is a closed set of plain-data structs.
 type EventData interface{ isEvent() }
 
@@ -27,7 +19,7 @@ type IOResult interface {
 type NodeStarted struct{ Self NodeInstance }
 
 // StopRequest asks the node to shut down gracefully by Deadline (node-local time):
-// stop admitting, finish or hand off in-flight work, then emit ShutdownDone. If the
+// stop admitting, finish or hand off in-flight work, then return sim.Exit. If the
 // deadline passes first the runtime kills the node. InboxKind: Control.
 type StopRequest struct{ Deadline NodeTime }
 

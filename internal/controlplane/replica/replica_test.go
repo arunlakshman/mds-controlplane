@@ -61,17 +61,14 @@ type timerView struct {
 	After runtime.Duration
 }
 
-// asTimer reads a timer request. The replica is moving from runtime.SetTimer
-// to dst's sim.SetTimer one concern at a time, so both are read for now.
+// asTimer reads a timer request.
 func asTimer(a any) (timerView, bool) {
-	switch st := a.(type) {
-	case sim.SetTimer:
-		fired, _ := st.Body.(runtime.TimerFired)
-		return timerView{ID: fired.ID, Gen: fired.Gen, After: runtime.Duration(st.After)}, true
-	case runtime.SetTimer:
-		return timerView{ID: st.ID, Gen: st.Gen, After: st.After}, true
+	st, ok := a.(sim.SetTimer)
+	if !ok {
+		return timerView{}, false
 	}
-	return timerView{}, false
+	fired, _ := st.Body.(runtime.TimerFired)
+	return timerView{ID: fired.ID, Gen: fired.Gen, After: runtime.Duration(st.After)}, true
 }
 
 func mustTimer(t *testing.T, a any) timerView {

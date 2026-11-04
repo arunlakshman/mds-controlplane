@@ -30,38 +30,3 @@ type ErrorClassifier interface {
 	// code. The Outcome depends on which operation failed, not only on err.
 	Classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome)
 }
-
-// InboxWriter is the node's pair of inboxes (docs/flow-control.md sec. 3). Callers route
-// with runtime.InboxKindOf. The loop picks with runtime.InboxPicker and stamps At/Wall
-// when it dequeues.
-type InboxWriter interface {
-	// DeliverControl is used by timer callbacks and I/O completion goroutines.
-	// It never blocks: the control queue is bounded by construction.
-	DeliverControl(body runtime.EventData)
-	// DeliverData is used by senders from outside the node. It blocks when the
-	// data queue is full.
-	DeliverData(body runtime.EventData)
-	// Closed is closed when the incarnation ends. Later deliveries are dropped,
-	// never block, and never reach the next incarnation.
-	Closed() <-chan struct{}
-}
-
-// Executor runs I/O only. The loop handles timers, StopForRestart, ShutdownDone and
-// returns an error on an unknown action. Exactly one IOResult per IOCall, with the
-// same RequestID, delivered to the InboxWriter and never on the caller's goroutine.
-// Execute MUST NOT block: it hands work to goroutines/queues.
-type Executor interface {
-	Execute(a runtime.IOCall)
-}
-
-// Dependencies is everything nondeterministic a production broker process needs.
-type Dependencies struct {
-	Clock        runtime.Clock
-	Objects      ObjectStore
-	ControlPlane ControlPlane
-	Classifier   ErrorClassifier
-	Env          runtime.Environment // crypto-seeded Rand, inert FaultInjector, logging Assertions
-	Inbox        *Inbox              // shared with the Executor and readers; Run closes it on return
-	Shutdown     <-chan struct{}     // optional: closing it asks Run for a graceful stop (see StopOnSignal)
-	StopGrace    runtime.Duration    // time the machine gets after Shutdown to emit ShutdownDone
-}
