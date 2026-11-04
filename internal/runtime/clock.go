@@ -7,7 +7,7 @@ package runtime
 //
 // There are two implementations: system/realclock for production and
 // system/fakeclock for tests. Both are thin type adapters over dst/realclock and
-// dst/clock.Sync; fakeclock time moves only when the test says so. The
+// dst/syncclock; fakeclock time moves only when the test says so. The
 // simulator uses dst/clock on its own scheduler, not these. Code must not call
 // time.Now, time.AfterFunc and the like itself; architecture_test.go checks
 // this for the control-plane packages.
