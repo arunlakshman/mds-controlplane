@@ -1,6 +1,24 @@
 # One machine contract: dst sim.Process
 
-Status: PROPOSAL (step 1). Nothing in the code has changed yet.
+Status (updated after the build): the table below is what was built, with these
+differences from the first proposal.
+
+- `Gen` stayed in `TimerFired`: the replica hash folds the generations, so removing
+  them would have moved every golden hash. dst replaces a timer with the same ID,
+  and the replica still ignores a stale generation.
+- `Event` is gone. `Replica` is a `sim.Process`; `Step(cx, inbox)` reads the time
+  from `cx.Now()`.
+- Pause and resume stayed in the simulator (one user).
+- `live` is in `internal/system/live`, not in dst.
+- A request from gRPC is an inbox value: `ControlPlaneDeliver` for a command, and
+  the new `LocalRead` for a read that answers at once from local state (it does not
+  wait for a fresh tail, so production reads keep today's behaviour). The answer is
+  an outbound `ControlPlaneReply`. `Offer` and `TakeAnswers` are no longer on the
+  server path. Brokers, group role and status still use the inject path.
+- `wireboundary` is gone: the handlers convert the generated messages themselves.
+  Making the domain use the proto types directly is a later phase.
+
+Original proposal follows.
 
 Goal: the replica becomes a `dst/sim.Process`. It does no real IO. It gets one
 inbox value per `Step` and returns outbound values. A runner does the work: in
