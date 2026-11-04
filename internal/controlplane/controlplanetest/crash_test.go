@@ -260,8 +260,8 @@ func (s *nodeSystem) Inject(kind int) {
 // checkpoints in the middle (they are background operations: no-ops in the model).
 func TestConformReplica(t *testing.T) {
 	setRapid(t, 30, 20)
-	seen := check(t, options{groups: true, restart: true}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, false) })
-	requireReached(t, seen, append(topicRules, "action reboot", "action checkpoint", "sweep.find/OK", "sweep.replay/OK")...)
+	checkReaching(t, options{groups: true, restart: true}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, false) },
+		append(slices.Clone(topicRules), "action reboot", "action checkpoint", "sweep.find/OK", "sweep.replay/OK")...)
 }
 
 // TestCrashReplica is the crash test (paper, section 5). DirtyReboot kills the
@@ -278,8 +278,8 @@ func TestCrashReplica(t *testing.T) {
 	setRapid(t, 30, 20)
 	for _, trim := range []bool{false, true} {
 		t.Run("trim="+strconv.FormatBool(trim), func(t *testing.T) {
-			seen := check(t, options{groups: true, restart: true, dirty: true, trim: trim}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, trim) })
-			requireReached(t, seen, "action dirtyReboot", "action reboot", "sweep.replay/OK", "sweep.describeGroup/OK")
+			checkReaching(t, options{groups: true, restart: true, dirty: true, trim: trim}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, trim) },
+				"action dirtyReboot", "action reboot", "sweep.replay/OK", "sweep.describeGroup/OK")
 		})
 	}
 }
@@ -294,8 +294,8 @@ func TestFailureInjectionReplica(t *testing.T) {
 	setRapid(t, 30, 20)
 	for _, trim := range []bool{false, true} {
 		t.Run("trim="+strconv.FormatBool(trim), func(t *testing.T) {
-			seen := check(t, options{retry: true, restart: true, dirty: true, faults: true, trim: trim}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, trim) })
-			requireReached(t, seen, "action injectFailure", "action dirtyReboot", "commit/OK")
+			checkReaching(t, options{retry: true, restart: true, dirty: true, faults: true, trim: trim}, func(rt *rapid.T) runtime.OperationRunner { return newNodeSystem(rt, trim) },
+				"action injectFailure", "action dirtyReboot", "commit/OK")
 		})
 	}
 }

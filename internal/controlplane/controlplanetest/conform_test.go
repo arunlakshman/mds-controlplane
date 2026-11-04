@@ -206,9 +206,8 @@ func setRapid(t *testing.T, checks, steps int) {
 // ---- the systems ----
 
 func TestConformMemorystore(t *testing.T) {
-	seen := check(t, options{groups: true}, func(*rapid.T) runtime.OperationRunner { return memorystore.New() })
-	requireReached(t, seen, append(topicRules, groupRules...)...)
-	requireReached(t, seen, "createTopic/ErrTopicExists", "find.edge/OK")
+	keys := append(append(slices.Clone(topicRules), groupRules...), "createTopic/ErrTopicExists", "find.edge/OK")
+	checkReaching(t, options{groups: true}, func(*rapid.T) runtime.OperationRunner { return memorystore.New() }, keys...)
 }
 
 // TestConformModelTwice is the determinism check of the model: two models that
@@ -263,6 +262,36 @@ func (g grpcRunner) Exec(ctx context.Context, op runtime.ControlPlaneOperation) 
 		return runtime.ControlPlaneDone{Err: be.Code}, nil
 	}
 	return runtime.ControlPlaneDone{Resp: r}, err
+}
+
+// maxExtraRounds bounds how many more rounds of checks checkReaching runs when
+// an answer that the alphabet aims at was not reached yet.
+const maxExtraRounds = 20
+
+// checkReaching runs check, and runs more rounds of the same property checks
+// until every key was reached (at most maxExtraRounds more). The draws are
+// random and a rare answer such as a replay can be missed in one round of 30
+// checks, which made this evidence fail about one run in five. Every round
+// still judges the full property, so no check gets weaker. If a key is still
+// missing after all rounds, requireReached fails the test: the alphabet does
+// not reach it.
+func checkReaching(t *testing.T, o options, newSystem func(*rapid.T) runtime.OperationRunner, keys ...string) {
+	t.Helper()
+	seen := check(t, o, newSystem)
+	for range maxExtraRounds {
+		if !missing(seen, keys) {
+			break
+		}
+		for k, v := range check(t, o, newSystem) {
+			seen[k] += v
+		}
+	}
+	requireReached(t, seen, keys...)
+}
+
+// missing reports that some key was not seen.
+func missing(seen map[string]int, keys []string) bool {
+	return slices.ContainsFunc(keys, func(k string) bool { return seen[k] == 0 })
 }
 
 // requireReached is the evidence for the choices in alphabet_test.go: every
