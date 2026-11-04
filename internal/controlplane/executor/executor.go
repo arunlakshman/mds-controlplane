@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -25,19 +24,25 @@ func (c Config) withDefaults() Config {
 }
 
 // Executor runs Log* and Obj* IOCalls on goroutines and delivers exactly
-// one IOResult per action to the InboxWriter.
+// one IOResult per action to the Sink.
 type Executor struct {
 	ctx    context.Context
 	config Config
 	log    Log
 	objs   ObjectStore
-	sink   runloop.InboxWriter
+	sink   Sink
 }
 
-var _ runloop.Executor = (*Executor)(nil)
+// Sink takes the results. The run loop's inbox is the sink.
+type Sink interface {
+	// Deliver queues one result for the process. It must not block.
+	Deliver(body any)
+	// Closed is closed when the process has ended; results are then dropped.
+	Closed() <-chan struct{}
+}
 
 // New builds an Executor. Cancelling ctx aborts calls in flight.
-func New(ctx context.Context, config Config, log Log, objs ObjectStore, sink runloop.InboxWriter) *Executor {
+func New(ctx context.Context, config Config, log Log, objs ObjectStore, sink Sink) *Executor {
 	if objs == nil {
 		objs = NewMemoryObjects()
 	}
@@ -50,7 +55,7 @@ func (e *Executor) deliver(c runtime.IOResult) {
 		return
 	default:
 	}
-	e.sink.DeliverControl(c)
+	e.sink.Deliver(c)
 }
 
 // Execute never blocks: it starts a goroutine per action.

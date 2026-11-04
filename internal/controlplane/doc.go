@@ -1,5 +1,5 @@
 // Package controlplane is the control-plane service tree (renamed from cp/).
-// Production mdscontrolplane serves gRPC via controlplane/server over controlplane/runloop
+// Production mdscontrolplane serves gRPC via controlplane/server over internal/system/live
 // and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/v1) with their own client.
 //
 // The gRPC wire contract is controlplane/api/v1 (decision 57). Veritas remains
@@ -23,8 +23,9 @@
 //   - server: the gRPC adapter for the control-plane machine. It has one file
 //     per context: topics.go, groups.go, brokers.go and status.go. node.go is
 //     only the node's life: start, stop, the run loop and the roles.
-//   - runloop: the production event loop. One goroutine owns Step, timers and
-//     inject work. It imports only runtime and the standard library.
+//   - (outside this tree) internal/system/live: the production runner of a dst
+//     process. One goroutine owns Step, timers and inject work. It imports only dst
+//     and the standard library.
 //   - replica: one node's copy of the replicated log: leader or standby,
 //     catch-up, checkpoint and restore. It implements runtime.Machine.
 //   - metadata: the kernel of the replicated state. It sends each operation to
@@ -64,9 +65,9 @@
 //
 // How they fit together, from the imports:
 //
-//   - server imports runloop, replica, executor and groups.
+//   - server imports live, replica, executor and groups.
 //   - replica imports metadata. metadata imports module, topics and groups/storage.
-//     topics and groups/storage import module and kv, and not each other. executor imports runloop. dynamolog and sqllog
+//     topics and groups/storage import module and kv, and not each other. executor imports only runtime. dynamolog and sqllog
 //     import executor. Domain packages import no third-party package; see
 //     TestControlPlaneLayers in architecture_test.go.
 package controlplane

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,14 +12,15 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/manifesterio/dst/sched"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	"github.com/manifesterio/mds-controlplane/internal/system/live"
 	"github.com/manifesterio/mds-controlplane/internal/system/realclock"
 )
 
@@ -45,8 +47,8 @@ type Node struct {
 	cpv1.UnimplementedControlPlaneServer
 
 	config Config
-	inbox  *runloop.Inbox
-	inject chan runloop.InjectFunc
+	inbox  *live.Inbox
+	inject chan live.InjectFunc
 	m      atomic.Pointer[replica.Replica]
 	health *health.Server
 	leases *membership.Leases  // run loop only; empty until brokers heartbeat
@@ -56,7 +58,9 @@ type Node struct {
 	waiters   map[runtime.RequestID]chan runtime.ControlPlaneDone
 	nextReq   runtime.RequestID
 	shutdown  chan struct{}
-	loopDone  chan error
+	started   bool          // Start launched the loop (guarded by mu)
+	loopDone  chan struct{} // closed when the loop has ended
+	loopErr   error         // the result of the loop; set before loopDone is closed
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
@@ -89,19 +93,28 @@ func New(config Config) *Node {
 	}
 	n := &Node{
 		config:   config,
-		inbox:    runloop.NewInbox(64),
-		inject:   make(chan runloop.InjectFunc, 64),
+		inbox:    live.NewInbox(),
+		inject:   make(chan live.InjectFunc, 64),
 		health:   health.NewServer(),
 		leases:   membership.New(config.BrokerLeaseTTL),
 		waiters:  map[runtime.RequestID]chan runtime.ControlPlaneDone{},
 		shutdown: make(chan struct{}),
-		loopDone: make(chan error, 1),
+		loopDone: make(chan struct{}),
 	}
 	n.groups = groups.New(groups.Config{
 		InitialRebalanceDelay: config.GroupInitialRebalanceDelay,
 		Clock:                 config.Clock,
 	}, nodeGroups{n: n})
 	return n
+}
+
+// liveClock lets a runtime.Clock drive live.
+type liveClock struct{ runtime.Clock }
+
+func (c liveClock) Mono() sched.TimeNs { return sched.TimeNs(c.Clock.Mono()) }
+func (c liveClock) Wall() sched.TimeNs { return sched.TimeNs(c.Clock.Wall()) }
+func (c liveClock) AfterFunc(d sched.TimeNs, f func()) live.Timer {
+	return c.Clock.AfterFunc(runtime.Duration(d), f)
 }
 
 // Health returns the health server to register on the gRPC server.
@@ -113,27 +126,40 @@ func (n *Node) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	n.cancel = cancel
 	ex := executor.New(runCtx, executor.Config{}, n.config.Log, n.config.Objects, n.inbox)
-	b := runloop.Dependencies{
-		Clock: n.config.Clock, Env: n.config.Env, Inbox: n.inbox,
-		Shutdown: n.shutdown, StopGrace: n.config.StopGrace, Inject: n.inject,
-		AfterStep: func(cm runtime.Machine) {
-			if m, ok := cm.(*replica.Replica); ok {
-				n.flushAnswers(m)
-				n.epoch.Store(m.Epoch())
-				n.stepDowns.Store(m.StepDowns())
+	m := replica.New(n.config.Machine)(n.config.Env, n.config.Self).(*replica.Replica)
+	n.m.Store(m)
+	cfg := live.Config{
+		Process:   replica.AsProcess(string(n.config.Self.Node), m),
+		Boot:      runtime.NodeStarted{Self: n.config.Self},
+		Stop:      func(deadline sched.TimeNs) any { return runtime.StopRequest{Deadline: runtime.NodeTime(deadline)} },
+		StopGrace: time.Duration(n.config.StopGrace),
+		Clock:     liveClock{n.config.Clock},
+		Inbox:     n.inbox,
+		Shutdown:  n.shutdown,
+		Inject:    n.inject,
+		Exec: func(out any) error {
+			call, ok := out.(runtime.IOCall)
+			if !ok {
+				return fmt.Errorf("controlplane/server: the replica returned %T, which no executor takes", out)
 			}
+			ex.Execute(call)
+			return nil
+		},
+		AfterStep: func() {
+			n.flushAnswers(m)
+			n.epoch.Store(m.Epoch())
+			n.stepDowns.Store(m.StepDowns())
 		},
 	}
-	f := replica.New(n.config.Machine)
+	n.mu.Lock()
+	n.started = true
+	n.mu.Unlock()
 	go n.watchGroups(runCtx)
 	go func() {
-		err := runloop.Run(runCtx, b, ex, func(env runtime.Environment, self runtime.NodeInstance) runtime.Machine {
-			m := f(env, self).(*replica.Replica)
-			n.m.Store(m)
-			return m
-		}, n.config.Self)
+		err := live.Run(runCtx, cfg)
 		n.health.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
-		n.loopDone <- err
+		n.loopErr = err
+		close(n.loopDone)
 	}()
 	return n.waitReady(ctx, cancel)
 }
@@ -150,11 +176,11 @@ func (n *Node) LogRole() (uint64, uint64) {
 func (n *Node) waitReady(ctx context.Context, cancel context.CancelFunc) error {
 	fail := func(err error) error {
 		cancel()
-		loopErr := <-n.loopDone
+		<-n.loopDone
 		if err != nil {
 			return err
 		}
-		return loopErr
+		return n.loopErr
 	}
 	timedOut := make(chan struct{})
 	deadline := n.config.Clock.AfterFunc(runtime.Duration(2*time.Minute), func() { close(timedOut) })
@@ -162,7 +188,7 @@ func (n *Node) waitReady(ctx context.Context, cancel context.CancelFunc) error {
 	for {
 		done := make(chan struct{})
 		var ready bool
-		n.inject <- func() []runtime.Action {
+		n.inject <- func() []any {
 			defer close(done)
 			m := n.m.Load()
 			ready = m != nil && m.Ready()
@@ -176,18 +202,19 @@ func (n *Node) waitReady(ctx context.Context, cancel context.CancelFunc) error {
 			}
 		case <-ctx.Done():
 			return fail(ctx.Err())
-		case err := <-n.loopDone:
-			if err == nil {
-				err = errors.New("controlplane/server: run exited before Ready")
+		case <-n.loopDone:
+			if n.loopErr != nil {
+				return n.loopErr
 			}
-			return err
+			return errors.New("controlplane/server: run exited before Ready")
 		case <-timedOut:
 			return fail(errors.New("controlplane/server: timed out waiting for Ready"))
 		}
 	}
 }
 
-// Close asks the loop to stop and waits for it. Safe to call more than once.
+// Close asks the loop to stop and waits for it. Safe to call more than once,
+// after a failed Start (the loop has ended then), and when Start was never called.
 func (n *Node) Close() error {
 	n.closeOnce.Do(func() {
 		select {
@@ -195,10 +222,16 @@ func (n *Node) Close() error {
 		default:
 			close(n.shutdown)
 		}
-		if n.cancel != nil {
-			n.cancel()
+		n.mu.Lock()
+		started := n.started
+		n.mu.Unlock()
+		if started {
+			if n.cancel != nil {
+				n.cancel()
+			}
+			<-n.loopDone
+			n.closeErr = n.loopErr
 		}
-		n.closeErr = <-n.loopDone
 		n.groups.Close()
 	})
 	return n.closeErr
@@ -215,7 +248,7 @@ func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []runtime
 	done := make(chan struct{})
 	var runErr error
 	select {
-	case n.inject <- func() []runtime.Action {
+	case n.inject <- func() []any {
 		defer close(done)
 		m := n.m.Load()
 		if m == nil {
@@ -224,7 +257,7 @@ func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []runtime
 		}
 		acts := fn(m)
 		n.flushAnswers(m)
-		return acts
+		return replica.Outbound(acts)
 	}:
 	case <-ctx.Done():
 		return ctx.Err()
@@ -279,7 +312,7 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (runtime.ControlPl
 			return d, nil
 		case <-ctx.Done():
 			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}, ctx.Err()
-		case n.inject <- func() []runtime.Action {
+		case n.inject <- func() []any {
 			m := n.m.Load()
 			if m != nil {
 				n.flushAnswers(m)

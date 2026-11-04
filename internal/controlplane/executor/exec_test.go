@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	"github.com/manifesterio/mds-controlplane/internal/system/live"
 )
 
 func TestMemLogRoundTrip(t *testing.T) {
@@ -123,7 +123,7 @@ func (timeoutError) Temporary() bool { return true }
 
 func TestExecutorIOResults(t *testing.T) {
 	ctx := t.Context()
-	in := runloop.NewInbox(8)
+	in := live.NewInbox()
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second, ObjTimeout: time.Second}, executor.NewMemoryLog(), executor.NewMemoryObjects(), in)
 	ex.Execute(runtime.LogAppend{Req: 1, Slot: 0, Data: []byte("a")})
 	ex.Execute(runtime.ObjectPut{Req: 2, Key: "k", Data: []byte("v")})
@@ -136,7 +136,7 @@ func TestExecutorIOResults(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	got := 0
 	for got < 8 && time.Now().Before(deadline) {
-		if b, ok := in.Control().Pop(); ok {
+		if b, ok := in.Pop(); ok {
 			if _, ok := b.(runtime.IOResult); ok {
 				got++
 			}

@@ -201,54 +201,32 @@ func TestRuntimeDoesNotImportContract(t *testing.T) {
 	}
 }
 
-// TestRunLoopImportsOnlyRuntime: the run loop doc says it imports only runtime and
-// the standard library. This test checks that rule for non-test files.
-func TestRunLoopImportsOnlyRuntime(t *testing.T) {
+// TestLiveImportsNoControlPlane: live is the production runner of a dst
+// process. It knows no control-plane type, so it may import only dst and the
+// standard library, and it can move to dst when the broker needs it.
+func TestLiveImportsNoControlPlane(t *testing.T) {
 	r := loadRepo(t)
-	const dir = "internal/controlplane/runloop"
-	const runtimePkg = "internal/runtime"
-	claim := "imports only " + r.module + "/" + runtimePkg + " and stdlib"
-	if doc := packageComment(t, r, dir); !strings.Contains(doc, claim) {
-		t.Fatalf("the package comment of %s no longer says %q; update this rule to match", dir, claim)
-	}
+	const dir = "internal/system/live"
+	const dst = "github.com/manifesterio/dst"
+	n := 0
 	for _, f := range r.files {
 		if f.dir != dir || f.isTest {
 			continue
 		}
+		n++
 		for _, imp := range f.imports {
-			rel, ok := inModule(imp, r.module)
-			if ok {
-				if !underDir(rel, runtimePkg) {
-					t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, runtimePkg)
-				}
+			if imp == dst || strings.HasPrefix(imp, dst+"/") {
 				continue
 			}
 			// A standard library path has no dot in its first element.
 			if strings.Contains(strings.Split(imp, "/")[0], ".") {
-				t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, runtimePkg)
+				t.Errorf("%s imports %q: live may import only dst and the standard library", f.rel, imp)
 			}
 		}
 	}
-}
-
-// packageComment returns the package doc comments of the non-test files in
-// dir, joined into one string with single spaces.
-func packageComment(t *testing.T, r repo, dir string) string {
-	t.Helper()
-	var parts []string
-	for _, f := range r.files {
-		if f.dir != dir || f.isTest {
-			continue
-		}
-		parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(r.root, f.rel), nil, parser.ImportsOnly|parser.ParseComments)
-		if err != nil {
-			t.Fatalf("parse %s: %v", f.rel, err)
-		}
-		if parsed.Doc != nil {
-			parts = append(parts, parsed.Doc.Text())
-		}
+	if n == 0 {
+		t.Fatalf("no non-test files found in %s", dir)
 	}
-	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
 }
 
 // layerRules say which packages inside the module each control-plane package
@@ -270,7 +248,7 @@ var layerRules = []struct {
 	{"internal/controlplane/groups", []string{"internal/controlplane/contract", "internal/runtime", "internal/system/realclock"}},
 	{"internal/controlplane/metadata", []string{"internal/controlplane/contract", "internal/controlplane/groups/storage", "internal/controlplane/kv", "internal/controlplane/module", "internal/controlplane/topics", "internal/runtime"}},
 	{"internal/controlplane/replica", []string{"internal/controlplane/contract", "internal/controlplane/kv", "internal/controlplane/metadata", "internal/controlplane/module", "internal/runtime"}},
-	{"internal/controlplane/executor", []string{"internal/controlplane/runloop", "internal/runtime"}},
+	{"internal/controlplane/executor", []string{"internal/runtime"}},
 }
 
 // TestControlPlaneLayers: the domain packages depend inward only. Each one may
@@ -288,6 +266,10 @@ func TestControlPlaneLayers(t *testing.T) {
 			for _, imp := range f.imports {
 				rel, ok := inModule(imp, r.module)
 				if !ok {
+					// dst is our own simulation library; the determinism gate audits what each package takes from it.
+					if strings.HasPrefix(imp, "github.com/manifesterio/dst/") {
+						continue
+					}
 					if strings.Contains(strings.Split(imp, "/")[0], ".") {
 						t.Errorf("%s imports %q: %s may not import a third-party package; put that code in an adapter", f.rel, imp, rule.dir)
 					}
@@ -332,7 +314,6 @@ var timeCallPackages = []string{
 	"internal/controlplane/groups/storage",
 	"internal/controlplane/metadata",
 	"internal/controlplane/replica",
-	"internal/controlplane/runloop",
 	"internal/controlplane/server",
 }
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/logtest"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	"github.com/manifesterio/mds-controlplane/internal/system/live"
 )
 
 func TestClassifyLogActions(t *testing.T) {
@@ -45,11 +45,11 @@ func (slowClaimLog) ClaimEpoch(ctx context.Context, _ uint64, _ string) (uint64,
 }
 
 // nextResult waits for one completion on the inbox.
-func nextResult(t *testing.T, in *runloop.Inbox) runtime.IOResult {
+func nextResult(t *testing.T, in *live.Inbox) runtime.IOResult {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if b, ok := in.Control().Pop(); ok {
+		if b, ok := in.Pop(); ok {
 			if r, ok := b.(runtime.IOResult); ok {
 				return r
 			}
@@ -72,7 +72,7 @@ func TestExecutorAppendBelowFloorIsConflict(t *testing.T) {
 	if err := l.TrimThrough(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	in := runloop.NewInbox(8)
+	in := live.NewInbox()
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, l, executor.NewMemoryObjects(), in)
 
 	ex.Execute(runtime.LogAppend{Req: 1, Slot: 0, Data: []byte("late")})
@@ -88,7 +88,7 @@ func TestExecutorAppendLiveTakenKeepsExisting(t *testing.T) {
 	if _, _, err := l.Append(ctx, 4, []byte("live")); err != nil {
 		t.Fatal(err)
 	}
-	in := runloop.NewInbox(8)
+	in := live.NewInbox()
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, l, executor.NewMemoryObjects(), in)
 
 	ex.Execute(runtime.LogAppend{Req: 2, Slot: 4, Data: []byte("other")})
@@ -100,7 +100,7 @@ func TestExecutorAppendLiveTakenKeepsExisting(t *testing.T) {
 
 func TestExecutorClaimEpoch(t *testing.T) {
 	ctx := t.Context()
-	in := runloop.NewInbox(8)
+	in := live.NewInbox()
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, executor.NewMemoryLog(), executor.NewMemoryObjects(), in)
 
 	ex.Execute(runtime.LogClaimEpoch{Req: 3, Expect: 0, Owner: "cp-0"})
@@ -118,7 +118,7 @@ func TestExecutorClaimEpoch(t *testing.T) {
 
 func TestExecutorClaimEpochTimeoutIsMaybeApplied(t *testing.T) {
 	ctx := t.Context()
-	in := runloop.NewInbox(8)
+	in := live.NewInbox()
 	log := slowClaimLog{Log: executor.NewMemoryLog()}
 	ex := executor.New(ctx, executor.Config{LogTimeout: 20 * time.Millisecond}, log, executor.NewMemoryObjects(), in)
 
