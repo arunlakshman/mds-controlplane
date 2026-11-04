@@ -3,6 +3,7 @@ module github.com/manifesterio/mds-controlplane
 go 1.26.0
 
 require (
+	github.com/arunlakshman/dst v0.0.0
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
@@ -11,7 +12,6 @@ require (
 	github.com/aws/smithy-go v1.28.5
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/jackc/pgx/v5 v5.12.0
-	github.com/manifesterio/dst v0.0.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	golang.org/x/tools v0.52.0
@@ -20,7 +20,7 @@ require (
 	pgregory.net/rapid v1.3.0
 )
 
-replace github.com/manifesterio/dst => /Users/arun.lakshman/tmp/dst
+replace github.com/arunlakshman/dst => /Users/arun.lakshman/tmp/dst
 
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect

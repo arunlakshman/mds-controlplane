@@ -3,7 +3,7 @@ package simulator
 import (
 	"fmt"
 
-	"github.com/manifesterio/dst/trace"
+	"github.com/arunlakshman/dst/trace"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

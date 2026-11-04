@@ -1,9 +1,9 @@
-# github.com/manifesterio/dst@v0.0.0
+# github.com/arunlakshman/dst@v0.0.0
 
 - Date / auditor: 2026-11-04, retarget of mds-controlplane cpsim onto OSS dst.
 - Requires Go: 1.22+
 - Verdict: **ACCEPTED** for `internal/verify/simulator` (and future deterministic packages that need the same primitives).
-- Import paths allowed (`ops/tools/determinismcheck/allow.txt`): `github.com/manifesterio/dst/...`.
+- Import paths allowed (`ops/tools/determinismcheck/allow.txt`): `github.com/arunlakshman/dst/...`.
 
 ## Findings
 | Finding | Matters? | Why |

@@ -1,8 +1,8 @@
 package simulator
 
 import (
-	"github.com/manifesterio/dst/assert"
-	"github.com/manifesterio/dst/fault"
+	"github.com/arunlakshman/dst/assert"
+	"github.com/arunlakshman/dst/fault"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -100,7 +100,7 @@ func (e *env) coverage() map[string]Coverage {
 	src := e.log.Coverage()
 	out := make(map[string]Coverage, len(src))
 	for k, c := range src { //determinismcheck:ok copy only; the order of a map copy is not observable
-		out[k] = Coverage{Kind: c.Kind, Checks: c.Checks, Passes: c.Passes}
+		out[k] = Coverage{Kind: string(c.Kind), Checks: c.Checks, Passes: c.Passes}
 	}
 	return out
 }

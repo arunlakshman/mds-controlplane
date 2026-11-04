@@ -1,7 +1,7 @@
 package simulator
 
 import (
-	"github.com/manifesterio/dst/sched"
+	"github.com/arunlakshman/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

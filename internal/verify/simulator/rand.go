@@ -1,7 +1,7 @@
 package simulator
 
 import (
-	"github.com/manifesterio/dst/rng"
+	"github.com/arunlakshman/dst/rng"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
