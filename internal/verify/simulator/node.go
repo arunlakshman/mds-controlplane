@@ -21,9 +21,9 @@ import (
 type simNode struct {
 	s       *sim
 	idx     int
-	factory runtime.MachineFactory
+	factory replica.Factory
 	inst    runtime.NodeInstance
-	m       runtime.Machine
+	m       *replica.Replica
 
 	up     bool
 	paused bool
@@ -58,7 +58,7 @@ func (s *sim) nodeOf(a eng.ActorID) *simNode {
 	return s.nodes[i]
 }
 
-func newNode(s *sim, idx int, factory runtime.MachineFactory) *simNode {
+func newNode(s *sim, idx int, factory replica.Factory) *simNode {
 	return &simNode{
 		s: s, idx: idx, factory: factory,
 		inst: runtime.NodeInstance{Node: runtime.NodeID(fmt.Sprintf("cp-%d", idx))},
@@ -68,10 +68,7 @@ func newNode(s *sim, idx int, factory runtime.MachineFactory) *simNode {
 func (n *simNode) name() string { return string(n.inst.Node) }
 
 // replica is the machine as a *replica.Replica, or nil while the node is down.
-func (n *simNode) replica() *replica.Replica {
-	r, _ := n.m.(*replica.Replica)
-	return r
-}
+func (n *simNode) replica() *replica.Replica { return n.m }
 
 // boot asks the controller to start a new incarnation, unless the node is up.
 func (n *simNode) boot() { n.s.runner.Inject(ctlID, 0, bootNode{idx: n.idx}) }
@@ -155,7 +152,7 @@ type clientReply struct {
 
 // outbound turns the actions of one Step into dst values, in order.
 // StopForRestart and ShutdownDone end the incarnation and nothing after them runs.
-func (n *simNode) outbound(acts []runtime.Action) []any {
+func (n *simNode) outbound(acts []any) []any {
 	var out []any
 	for _, a := range acts {
 		switch a := a.(type) {

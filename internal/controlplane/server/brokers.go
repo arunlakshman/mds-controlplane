@@ -38,7 +38,7 @@ func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbea
 		ok   bool
 	}
 	ch := make(chan result, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []any {
 		if !m.IsActive() || !m.Ready() {
 			ch <- result{}
 			return nil

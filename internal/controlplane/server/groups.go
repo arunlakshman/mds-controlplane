@@ -63,7 +63,7 @@ func (s nodeGroups) Exec(ctx context.Context, operation runtime.ControlPlaneOper
 // groupRole reports whether this node is the active appender and ready.
 func (n *Node) groupRole(ctx context.Context) (bool, error) {
 	active := false
-	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []any {
 		active = m.IsActive() && m.Ready()
 		return nil
 	})

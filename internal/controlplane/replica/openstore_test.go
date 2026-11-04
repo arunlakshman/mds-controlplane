@@ -37,7 +37,7 @@ func (s *storeSource) open() (kv.Store, error) {
 
 // driveToTomb runs a lagging replica into a trimmed slot, which makes it drop
 // its state and restore from a checkpoint. It returns the actions of that step.
-func driveToTomb(t *testing.T, m *replica.Replica) []runtime.Action {
+func driveToTomb(t *testing.T, m *replica.Replica) []any {
 	t.Helper()
 	acts := step(m, runtime.NodeStarted{})
 	list := acts[0].(runtime.ObjectList)

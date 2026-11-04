@@ -27,7 +27,7 @@
 //     process. One goroutine owns Step, timers and inject work. It imports only dst
 //     and the standard library.
 //   - replica: one node's copy of the replicated log: leader or standby,
-//     catch-up, checkpoint and restore. It implements runtime.Machine.
+//     catch-up, checkpoint and restore. It has a Step that takes one event and returns dst values and IO calls.
 //   - metadata: the kernel of the replicated state. It sends each operation to
 //     the module that owns it, owns the envelope of a log entry (kind and id)
 //     and the checkpoint, and applies commands in order to an ordered

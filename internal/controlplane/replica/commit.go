@@ -56,7 +56,7 @@ type inFlightAppend struct {
 // (no LogAppend). A retry for a key still queued or in flight retargets that
 // waiter to the new Req/From so a bridge timeout cannot orphan the apply
 // answer onto a dead broker RequestID.
-func (m *Replica) Offer(operation ClientOperation) []runtime.Action {
+func (m *Replica) Offer(operation ClientOperation) []any {
 	if m.exited {
 		return nil
 	}
@@ -146,7 +146,7 @@ func (m *Replica) InFlightCommits() int { return len(m.inFlightAppends) }
 // QueueDepth is the number of client ops waiting for a commit slot.
 func (m *Replica) QueueDepth() int { return len(m.queue) }
 
-func (m *Replica) flushCommits() []runtime.Action {
+func (m *Replica) flushCommits() []any {
 	if m.exited || m.booting {
 		return nil
 	}
@@ -154,14 +154,14 @@ func (m *Replica) flushCommits() []runtime.Action {
 	if !m.isAppender() && len(m.queue) == 0 {
 		return nil
 	}
-	var acts []runtime.Action
+	var acts []any
 	for len(m.inFlightAppends) == 0 && len(m.queue) > 0 {
 		acts = append(acts, m.emitCommitGroup()...)
 	}
 	return acts
 }
 
-func (m *Replica) emitCommitGroup() []runtime.Action {
+func (m *Replica) emitCommitGroup() []any {
 	limit := min(m.config.maxCmds(), len(m.queue))
 	if limit <= 0 {
 		return nil
@@ -207,7 +207,7 @@ func (m *Replica) emitCommitGroup() []runtime.Action {
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: slot, id: id, data: data, cmds: cmds}
 	m.waiters[id] = cmds
-	return []runtime.Action{runtime.LogAppend{Req: request, Slot: slot, Data: data}}
+	return []any{runtime.LogAppend{Req: request, Slot: slot, Data: data}}
 }
 
 // entryFixedBytes is the most bytes one entry adds around its commands: the
@@ -254,7 +254,7 @@ func (m *Replica) observeSlot(n runtime.LogPosition) {
 	m.high = max(m.high, n+1)
 }
 
-func (m *Replica) onCommitAppendDone(d runtime.LogAppendDone, f *inFlightAppend) []runtime.Action {
+func (m *Replica) onCommitAppendDone(d runtime.LogAppendDone, f *inFlightAppend) []any {
 	if isBelowFloor(d) {
 		// The slot is at or below the floor of the log: this node is far behind
 		// and the put is not a commit. Refuse the clients and restore.
@@ -285,7 +285,7 @@ func (m *Replica) onCommitAppendDone(d runtime.LogAppendDone, f *inFlightAppend)
 	if err := m.drain(); err != nil {
 		return m.trip(err)
 	}
-	var acts []runtime.Action
+	var acts []any
 	if m.fencedFlag {
 		acts = m.stepDown()
 		return append(acts, m.progress()...)
@@ -299,22 +299,22 @@ func (m *Replica) onCommitAppendDone(d runtime.LogAppendDone, f *inFlightAppend)
 }
 
 // retrySameSlot repeats the Put at f.slot (conditional append; slot still ours).
-func (m *Replica) retrySameSlot(f *inFlightAppend) []runtime.Action {
+func (m *Replica) retrySameSlot(f *inFlightAppend) []any {
 	m.nextReq++
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: f.slot, id: f.id, data: f.data, cmds: f.cmds}
-	return []runtime.Action{runtime.LogAppend{Req: request, Slot: f.slot, Data: f.data}}
+	return []any{runtime.LogAppend{Req: request, Slot: f.slot, Data: f.data}}
 }
 
 // retryInFlightAppend appends the same entry (same id and cmds) at the next free slot
 // after another writer won f.slot.
-func (m *Replica) retryInFlightAppend(f *inFlightAppend) []runtime.Action {
+func (m *Replica) retryInFlightAppend(f *inFlightAppend) []any {
 	m.env.Reachable("logcp-sim: lost slot retried at a later slot")
 	slot := m.alloc()
 	m.nextReq++
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: slot, id: f.id, data: f.data, cmds: f.cmds}
-	return []runtime.Action{runtime.LogAppend{Req: request, Slot: slot, Data: f.data}}
+	return []any{runtime.LogAppend{Req: request, Slot: slot, Data: f.data}}
 }
 
 func encodeGroup(id string, cmds []metadata.Entry) []byte {

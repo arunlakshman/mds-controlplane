@@ -18,7 +18,7 @@ const (
 	maxQuiet = 40 * second
 )
 
-func replicaFactory(idx int, f Faults, bug Bug) runtime.MachineFactory {
+func replicaFactory(idx int, f Faults, bug Bug) replica.Factory {
 	return replica.New(replicaConfig(idx, f, bug))
 }
 

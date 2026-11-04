@@ -126,7 +126,7 @@ func (n *Node) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	n.cancel = cancel
 	ex := executor.New(runCtx, executor.Config{}, n.config.Log, n.config.Objects, n.inbox)
-	m := replica.New(n.config.Machine)(n.config.Env, n.config.Self).(*replica.Replica)
+	m := replica.New(n.config.Machine)(n.config.Env, n.config.Self)
 	n.m.Store(m)
 	cfg := live.Config{
 		Process:   replica.AsProcess(string(n.config.Self.Node), m),
@@ -244,7 +244,7 @@ func (n *Node) allocReq() runtime.RequestID {
 	return n.nextReq
 }
 
-func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []runtime.Action) error {
+func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []any) error {
 	done := make(chan struct{})
 	var runErr error
 	select {
@@ -294,7 +294,7 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (runtime.ControlPl
 		n.mu.Unlock()
 	}()
 
-	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []any {
 		return m.Offer(replica.ClientOperation{Req: request, Cmd: cmd})
 	})
 	if err != nil {
@@ -329,7 +329,7 @@ func (n *Node) read(ctx context.Context, fn func(m *replica.Replica) (runtime.Co
 		err error
 	}
 	ch := make(chan result, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []any {
 		if !m.Ready() {
 			ch <- result{d: runtime.ControlPlaneDone{Err: runtime.ErrUnavailable}}
 			return nil

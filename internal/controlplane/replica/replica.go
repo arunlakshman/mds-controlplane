@@ -106,12 +106,15 @@ const (
 	stageTrim
 )
 
-// New returns the runtime.MachineFactory of the control-plane machine. A factory
+// Factory builds a replica for one incarnation of a node.
+type Factory func(env runtime.Environment, self runtime.NodeInstance) *Replica
+
+// New returns the Factory of the control-plane machine. A factory
 // cannot return an error, so a store that cannot open (Config.OpenStore) is
 // remembered and the machine stops with StopForRestart on NodeStarted: the
 // process cannot serve without its state.
-func New(config Config) runtime.MachineFactory {
-	return func(env runtime.Environment, self runtime.NodeInstance) runtime.Machine {
+func New(config Config) Factory {
+	return func(env runtime.Environment, self runtime.NodeInstance) *Replica {
 		meta, err := config.openMetadata()
 		if err != nil {
 			meta = metadata.NewMem() // placeholder; NodeStarted stops the machine
@@ -125,8 +128,6 @@ func New(config Config) runtime.MachineFactory {
 		}
 	}
 }
-
-var _ runtime.Machine = (*Replica)(nil)
 
 // Metadata is the metadata store after the applied prefix. Tests compare its
 // digest to an independent oracle.
@@ -150,14 +151,15 @@ func (m *Replica) reseedTopics() {
 	}
 }
 
-// Step implements runtime.StateMachine. Unknown completions and unhandled bodies
+// Step takes one event and returns what the machine wants done, in order: dst
+// values (timers, Crash, Exit) and IO calls. Unknown completions and unhandled bodies
 // leave state unchanged. After ShutdownDone, every event is a no-op.
-func (m *Replica) Step(event runtime.Event) []runtime.Action {
+func (m *Replica) Step(event runtime.Event) []any {
 	if m.exited {
 		return nil
 	}
 	m.now = event.At
-	var acts []runtime.Action
+	var acts []any
 	switch body := event.Body.(type) {
 	case runtime.NodeStarted:
 		acts = m.onStarted()
@@ -190,7 +192,7 @@ func (m *Replica) Step(event runtime.Event) []runtime.Action {
 	return m.withReplies(acts)
 }
 
-func (m *Replica) onStarted() []runtime.Action {
+func (m *Replica) onStarted() []any {
 	m.started = true
 	if m.openErr != nil {
 		return m.trip(m.openErr)
@@ -203,7 +205,7 @@ func (m *Replica) onStarted() []runtime.Action {
 	return m.afterRestore()
 }
 
-func (m *Replica) afterRestore() []runtime.Action {
+func (m *Replica) afterRestore() []any {
 	if m.config.CatchUpEvery > 0 {
 		m.booting = true
 		m.ready = false
@@ -212,18 +214,18 @@ func (m *Replica) afterRestore() []runtime.Action {
 	return m.finishBoot()
 }
 
-func (m *Replica) finishBoot() []runtime.Action {
+func (m *Replica) finishBoot() []any {
 	m.booting = false
 	m.ready = true
 	m.lastOtherAt, m.lastPullOK, m.lastOwnAt = m.now, m.now, m.now
-	var acts []runtime.Action
+	var acts []any
 	acts = append(acts, m.claimNow()...)
 	acts = append(acts, m.armRole()...)
 	acts = append(acts, m.armCheckpoint()...)
 	return acts
 }
 
-func (m *Replica) maybeBecomeReady() []runtime.Action {
+func (m *Replica) maybeBecomeReady() []any {
 	if !m.booting || m.pending != 0 || m.applied < m.goalTail {
 		return nil
 	}
@@ -235,7 +237,7 @@ func (m *Replica) maybeBecomeReady() []runtime.Action {
 	return m.finishBoot()
 }
 
-func (m *Replica) onTimer(e runtime.TimerFired) []runtime.Action {
+func (m *Replica) onTimer(e runtime.TimerFired) []any {
 	switch e.ID {
 	case timerCatchUp:
 		if e.Gen != m.timerGen || m.pending != 0 || m.config.CatchUpEvery <= 0 {
@@ -251,7 +253,7 @@ func (m *Replica) onTimer(e runtime.TimerFired) []runtime.Action {
 	}
 }
 
-func (m *Replica) onCheckTailDone(d runtime.LogGetEndDone) []runtime.Action {
+func (m *Replica) onCheckTailDone(d runtime.LogGetEndDone) []any {
 	if d.Req != m.pending || m.pendingKind != pendingTail {
 		return nil
 	}
@@ -266,7 +268,7 @@ func (m *Replica) onCheckTailDone(d runtime.LogGetEndDone) []runtime.Action {
 	return m.progress()
 }
 
-func (m *Replica) onReadDone(d runtime.LogReadDone) []runtime.Action {
+func (m *Replica) onReadDone(d runtime.LogReadDone) []any {
 	if d.Req != m.pending || m.pendingKind != pendingRead {
 		return nil
 	}
@@ -292,7 +294,7 @@ func (m *Replica) onReadDone(d runtime.LogReadDone) []runtime.Action {
 	if err := m.drain(); err != nil {
 		return m.trip(err)
 	}
-	var acts []runtime.Action
+	var acts []any
 	if m.fencedFlag {
 		acts = m.stepDown()
 	}
@@ -300,7 +302,7 @@ func (m *Replica) onReadDone(d runtime.LogReadDone) []runtime.Action {
 	return append(acts, m.flushCommits()...)
 }
 
-func (m *Replica) onAppendDone(d runtime.LogAppendDone) []runtime.Action {
+func (m *Replica) onAppendDone(d runtime.LogAppendDone) []any {
 	if f, ok := m.inFlightAppends[d.Req]; ok {
 		return m.onCommitAppendDone(d, f)
 	}
@@ -321,7 +323,7 @@ func (m *Replica) drain() error {
 	}
 }
 
-func (m *Replica) progress() []runtime.Action {
+func (m *Replica) progress() []any {
 	if m.pending != 0 {
 		return nil
 	}
@@ -329,7 +331,7 @@ func (m *Replica) progress() []runtime.Action {
 		return m.emitRead()
 	}
 	if acts := m.maybeBecomeReady(); acts != nil {
-		var out []runtime.Action
+		var out []any
 		out = append(out, acts...)
 		out = append(out, m.armCatchUp()...)
 		return out
@@ -347,44 +349,44 @@ func (m *Replica) nextSlotMissing() bool {
 	return !ok
 }
 
-func (m *Replica) emitCheckTail() []runtime.Action {
+func (m *Replica) emitCheckTail() []any {
 	m.nextReq++
 	m.pending = m.nextReq
 	m.pendingKind = pendingTail
 	m.tailsStarted++
 	m.tailRound = m.tailsStarted
-	return []runtime.Action{runtime.LogGetEnd{Req: m.pending}}
+	return []any{runtime.LogGetEnd{Req: m.pending}}
 }
 
-func (m *Replica) emitRead() []runtime.Action {
+func (m *Replica) emitRead() []any {
 	m.nextReq++
 	m.pending = m.nextReq
 	m.pendingKind = pendingRead
-	return []runtime.Action{runtime.LogRead{Req: m.pending, From: m.applied, Limit: m.config.readLimit()}}
+	return []any{runtime.LogRead{Req: m.pending, From: m.applied, Limit: m.config.readLimit()}}
 }
 
-func (m *Replica) armCatchUp() []runtime.Action {
+func (m *Replica) armCatchUp() []any {
 	if m.config.CatchUpEvery <= 0 {
 		return nil
 	}
 	m.timerGen++
-	return []runtime.Action{runtime.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
+	return []any{runtime.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
 }
 
-func (m *Replica) trip(err error) []runtime.Action {
+func (m *Replica) trip(err error) []any {
 	m.exited = true
-	return []runtime.Action{runtime.StopForRestart{Cause: err.Error()}}
+	return []any{runtime.StopForRestart{Cause: err.Error()}}
 }
 
 // stop marks the machine shutting down and emits ShutdownDone. With no in-flight work
 // yet that must drain, ShutdownDone is immediate (decision 8).
-func (m *Replica) stop() []runtime.Action {
+func (m *Replica) stop() []any {
 	if m.stopping {
 		return nil
 	}
 	m.stopping = true
 	m.exited = true
-	return []runtime.Action{runtime.ShutdownDone{}}
+	return []any{runtime.ShutdownDone{}}
 }
 
 // StateHash folds every field that influences behaviour, including the applied

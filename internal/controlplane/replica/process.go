@@ -39,7 +39,7 @@ func (p *Process) Step(cx sim.Context, inbox any) []any {
 // (the timer's Gen goes back inside the TimerFired value). StopForRestart
 // becomes sim.Crash and ShutdownDone becomes sim.Exit; nothing after them runs.
 // IO calls and replies pass through for the runner's executor.
-func Outbound(acts []runtime.Action) []any {
+func Outbound(acts []any) []any {
 	var out []any
 	for _, a := range acts {
 		switch a := a.(type) {

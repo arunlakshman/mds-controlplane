@@ -9,7 +9,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func findTimer(acts []runtime.Action, id runtime.TimerID) (runtime.SetTimer, bool) {
+func findTimer(acts []any, id runtime.TimerID) (runtime.SetTimer, bool) {
 	for _, a := range acts {
 		if st, ok := a.(runtime.SetTimer); ok && st.ID == id {
 			return st, true
@@ -18,7 +18,7 @@ func findTimer(acts []runtime.Action, id runtime.TimerID) (runtime.SetTimer, boo
 	return runtime.SetTimer{}, false
 }
 
-func findAppend(acts []runtime.Action) (runtime.LogAppend, bool) {
+func findAppend(acts []any) (runtime.LogAppend, bool) {
 	for _, a := range acts {
 		if ap, ok := a.(runtime.LogAppend); ok {
 			return ap, true
@@ -27,7 +27,7 @@ func findAppend(acts []runtime.Action) (runtime.LogAppend, bool) {
 	return runtime.LogAppend{}, false
 }
 
-func findClaim(acts []runtime.Action) (runtime.LogClaimEpoch, bool) {
+func findClaim(acts []any) (runtime.LogClaimEpoch, bool) {
 	for _, a := range acts {
 		if c, ok := a.(runtime.LogClaimEpoch); ok {
 			return c, true
@@ -38,7 +38,7 @@ func findClaim(acts []runtime.Action) (runtime.LogClaimEpoch, bool) {
 
 // bootEmpty boots a machine on an empty log and returns the actions of the
 // last step (the tail check that makes the node Ready).
-func bootEmpty(t *testing.T, m *replica.Replica, at runtime.NodeTime) []runtime.Action {
+func bootEmpty(t *testing.T, m *replica.Replica, at runtime.NodeTime) []any {
 	t.Helper()
 	acts := m.Step(runtime.Event{At: at, Body: runtime.NodeStarted{}})
 	timer, ok := acts[0].(runtime.SetTimer)
@@ -58,7 +58,7 @@ func bootEmpty(t *testing.T, m *replica.Replica, at runtime.NodeTime) []runtime.
 
 // winClaim answers the claim in acts as won with the given epoch, checks that
 // the node writes a fence entry before it is the writer, and applies the fence.
-func winClaim(t *testing.T, m *replica.Replica, acts []runtime.Action, epoch uint64, at runtime.NodeTime) (runtime.LogAppend, []runtime.Action) {
+func winClaim(t *testing.T, m *replica.Replica, acts []any, epoch uint64, at runtime.NodeTime) (runtime.LogAppend, []any) {
 	t.Helper()
 	claim, ok := findClaim(acts)
 	if !ok {
@@ -87,7 +87,7 @@ func winClaim(t *testing.T, m *replica.Replica, acts []runtime.Action, epoch uin
 
 // tickAfterSilence refreshes the last good pull at time at, then fires the role
 // timer from the boot actions. It returns the actions of the role tick.
-func tickAfterSilence(t *testing.T, m *replica.Replica, boot []runtime.Action, at runtime.NodeTime) []runtime.Action {
+func tickAfterSilence(t *testing.T, m *replica.Replica, boot []any, at runtime.NodeTime) []any {
 	t.Helper()
 	role, ok := findTimer(boot, replica.TimerRole)
 	if !ok {

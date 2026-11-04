@@ -86,16 +86,16 @@ func (m *Replica) roleEvery() runtime.Duration {
 	}
 }
 
-func (m *Replica) armRole() []runtime.Action {
+func (m *Replica) armRole() []any {
 	every := m.roleEvery()
 	if every <= 0 || m.exited {
 		return nil
 	}
 	m.roleGen++
-	return []runtime.Action{runtime.SetTimer{ID: timerRole, Gen: m.roleGen, After: every}}
+	return []any{runtime.SetTimer{ID: timerRole, Gen: m.roleGen, After: every}}
 }
 
-func (m *Replica) onRoleTimer(e runtime.TimerFired) []runtime.Action {
+func (m *Replica) onRoleTimer(e runtime.TimerFired) []any {
 	if e.Gen != m.roleGen || !m.rolesArmed() {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (m *Replica) onRoleTimer(e runtime.TimerFired) []runtime.Action {
 	return append(acts, m.armRole()...)
 }
 
-func (m *Replica) roleTick() []runtime.Action {
+func (m *Replica) roleTick() []any {
 	if m.crashed {
 		if m.now < m.downUntil {
 			return nil
@@ -145,24 +145,24 @@ func (m *Replica) claimDue() bool {
 }
 
 // claimNow claims at boot for rank 0 when the log has no writer epoch yet.
-func (m *Replica) claimNow() []runtime.Action {
+func (m *Replica) claimNow() []any {
 	if m.config.Rank != 0 || m.maxEpochSeen != 0 || !m.canClaim() {
 		return nil
 	}
 	return m.emitClaim()
 }
 
-func (m *Replica) emitClaim() []runtime.Action {
+func (m *Replica) emitClaim() []any {
 	m.nextReq++
 	m.claimReq = m.nextReq
 	m.claimExpect = m.maxEpochSeen
-	return []runtime.Action{runtime.LogClaimEpoch{Req: m.claimReq, Expect: m.claimExpect, Owner: m.config.writer()}}
+	return []any{runtime.LogClaimEpoch{Req: m.claimReq, Expect: m.claimExpect, Owner: m.config.writer()}}
 }
 
 // onClaimDone handles the answer to a claim. A won claim makes this node the
 // writer once its fence entry is applied. A lost claim only teaches the node
 // the epoch that is stored now, and it waits a full silence period again.
-func (m *Replica) onClaimDone(d runtime.LogClaimEpochDone) []runtime.Action {
+func (m *Replica) onClaimDone(d runtime.LogClaimEpochDone) []any {
 	if m.claimReq == 0 || d.Req != m.claimReq {
 		return nil
 	}
@@ -184,7 +184,7 @@ func (m *Replica) onClaimDone(d runtime.LogClaimEpochDone) []runtime.Action {
 
 // stepDown ends the write role after a newer epoch is seen. The node refuses
 // the clients it was serving, keeps reading, and waits before it claims again.
-func (m *Replica) stepDown() []runtime.Action {
+func (m *Replica) stepDown() []any {
 	m.env.Reachable("logcp-sim: writer fenced, now read-only")
 	m.stepDowns++
 	m.refuseClients(runtime.ErrUnavailable, runtime.MaybeApplied)
@@ -207,7 +207,7 @@ func (m *Replica) heartbeatDue() bool {
 	return len(m.queue) == 0 && len(m.inFlightAppends) == 0 && m.pending == 0
 }
 
-func (m *Replica) maybeReplicaFault() []runtime.Action {
+func (m *Replica) maybeReplicaFault() []any {
 	// Only impair the appender so a hot standby can take over (old fakelogservice
 	// never impaired both replicas at once).
 	if !m.active || !m.ready {
@@ -231,7 +231,7 @@ func betweenDur(r interface{ Intn(int) int }, d [2]runtime.Duration) runtime.Dur
 	return d[0] + runtime.Duration(r.Intn(int(d[1]-d[0])+1))
 }
 
-func (m *Replica) softCrash() []runtime.Action {
+func (m *Replica) softCrash() []any {
 	m.env.Reachable("logcp-sim: replica crashed")
 	m.dropRole()
 	m.ready = false
@@ -257,7 +257,7 @@ func isBelowFloor(d runtime.LogAppendDone) bool {
 // drop local log state, and restore from the checkpoint. Catch-up from slot 0
 // would re-enter the trimmed prefix, so needsCheckpoint blocks that until a
 // snapshot is found.
-func (m *Replica) hitTrimmed() []runtime.Action {
+func (m *Replica) hitTrimmed() []any {
 	m.env.Reachable("logcp-sim: replica hit a trimmed slot")
 	m.refuseClients(runtime.ErrUnavailable, runtime.MaybeApplied)
 	m.dropRole()
@@ -318,7 +318,7 @@ func (m *Replica) refuseClients(err runtime.ErrCode, o runtime.Outcome) {
 	}
 }
 
-func (m *Replica) afterCrashRestart() []runtime.Action {
+func (m *Replica) afterCrashRestart() []any {
 	// An old catch-up timer must not start a tail check while the restore waits:
 	// it would make the node Ready at slot 0 over a trimmed log.
 	m.timerGen++
@@ -339,7 +339,7 @@ func (m *Replica) afterCrashRestart() []runtime.Action {
 	return m.afterRestore()
 }
 
-func (m *Replica) emitHeartbeat() []runtime.Action {
+func (m *Replica) emitHeartbeat() []any {
 	m.seq++
 	id := fmt.Sprintf("%s/e%d/%d", m.config.writer(), m.epoch, m.seq)
 	inner := metadata.Encode(metadata.Entry{ID: id, Kind: metadata.KindNoop})
@@ -348,7 +348,7 @@ func (m *Replica) emitHeartbeat() []runtime.Action {
 	request := m.nextReq
 	slot := m.alloc()
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: slot, id: id, data: data, cmds: nil}
-	return []runtime.Action{runtime.LogAppend{Req: request, Slot: slot, Data: data}}
+	return []any{runtime.LogAppend{Req: request, Slot: slot, Data: data}}
 }
 
 func (m *Replica) observeWriter(epoch uint64, writer string, enveloped bool) {

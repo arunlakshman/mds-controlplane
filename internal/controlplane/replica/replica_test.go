@@ -57,15 +57,10 @@ func newMachine(t *testing.T, config replica.Config) *replica.Replica {
 func newMachineEnv(t *testing.T, config replica.Config) (*replica.Replica, *testEnv) {
 	t.Helper()
 	env := &testEnv{}
-	m := replica.New(config)(env, runtime.NodeInstance{Node: "cp-0"})
-	sm, ok := m.(*replica.Replica)
-	if !ok {
-		t.Fatalf("New returned %T, want *replica.Replica", m)
-	}
-	return sm, env
+	return replica.New(config)(env, runtime.NodeInstance{Node: "cp-0"}), env
 }
 
-func step(m *replica.Replica, body runtime.EventData) []runtime.Action {
+func step(m *replica.Replica, body runtime.EventData) []any {
 	return m.Step(runtime.Event{Body: body})
 }
 
@@ -140,7 +135,7 @@ func TestStateHashDeterministicAcrossBoots(t *testing.T) {
 func TestNewImplementsFactory(t *testing.T) {
 	f := replica.New(replica.Config{})
 	if f(&testEnv{}, runtime.NodeInstance{Node: "cp-1"}) == nil {
-		t.Fatal("MachineFactory returned nil")
+		t.Fatal("Factory returned nil")
 	}
 }
 
