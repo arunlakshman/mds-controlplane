@@ -6,14 +6,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Coverage counts how often one property was evaluated. A campaign adds the
-// numbers of all its runs.
-type Coverage struct {
-	Kind   string
-	Checks uint64
-	Passes uint64
-}
-
 // env is the runtime.Environment of a run: the random stream, the fault
 // points, and the assertions. Assertions never panic: a false Always is
 // recorded as a failure and the run goes on.
@@ -95,12 +87,12 @@ func (e *env) Unreachable(p runtime.PropertyID, details ...runtime.ContextPair) 
 	e.log.Unreachable(assert.Property(p), toPairs(details)...)
 }
 
-// coverage returns a copy of the stats. Callers sort the keys when they print.
-func (e *env) coverage() map[string]Coverage {
+// coverage returns a copy of the assert stats. Callers sort keys when they print.
+func (e *env) coverage() map[string]assert.Coverage {
 	src := e.log.Coverage()
-	out := make(map[string]Coverage, len(src))
+	out := make(map[string]assert.Coverage, len(src))
 	for k, c := range src { //determinismcheck:ok copy only; the order of a map copy is not observable
-		out[k] = Coverage{Kind: string(c.Kind), Checks: c.Checks, Passes: c.Passes}
+		out[k] = c
 	}
 	return out
 }

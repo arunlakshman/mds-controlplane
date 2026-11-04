@@ -1,30 +1,30 @@
 // Package fakeclock is the test and simulation implementation of runtime.Clock.
-// Time moves only when the caller calls Advance. It is not in the determinism
-// gate, because it uses a mutex; the timers run on the caller's goroutine, in
-// time order.
+// It wraps dst/clock over a private sched heap. Time moves only when the
+// caller calls Advance. A mutex serializes Advance against AfterFunc from a
+// run-loop goroutine; this package is not in the determinism gate.
 package fakeclock
 
 import (
 	"sync"
 	"time"
 
+	dstclock "github.com/arunlakshman/dst/clock"
+	"github.com/arunlakshman/dst/rng"
+	"github.com/arunlakshman/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Clock is a runtime.Clock that moves only on Advance.
 type Clock struct {
-	mu     sync.Mutex
-	mono   runtime.NodeTime
-	wall   runtime.RealTime
-	timers []*timer
+	mu      sync.Mutex
+	s       *sched.Scheduler
+	inner   *dstclock.Clock
+	pending int
 }
 
 type timer struct {
-	clock   *Clock
-	at      runtime.NodeTime
-	f       func()
-	stopped bool
-	fired   bool
+	clock *Clock
+	inner *dstclock.Timer
 }
 
 var _ runtime.Clock = (*Clock)(nil)
@@ -32,72 +32,75 @@ var _ runtime.Clock = (*Clock)(nil)
 // New returns a Clock whose Wall time starts at wall. Mono starts at one
 // second, so that zero can mean "not set" in the code under test.
 func New(wall time.Time) *Clock {
-	return &Clock{mono: runtime.NodeTime(time.Second), wall: runtime.RealTime(wall.UnixNano())}
+	monoStart := sched.TimeNs(time.Second)
+	// wallStart + Mono == wall.UnixNano() at construction.
+	wallStart := sched.TimeNs(wall.UnixNano()) - monoStart
+	s := sched.New(rng.New(1))
+	s.Jump(monoStart)
+	return &Clock{s: s, inner: dstclock.New(s, wallStart)}
 }
 
 // Mono returns the node-local time.
 func (c *Clock) Mono() runtime.NodeTime {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.mono
+	return runtime.NodeTime(c.inner.Mono())
 }
 
 // Wall returns the UTC time.
 func (c *Clock) Wall() runtime.RealTime {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.wall
+	return runtime.RealTime(c.inner.Wall())
 }
 
 // AfterFunc schedules f for d after now. It runs inside a later Advance.
 func (c *Clock) AfterFunc(d runtime.Duration, f func()) runtime.Timer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	t := &timer{clock: c, at: c.mono + runtime.NodeTime(d), f: f}
-	c.timers = append(c.timers, t)
-	return t
+	c.pending++
+	tm := &timer{clock: c}
+	tm.inner = c.inner.AfterFunc(sched.TimeNs(d), func() {
+		c.mu.Lock()
+		c.pending--
+		c.mu.Unlock()
+		f()
+	})
+	return tm
 }
 
 func (t *timer) Stop() bool {
 	t.clock.mu.Lock()
 	defer t.clock.mu.Unlock()
-	if t.stopped || t.fired {
+	if !t.inner.Stop() {
 		return false
 	}
-	t.stopped = true
+	t.clock.pending--
 	return true
 }
 
 // Advance moves time forward by d and fires every timer that is due, in time
 // order. A timer may start new timers; they fire in the same call if they are due.
+// The heap is driven under mu via Take so callbacks can call AfterFunc without deadlock.
 func (c *Clock) Advance(d time.Duration) {
 	c.mu.Lock()
-	target := c.mono + runtime.NodeTime(d)
-	c.mu.Unlock()
+	target := c.s.Mono() + sched.TimeNs(d)
 	for {
-		c.mu.Lock()
-		var next *timer
-		for _, t := range c.timers {
-			if t.stopped || t.fired || t.at > target {
-				continue
-			}
-			if next == nil || t.at < next.at {
-				next = t
-			}
-		}
-		if next == nil {
-			c.wall += runtime.RealTime(target - c.mono)
-			c.mono = target
+		at, ok := c.s.Peek()
+		if !ok || at > target {
+			c.s.Jump(target)
 			c.mu.Unlock()
 			return
 		}
-		next.fired = true
-		if next.at > c.mono {
-			c.wall += runtime.RealTime(next.at - c.mono)
-			c.mono = next.at
+		run, ok := c.s.Take()
+		if !ok {
+			c.s.Jump(target)
+			c.mu.Unlock()
+			return
 		}
 		c.mu.Unlock()
-		next.f()
+		run()
+		c.mu.Lock()
 	}
 }
 
@@ -105,11 +108,5 @@ func (c *Clock) Advance(d time.Duration) {
 func (c *Clock) Pending() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	n := 0
-	for _, t := range c.timers {
-		if !t.stopped && !t.fired {
-			n++
-		}
-	}
-	return n
+	return c.pending
 }

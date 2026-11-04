@@ -24,7 +24,7 @@ type Campaign struct {
 	Acked    int
 	Hash     uint64 // all the trace hashes of the seeds folded in seed order
 	Elapsed  time.Duration
-	Coverage map[string]simulator.Coverage
+	Coverage map[string]dstcampaign.Coverage
 }
 
 // RunCampaign runs seeds first, first+1, ... of one scenario. The runs are
@@ -57,7 +57,7 @@ func RunCampaign(cfg simulator.Config, first uint64, seeds int) (Campaign, error
 		Runs:     seeds,
 		Hash:     sum.Hash,
 		Elapsed:  sum.Elapsed,
-		Coverage: make(map[string]simulator.Coverage, len(sum.Coverage)),
+		Coverage: sum.Coverage,
 	}
 	for _, r := range results {
 		out.Steps += r.Steps
@@ -66,9 +66,6 @@ func RunCampaign(cfg simulator.Config, first uint64, seeds int) (Campaign, error
 		if !r.OK() {
 			out.Failed = append(out.Failed, r)
 		}
-	}
-	for k, c := range sum.Coverage {
-		out.Coverage[k] = simulator.Coverage{Kind: c.Kind, Checks: c.Checks, Passes: c.Passes}
 	}
 	return out, nil
 }
@@ -84,12 +81,12 @@ func (c Campaign) Line() string {
 }
 
 // Summary adds up the coverage of the scenarios of one campaign run.
-type Summary struct{ cov map[string]simulator.Coverage }
+type Summary struct{ cov map[string]dstcampaign.Coverage }
 
 // Add adds the coverage of c.
 func (s *Summary) Add(c Campaign) {
 	if s.cov == nil {
-		s.cov = map[string]simulator.Coverage{}
+		s.cov = map[string]dstcampaign.Coverage{}
 	}
 	for k, c := range c.Coverage {
 		t := s.cov[k]
