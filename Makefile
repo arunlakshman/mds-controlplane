@@ -14,7 +14,7 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race
 
 build: proto fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
@@ -66,6 +66,18 @@ compile:
 
 test:
 	go test ./...
+
+# The test suite under the race detector. It is not part of make build (it is
+# slow). RACE_RUNS repeats it, and RACE_OUT keeps the full output of every run in
+# a file, so a rare failure names its test. Example: make test-race RACE_RUNS=30
+RACE_RUNS ?= 1
+RACE_OUT  ?= build/test-race
+test-race:
+	@mkdir -p $(RACE_OUT)
+	@fail=0; for i in $$(seq 1 $(RACE_RUNS)); do \
+	  if go test -race -count=1 ./... > $(RACE_OUT)/run-$$i.txt 2>&1; then echo "run $$i: ok"; \
+	  else echo "run $$i: FAILED (see $(RACE_OUT)/run-$$i.txt)"; fail=1; fi; \
+	done; exit $$fail
 
 # Deterministic simulation of the replicated control plane: its own tests, then
 # a campaign of SIM_SEEDS seeds for each scenario. A failure prints the command
