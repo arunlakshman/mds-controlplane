@@ -4,8 +4,8 @@
 package realclock
 
 import (
-	dstreal "github.com/arunlakshman/dst/realclock"
-	"github.com/arunlakshman/dst/sched"
+	dstreal "github.com/manifesterio/dst/realclock"
+	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

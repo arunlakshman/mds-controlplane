@@ -1,9 +1,9 @@
 package simulator
 
 import (
-	"github.com/arunlakshman/dst/assert"
-	"github.com/arunlakshman/dst/fault"
-	"github.com/arunlakshman/dst/rng"
+	"github.com/manifesterio/dst/assert"
+	"github.com/manifesterio/dst/fault"
+	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

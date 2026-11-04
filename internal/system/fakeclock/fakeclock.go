@@ -7,8 +7,8 @@ package fakeclock
 import (
 	"time"
 
-	"github.com/arunlakshman/dst/sched"
-	"github.com/arunlakshman/dst/syncclock"
+	"github.com/manifesterio/dst/sched"
+	"github.com/manifesterio/dst/syncclock"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

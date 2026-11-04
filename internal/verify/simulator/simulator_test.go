@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/arunlakshman/dst/mutant"
+	"github.com/manifesterio/dst/mutant"
 )
 
 func mustRun(t *testing.T, cfg Config) Result {

@@ -3,11 +3,11 @@ package simulator
 import (
 	"fmt"
 
-	"github.com/arunlakshman/dst/assert"
-	dstclock "github.com/arunlakshman/dst/clock"
-	"github.com/arunlakshman/dst/rng"
-	"github.com/arunlakshman/dst/sched"
-	"github.com/arunlakshman/dst/trace"
+	"github.com/manifesterio/dst/assert"
+	dstclock "github.com/manifesterio/dst/clock"
+	"github.com/manifesterio/dst/rng"
+	"github.com/manifesterio/dst/sched"
+	"github.com/manifesterio/dst/trace"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	dstcampaign "github.com/arunlakshman/dst/campaign"
+	dstcampaign "github.com/manifesterio/dst/campaign"
 	"github.com/manifesterio/mds-controlplane/internal/verify/simulator"
 )
 

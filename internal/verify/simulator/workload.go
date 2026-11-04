@@ -3,7 +3,7 @@ package simulator
 import (
 	"fmt"
 
-	"github.com/arunlakshman/dst/rng"
+	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )

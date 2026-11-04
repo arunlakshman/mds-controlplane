@@ -7,7 +7,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	dstcampaign "github.com/arunlakshman/dst/campaign"
+	dstcampaign "github.com/manifesterio/dst/campaign"
 	"io"
 	"os"
 	"strings"
