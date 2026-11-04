@@ -8,7 +8,6 @@ package server
 //   - conversions: wireboundary, section "Broker heartbeat"
 //   - membership: the lease rules (who is alive)
 //   - this file: the handler
-//   - client call: controlplaneclient/brokers.go
 //   - broker side: system/production/lease.go sends the heartbeat and turns the
 //     answer into a runtime.LiveBrokers event
 //

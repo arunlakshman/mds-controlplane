@@ -276,7 +276,7 @@ var layerRules = []struct {
 // TestControlPlaneLayers: the domain packages depend inward only. Each one may
 // import the packages in layerRules and the standard library, nothing else. So
 // groups cannot import metadata, nothing in the domain can import an adapter
-// (server, controlplaneclient, wireboundary, api/v1), and the port executor
+// (server, wireboundary, api/v1), and the port executor
 // cannot import dynamolog or sqllog.
 func TestControlPlaneLayers(t *testing.T) {
 	r := loadRepo(t)

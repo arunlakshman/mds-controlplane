@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
+
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
@@ -19,7 +19,7 @@ import (
 // Node is a started gRPC control-plane node.
 type Node struct {
 	Addr   string
-	Client *controlplaneclient.Client
+	Client *Client
 	API    cpv1.ControlPlaneClient
 	stop   func()
 }
@@ -54,7 +54,7 @@ func Start(t testing.TB, config replica.Config, log executor.Log, objs executor.
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli := controlplaneclient.New(ln.Addr().String(), nil)
+	cli := NewClient(ln.Addr().String())
 	stop := func() {
 		_ = cli.Close()
 		_ = conn.Close()

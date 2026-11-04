@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -9,7 +10,7 @@ import (
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
+
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
 	"github.com/manifesterio/mds-controlplane/internal/system"
@@ -45,7 +46,7 @@ func TestPostgresThreeNodesTakeoverWithTrim(t *testing.T) {
 		t.Fatalf("roles %v", r)
 	}
 
-	c := controlplaneclient.New(n0.addr+","+n1.addr+","+n2.addr, nil)
+	c := controlplanetest.NewClient(n0.addr + "," + n1.addr + "," + n2.addr)
 	ctx := t.Context()
 	if err := c.CreateTopic(ctx, "t", 3); err != nil {
 		t.Fatal(err)

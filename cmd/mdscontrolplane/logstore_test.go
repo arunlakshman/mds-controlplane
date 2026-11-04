@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
+
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanemetrics"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/fakedynamodb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
@@ -95,7 +96,7 @@ func waitHealthy(t *testing.T, n *logNode) {
 			t.Fatalf("exited %d before it was healthy\n%s", code, n.logs.String())
 		default:
 		}
-		c := controlplaneclient.New(n.addr, nil)
+		c := controlplanetest.NewClient(n.addr)
 		st, err := c.GetStatus(t.Context())
 		_ = c.Close()
 		if err == nil && st != nil && st.Role != "" {
@@ -128,7 +129,7 @@ func (n *logNode) stop(t *testing.T) int {
 
 func role(t *testing.T, n *logNode) string {
 	t.Helper()
-	c := controlplaneclient.New(n.addr, nil)
+	c := controlplanetest.NewClient(n.addr)
 	st, err := c.GetStatus(t.Context())
 	_ = c.Close()
 	if err != nil || st == nil {
@@ -152,7 +153,7 @@ type acks struct {
 	rngs map[string][]contract.BatchRange // segment key -> assigned
 }
 
-func commitLoop(ctx context.Context, c *controlplaneclient.Client, w int, a *acks, n *atomic.Int64, stop <-chan struct{}) error {
+func commitLoop(ctx context.Context, c *controlplanetest.Client, w int, a *acks, n *atomic.Int64, stop <-chan struct{}) error {
 	for i := 0; ; i++ {
 		select {
 		case <-stop:
@@ -176,7 +177,7 @@ func commitLoop(ctx context.Context, c *controlplaneclient.Client, w int, a *ack
 // commitRetrying is the broker's rule: the same segment key is retried with a
 // short backoff on any transport failure or 503 until a deadline (the real
 // deadline is 120 s; a takeover takes seconds).
-func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation contract.CommitSegment) (runtime.ControlPlaneResponse, error) {
+func commitRetrying(ctx context.Context, c *controlplanetest.Client, operation contract.CommitSegment) (runtime.ControlPlaneResponse, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	for {
@@ -184,8 +185,8 @@ func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation
 		if err == nil || cctx.Err() != nil {
 			return response, err
 		}
-		_, isCallErr := errors.AsType[*controlplaneclient.CallError](err)
-		be, isErr := errors.AsType[*controlplaneclient.Error](err)
+		_, isCallErr := errors.AsType[*controlplanetest.CallError](err)
+		be, isErr := errors.AsType[*controlplanetest.Error](err)
 		retry := isCallErr || (isErr && be.Code == runtime.ErrUnavailable)
 		if !retry {
 			return response, err
@@ -195,7 +196,7 @@ func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation
 }
 
 // partitionsMatch reports whether c's fold holds exactly the acked ranges.
-func partitionsMatch(ctx context.Context, c *controlplaneclient.Client, a *acks) error {
+func partitionsMatch(ctx context.Context, c *controlplanetest.Client, a *acks) error {
 	type run struct{ base, cnt int64 }
 	want := map[contract.TopicPartition]map[run]string{}
 	for key, rs := range a.rngs {
@@ -242,7 +243,7 @@ func partitionsMatch(ctx context.Context, c *controlplaneclient.Client, a *acks)
 // waitPartitions retries until the node's fold matches acks (catch-up after takeover).
 func waitPartitions(t *testing.T, addr string, a *acks) {
 	t.Helper()
-	c := controlplaneclient.New(addr, nil)
+	c := controlplanetest.NewClient(addr)
 	defer func() { _ = c.Close() }()
 	var last error
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -264,7 +265,7 @@ func TestLogStoreThreeNodesTakeover(t *testing.T) {
 		t.Fatalf("roles %v", r)
 	}
 	// Brokers' URL list: preferred node first.
-	c := controlplaneclient.New(n0.addr+","+n1.addr+","+n2.addr, nil)
+	c := controlplanetest.NewClient(n0.addr + "," + n1.addr + "," + n2.addr)
 	ctx := t.Context()
 	if err := c.CreateTopic(ctx, "t", 3); err != nil {
 		t.Fatal(err)
@@ -311,7 +312,7 @@ func TestLogStoreRestartFromFinalCheckpoint(t *testing.T) {
 	db, objs := newFake(t), executor.NewMemoryObjects()
 	d := fakeDeps(db, objs)
 	n := startLogNode(t, d, "n0", 0, "-checkpoint-every", "-1s")
-	c := controlplaneclient.New(n.addr, nil)
+	c := controlplanetest.NewClient(n.addr)
 	if err := c.CreateTopic(t.Context(), "t", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +329,7 @@ func TestLogStoreRestartFromFinalCheckpoint(t *testing.T) {
 	}
 	// Restart against the same Dynamo log: catch-up rebuilds fold state.
 	n2 := startLogNode(t, d, "n0", 0, "-checkpoint-every", "-1s")
-	response, err := controlplaneclient.New(n2.addr, nil).Call(t.Context(), contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
+	response, err := controlplanetest.NewClient(n2.addr).Call(t.Context(), contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
 	if err != nil || response.(contract.FindSegmentsResp).End != 15 {
 		t.Fatalf("after restart: %v %+v\n%s", err, response, n2.logs.String())
 	}
@@ -521,7 +522,7 @@ func TestPostgresStoreCommitAndLookup(t *testing.T) {
 	t.Cleanup(func() { dropPostgresTables(t, dsn, prefix) })
 	n := startNode(t, realDeps(), []string{"-store", kindPostgres, "-postgres-dsn", dsn, "-postgres-prefix", prefix,
 		"-create-tables", "-checkpoint-bucket", "", "-node-name", "n0", "-rank", "0"})
-	c := controlplaneclient.New(n.addr, nil)
+	c := controlplanetest.NewClient(n.addr)
 	defer func() { _ = c.Close() }()
 	waitRole(t, n, "active")
 	if err := c.CreateTopic(t.Context(), "t", 1); err != nil {

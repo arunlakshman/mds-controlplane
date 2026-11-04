@@ -15,7 +15,7 @@ import (
 	"pgregory.net/rapid"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
+
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/memorystore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
@@ -255,11 +255,11 @@ func TestConformGRPC(t *testing.T) {
 	})
 }
 
-type grpcRunner struct{ c *controlplaneclient.Client }
+type grpcRunner struct{ c *Client }
 
 func (g grpcRunner) Exec(ctx context.Context, op runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	r, err := g.c.Call(ctx, op)
-	if be, ok := errors.AsType[*controlplaneclient.Error](err); ok {
+	if be, ok := errors.AsType[*Error](err); ok {
 		return runtime.ControlPlaneDone{Err: be.Code}, nil
 	}
 	return runtime.ControlPlaneDone{Resp: r}, err

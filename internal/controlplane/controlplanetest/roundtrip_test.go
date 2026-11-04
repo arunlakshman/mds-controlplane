@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
+
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -36,11 +36,8 @@ func TestRoundTrip(t *testing.T) {
 	}
 	commit.Batches[0].Records = 9
 	_, err = c.Call(ctx, commit)
-	be, ok := errors.AsType[*controlplaneclient.Error](err)
+	be, ok := errors.AsType[*Error](err)
 	if !ok || be.Code != runtime.ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
-	}
-	if code, out := (controlplaneclient.Classifier{}).Classify(runtime.ControlPlaneCall{Op: commit}, err); code != runtime.ErrConflict || out != runtime.NotApplied {
-		t.Fatalf("classify: %v %v", code, out)
 	}
 }

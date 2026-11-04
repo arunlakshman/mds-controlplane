@@ -1,6 +1,6 @@
 // Package controlplane is the control-plane service tree (renamed from cp/).
 // Production mdscontrolplane serves gRPC via controlplane/server over controlplane/runloop
-// and controlplane/replica (CP-DSM-7). Brokers dial through controlplane/controlplaneclient.
+// and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/v1) with their own client.
 //
 // The gRPC wire contract is controlplane/api/v1 (decision 57). Veritas remains
 // the independent oracle and shares schema types via wireboundary, not apply code
@@ -18,8 +18,6 @@
 // # Map of the packages
 //
 //   - api/v1: the gRPC wire contract, defined in controlplane.proto.
-//   - controlplaneclient: the broker-side adapter. It is a system.ControlPlane
-//     over the gRPC API, with one file per context like server.
 //   - wireboundary: the only place that maps between contract types and the wire
 //     (api/v1) messages. It holds no logic.
 //   - server: the gRPC adapter for the control-plane machine. It has one file
@@ -71,5 +69,4 @@
 //     topics and groups/storage import module and kv, and not each other. executor imports runloop. dynamolog and sqllog
 //     import executor. Domain packages import no third-party package; see
 //     TestControlPlaneLayers in architecture_test.go.
-//   - controlplaneclient imports api/v1 and wireboundary, and calls the gRPC API.
 package controlplane

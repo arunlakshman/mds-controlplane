@@ -15,7 +15,7 @@ import (
 // The topics RPCs: CommitSegment, Lookup, DescribeTopics and CreateTopic. Each
 // one is a module operation. It converts the request, runs the operation with
 // runOperation (a command goes to the log, a read is answered by the fold), and
-// converts the answer. The client side is controlplaneclient/topics.go.
+// converts the answer.
 
 // isCommand reports whether operation is written to the log. Any other
 // operation is a read, answered by the fold.
