@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"reflect"
 	"slices"
 	"strings"
@@ -96,7 +97,7 @@ func offsetCommitRespToCore(r *cpv1.GroupOffsetCommitResponse) contract.OffsetCo
 func offsetFetchFromCore(operation contract.OffsetFetch) *cpv1.GroupOffsetFetchRequest {
 	return &cpv1.GroupOffsetFetchRequest{
 		Group:      operation.Group,
-		Partitions: mapSlice(operation.Partitions, topicPartitionFromCore),
+		Partitions: mapSlice(operation.Partitions, wire.TopicPartitionFromCore),
 	}
 }
 
@@ -109,7 +110,7 @@ func offsetFetchRespToCore(r *cpv1.GroupOffsetFetchResponse) contract.OffsetFetc
 // types, PartitionOffsetCommit and PartitionOffset.
 func partitionOffsetCommitFromCore(o contract.PartitionOffset) *cpv1.PartitionOffsetCommit {
 	return &cpv1.PartitionOffsetCommit{
-		Tp: topicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
+		Tp: wire.TopicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
 	}
 }
 
@@ -293,16 +294,16 @@ func TestBrokerHeartbeatRoundTrip(t *testing.T) {
 
 // Nil messages and empty lists must give zero values, never a panic.
 func TestNilAndEmptyInputs(t *testing.T) {
-	sameValue(t, "nil commit", commitSegmentToCore(nil), contract.CommitSegment{})
-	sameValue(t, "nil lookup", lookupToCore(nil), contract.FindSegments{})
-	sameValue(t, "nil describe", describeTopicsToCore(nil), contract.DescribeTopics{})
+	sameValue(t, "nil commit", wire.CommitSegmentRequestToCore(nil), contract.CommitSegment{})
+	sameValue(t, "nil lookup", wire.LookupRequestToCore(nil), contract.FindSegments{})
+	sameValue(t, "nil describe", wire.DescribeTopicsRequestToCore(nil), contract.DescribeTopics{})
 	sameValue(t, "nil join", joinGroupToCore(nil), groups.JoinReq{})
 	sameValue(t, "nil join resp", joinGroupRespToCore(nil), groups.JoinResp{})
 	sameValue(t, "nil broker heartbeat", brokerHeartbeatToCore(nil), contract.BrokerAddr{})
 	sameValue(t, "empty live set", brokerHeartbeatRespToCore(brokerHeartbeatRespFromCore(nil)), []contract.BrokerAddr(nil))
 
 	// A batch with missing parts keeps its place and gets zero values.
-	got := commitSegmentToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*cpv1.PendingBatch{{Records: 2}}})
+	got := wire.CommitSegmentRequestToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*cpv1.PendingBatch{{Records: 2}}})
 	sameValue(t, "partial batch", got, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{{Records: 2}}})
 }
 

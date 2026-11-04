@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"slices"
 	"time"
 
@@ -348,7 +349,7 @@ func offsetCommitRespFromCore(r contract.OffsetCommitResp) *cpv1.GroupOffsetComm
 func offsetFetchToCore(request *cpv1.GroupOffsetFetchRequest) contract.OffsetFetch {
 	return contract.OffsetFetch{
 		Group:      request.GetGroup(),
-		Partitions: mapSlice(request.GetPartitions(), topicPartitionToCore),
+		Partitions: mapSlice(request.GetPartitions(), wire.TopicPartitionToCore),
 	}
 }
 
@@ -359,13 +360,13 @@ func offsetFetchRespFromCore(r contract.OffsetFetchResp) *cpv1.GroupOffsetFetchR
 
 func partitionOffsetCommitToCore(o *cpv1.PartitionOffsetCommit) contract.PartitionOffset {
 	return contract.PartitionOffset{
-		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
+		TopicPartition: wire.TopicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
 	}
 }
 
 func partitionOffsetToCore(o *cpv1.PartitionOffset) contract.PartitionOffset {
 	return contract.PartitionOffset{
-		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
+		TopicPartition: wire.TopicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
 	}
 }
 
@@ -403,6 +404,6 @@ func listGroupsRespFromCore(groups []contract.GroupSummary) *cpv1.ListGroupsResp
 
 func partitionOffsetFromCore(o contract.PartitionOffset) *cpv1.PartitionOffset {
 	return &cpv1.PartitionOffset{
-		Tp: topicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
+		Tp: wire.TopicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,21 +169,21 @@ func rpc[Req, Resp any](ctx context.Context, c *Client, name string,
 func (c *Client) Call(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error) {
 	switch op := operation.(type) {
 	case contract.CommitSegment:
-		return rpc(ctx, c, "CommitSegment", cpv1.ControlPlaneClient.CommitSegment, commitSegmentRequest(op),
+		return rpc(ctx, c, "CommitSegment", cpv1.ControlPlaneClient.CommitSegment, wire.CommitSegmentRequestFromCore(op),
 			func(r *cpv1.CommitSegmentResponse) runtime.ControlPlaneResponse {
-				return commitSegmentAnswer(r)
+				return wire.CommitSegmentResponseToCore(r)
 			})
 	case contract.FindSegments:
-		return rpc(ctx, c, "Lookup", cpv1.ControlPlaneClient.Lookup, lookupRequest(op),
-			func(r *cpv1.LookupResponse) runtime.ControlPlaneResponse { return lookupAnswer(r) })
+		return rpc(ctx, c, "Lookup", cpv1.ControlPlaneClient.Lookup, wire.LookupRequestFromCore(op),
+			func(r *cpv1.LookupResponse) runtime.ControlPlaneResponse { return wire.LookupResponseToCore(r) })
 	case contract.DescribeTopics:
-		return rpc(ctx, c, "DescribeTopics", cpv1.ControlPlaneClient.DescribeTopics, describeTopicsRequest(op),
+		return rpc(ctx, c, "DescribeTopics", cpv1.ControlPlaneClient.DescribeTopics, wire.DescribeTopicsRequestFromCore(op),
 			func(r *cpv1.DescribeTopicsResponse) runtime.ControlPlaneResponse {
-				return describeTopicsAnswer(r)
+				return wire.DescribeTopicsResponseToCore(r)
 			})
 	case contract.CreateTopic:
 		return rpc(ctx, c, "CreateTopic", cpv1.ControlPlaneClient.CreateTopic,
-			&cpv1.CreateTopicRequest{Topic: op.Name, Partitions: op.Partitions, FailIfExists: op.FailIfExists},
+			wire.CreateTopicRequestFromCore(op),
 			func(*cpv1.CreateTopicResponse) runtime.ControlPlaneResponse { return nil })
 	}
 	return nil, &Error{Code: runtime.ErrInvalid}

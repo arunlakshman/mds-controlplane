@@ -2,7 +2,6 @@ package server
 
 import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -77,37 +76,4 @@ func mapSlice[From, To any](in []From, convert func(From) To) []To {
 		out[i] = convert(item)
 	}
 	return out
-}
-
-func topicPartitionFromCore(tp contract.TopicPartition) *cpv1.TopicPartition {
-	return &cpv1.TopicPartition{Topic: tp.Topic, Partition: tp.Partition}
-}
-
-func topicPartitionToCore(tp *cpv1.TopicPartition) contract.TopicPartition {
-	return contract.NewTopicPartition(tp.GetTopic(), tp.GetPartition())
-}
-
-func segmentRefFromCore(ref runtime.SegmentRef) *cpv1.SegmentRef {
-	return &cpv1.SegmentRef{Key: ref.Key, Off: ref.Off, Len: ref.Len}
-}
-
-func segmentRefToCore(ref *cpv1.SegmentRef) runtime.SegmentRef {
-	return runtime.SegmentRef{Key: ref.GetKey(), Off: ref.GetOff(), Len: ref.GetLen()}
-}
-
-func pendingBatchToCore(b *cpv1.PendingBatch) contract.PendingBatch {
-	return contract.PendingBatch{
-		TopicPartition: topicPartitionToCore(b.GetTp()),
-		Records:        b.GetRecords(),
-		Loc:            segmentRefToCore(b.GetLoc()),
-	}
-}
-
-func batchRangeFromCore(br contract.BatchRange) *cpv1.BatchRange {
-	return &cpv1.BatchRange{
-		Tp:    topicPartitionFromCore(br.TopicPartition),
-		Base:  int64(br.Base),
-		Count: br.Count,
-		Loc:   segmentRefFromCore(br.Loc),
-	}
 }

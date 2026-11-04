@@ -23,12 +23,6 @@ type BrokerAddr struct {
 	Port   int32
 }
 
-// TopicPartition names one partition of a topic.
-type TopicPartition struct {
-	Topic     string
-	Partition int32
-}
-
 // NewTopicPartition builds a TopicPartition.
 func NewTopicPartition(topic string, partition int32) TopicPartition {
 	return TopicPartition{Topic: topic, Partition: partition}
@@ -36,86 +30,6 @@ func NewTopicPartition(topic string, partition int32) TopicPartition {
 
 func (topicPartition TopicPartition) String() string {
 	return fmt.Sprintf("%s-%d", topicPartition.Topic, topicPartition.Partition)
-}
-
-// CommitSegment registers one uploaded object holding batches for many
-// partitions and assigns their offsets atomically: every batch is assigned or
-// none is.
-//
-// Each batch gets Base = the partition's next offset, the end of its newest
-// run (0 for an empty log), in request order: a later batch of the same
-// partition continues after the earlier one. Offsets are contiguous per
-// partition and never reused, whatever the interleaving of committers.
-//
-// MUST be idempotent per SegmentKey: a replay of a committed key with an
-// identical request returns the originally assigned ranges, never new ones
-// (so a retry after MaybeApplied is safe); the same key with a different
-// request is ErrConflict. ErrConflict is also the answer for a LogAppend that
-// the log refused because its slot is at or below the floor (not a commit,
-// Outcome NotApplied). Those are the only two uses.
-type CommitSegment struct {
-	SegmentKey string
-	Batches    []PendingBatch
-}
-
-// PendingBatch describes one uploaded batch awaiting offset assignment.
-type PendingBatch struct {
-	TopicPartition TopicPartition
-	Records        int64 // record count in the batch
-	Loc            runtime.SegmentRef
-}
-
-// CommitSegmentResp has one entry per request batch, in request order.
-type CommitSegmentResp struct{ Assigned []BatchRange }
-
-// BatchRange is one batch of a partition's log: records [Base, Base+Count)
-// stored at Loc.
-type BatchRange struct {
-	TopicPartition TopicPartition
-	Base           Offset
-	Count          int64
-	Loc            runtime.SegmentRef
-}
-
-// FindSegments finds which segments hold offsets >= From for a partition.
-type FindSegments struct {
-	TopicPartition TopicPartition
-	From           Offset
-	MaxBytes       int32
-}
-
-// FindSegmentsResp lists the batches holding offsets >= From in offset order. End is
-// the partition end offset (the next offset to be assigned, ListOffsets
-// latest), derived from the newest run.
-type FindSegmentsResp struct {
-	Ranges []BatchRange
-	End    Offset
-}
-
-// DescribeTopics answers Kafka Metadata requests.
-type DescribeTopics struct{ Topics []string } // empty = all
-
-// DescribeTopicsResp answers DescribeTopics.
-type DescribeTopicsResp struct{ Topics []TopicInfo }
-
-// TopicInfo describes one topic.
-type TopicInfo struct {
-	Name       string
-	Partitions int32
-}
-
-// CreateTopic creates a topic with at least Partitions partitions. ErrInvalid
-// for an empty name or Partitions <= 0. The reply has no response.
-//
-// With FailIfExists the create is exclusive: if the topic already exists the
-// answer is ErrTopicExists and nothing changes. The check and the create are
-// one step in the control plane, so two creates of the same new name cannot
-// both succeed. Without it an existing topic is not an error, and the topic
-// keeps the larger of its old and new partition counts.
-type CreateTopic struct {
-	Name         string
-	Partitions   int32
-	FailIfExists bool
 }
 
 // GroupMember is one member of a consumer group, as the join phase gives it.

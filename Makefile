@@ -14,9 +14,9 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire wire-check
 
-build: proto fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
+build: proto wire-check fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
 # Generate Go from internal/controlplane/api/v1/*.proto into ignored *.pb.go files.
 proto: proto-tools
@@ -60,6 +60,15 @@ ascii-check:
 # Determinism gate for internal/runtime, the contract and the deterministic domain packages.
 determinism:
 	bash ops/scripts/ci-determinism.sh
+
+# Write the contract value types and the wire converters from the .proto (needs
+# the generated api/v1 package, so run make proto first). wire-check fails when
+# the committed files are out of date.
+wire: proto
+	go run ./ops/tools/wiregen
+
+wire-check:
+	go run ./ops/tools/wiregen -check
 
 compile:
 	go build ./...

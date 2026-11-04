@@ -18,6 +18,8 @@
 // # Map of the packages
 //
 //   - api/v1: the gRPC wire contract, defined in controlplane.proto.
+//   - wire: generated (ops/tools/wiregen, from the .proto) conversions between the
+//     contract value types and the api/v1 messages. No hand-written code.
 //   - server: the gRPC adapter for the control-plane machine. Each handler reads the
 //     generated api/v1 message and builds the contract value itself (the conversions
 //     sit at the end of its file). It has one file
