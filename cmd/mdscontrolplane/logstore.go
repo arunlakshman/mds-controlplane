@@ -17,7 +17,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/dynamolog"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 	"github.com/manifesterio/mds-controlplane/internal/system/runinfo"
 	"github.com/manifesterio/mds-controlplane/internal/system/s3store"
@@ -257,9 +257,9 @@ func (a sysObjects) Put(ctx context.Context, key string, data []byte) error {
 // Get turns the S3 "not found" answer into executor.ErrNotFound. The machine
 // reads this error as "no checkpoint yet, start fresh". Any other error means
 // "try again later", so without this a new bucket would make boot wait forever.
-func (a sysObjects) Get(ctx context.Context, ref core.SegmentRef) ([]byte, error) {
+func (a sysObjects) Get(ctx context.Context, ref runtime.SegmentRef) ([]byte, error) {
 	data, err := a.s.Get(ctx, ref)
-	if storeErr, ok := errors.AsType[*s3store.Error](err); ok && storeErr.Code == core.ErrNotFound {
+	if storeErr, ok := errors.AsType[*s3store.Error](err); ok && storeErr.Code == runtime.ErrNotFound {
 		return nil, executor.ErrNotFound
 	}
 	return data, err

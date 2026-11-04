@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/suites"
@@ -55,9 +55,9 @@ func (r *recorder) Logf(f string, args ...any) { r.logs = append(r.logs, fmt.Spr
 // badObject answers a range outside the object with OK.
 type badObject struct{ suites.ObjectSubject }
 
-func (b badObject) Do(operation core.IOCall) (observation.ObjectResult, error) {
+func (b badObject) Do(operation runtime.IOCall) (observation.ObjectResult, error) {
 	r, err := b.ObjectSubject.Do(operation)
-	if _, ok := operation.(core.ObjectGet); ok && r.Code == core.ErrInvalid {
+	if _, ok := operation.(runtime.ObjectGet); ok && r.Code == runtime.ErrInvalid {
 		return observation.ObjectResult{}, nil
 	}
 	return r, err
@@ -72,7 +72,7 @@ func TestFailureReportHasSeedReplayAndLiteral(t *testing.T) {
 		t.Fatalf("the suite reported %d errors, but it must report exactly 1.", len(rec.errors))
 	}
 	out := rec.errors[0]
-	for _, want := range []string{"seed ", "replay: go test", "shrunk sequence:", "[]core.IOCall{", "core.ObjectGet{"} {
+	for _, want := range []string{"seed ", "replay: go test", "shrunk sequence:", "[]runtime.IOCall{", "runtime.ObjectGet{"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the failure report does not contain %q. The report is:\n%s", want, out)
 		}
@@ -82,7 +82,7 @@ func TestFailureReportHasSeedReplayAndLiteral(t *testing.T) {
 // brokenPlumbing returns an error from Do.
 type brokenPlumbing struct{ suites.ObjectSubject }
 
-func (brokenPlumbing) Do(core.IOCall) (observation.ObjectResult, error) {
+func (brokenPlumbing) Do(runtime.IOCall) (observation.ObjectResult, error) {
 	return observation.ObjectResult{}, errors.New("no completion arrived")
 }
 

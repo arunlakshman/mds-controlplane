@@ -3,7 +3,7 @@ package speccheck
 import (
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 )
 
 func TestPartition(t *testing.T) {
@@ -31,7 +31,7 @@ func TestPartition(t *testing.T) {
 		t.Fatalf("read at hwm: %+v %v", recs, ok)
 	}
 	for _, from := range []int64{-1, 4} {
-		if _, ok := p.Read(core.Offset(from), 0); ok {
+		if _, ok := p.Read(contract.Offset(from), 0); ok {
 			t.Fatalf("read %d ok", from)
 		}
 	}

@@ -7,35 +7,35 @@ import (
 	"google.golang.org/grpc/status"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// TestToRPCErrorTable: every core error code maps to one gRPC code and carries
+// TestToRPCErrorTable: every runtime error code maps to one gRPC code and carries
 // an ErrorDetail with the matching wire code and outcome.
 func TestToRPCErrorTable(t *testing.T) {
 	cases := []struct {
-		code   core.ErrCode
+		code   runtime.ErrCode
 		want   codes.Code
 		detail cpv1.ErrCode
 	}{
-		{core.ErrTimeout, codes.DeadlineExceeded, cpv1.ErrCode_ERR_CODE_TIMEOUT},
-		{core.ErrUnavailable, codes.Unavailable, cpv1.ErrCode_ERR_CODE_UNAVAILABLE},
-		{core.ErrNotFound, codes.NotFound, cpv1.ErrCode_ERR_CODE_NOT_FOUND},
-		{core.ErrConflict, codes.AlreadyExists, cpv1.ErrCode_ERR_CODE_CONFLICT},
-		{core.ErrConnClosed, codes.Internal, cpv1.ErrCode_ERR_CODE_CONN_CLOSED},
-		{core.ErrTooLarge, codes.ResourceExhausted, cpv1.ErrCode_ERR_CODE_TOO_LARGE},
-		{core.ErrCorrupt, codes.Internal, cpv1.ErrCode_ERR_CODE_CORRUPT},
-		{core.ErrInvalid, codes.InvalidArgument, cpv1.ErrCode_ERR_CODE_INVALID},
-		{core.ErrIO, codes.Internal, cpv1.ErrCode_ERR_CODE_IO},
-		{core.ErrUnknownMember, codes.NotFound, cpv1.ErrCode_ERR_CODE_UNKNOWN_MEMBER},
-		{core.ErrIllegalGeneration, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_ILLEGAL_GENERATION},
-		{core.ErrUnknownPartition, codes.NotFound, cpv1.ErrCode_ERR_CODE_UNKNOWN_PARTITION},
-		{core.ErrRebalanceInProgress, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_REBALANCE_IN_PROGRESS},
-		{core.ErrInconsistentGroupProtocol, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_INCONSISTENT_GROUP_PROTOCOL},
-		{core.ErrTopicExists, codes.AlreadyExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
+		{runtime.ErrTimeout, codes.DeadlineExceeded, cpv1.ErrCode_ERR_CODE_TIMEOUT},
+		{runtime.ErrUnavailable, codes.Unavailable, cpv1.ErrCode_ERR_CODE_UNAVAILABLE},
+		{runtime.ErrNotFound, codes.NotFound, cpv1.ErrCode_ERR_CODE_NOT_FOUND},
+		{runtime.ErrConflict, codes.AlreadyExists, cpv1.ErrCode_ERR_CODE_CONFLICT},
+		{runtime.ErrConnClosed, codes.Internal, cpv1.ErrCode_ERR_CODE_CONN_CLOSED},
+		{runtime.ErrTooLarge, codes.ResourceExhausted, cpv1.ErrCode_ERR_CODE_TOO_LARGE},
+		{runtime.ErrCorrupt, codes.Internal, cpv1.ErrCode_ERR_CODE_CORRUPT},
+		{runtime.ErrInvalid, codes.InvalidArgument, cpv1.ErrCode_ERR_CODE_INVALID},
+		{runtime.ErrIO, codes.Internal, cpv1.ErrCode_ERR_CODE_IO},
+		{runtime.ErrUnknownMember, codes.NotFound, cpv1.ErrCode_ERR_CODE_UNKNOWN_MEMBER},
+		{runtime.ErrIllegalGeneration, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_ILLEGAL_GENERATION},
+		{runtime.ErrUnknownPartition, codes.NotFound, cpv1.ErrCode_ERR_CODE_UNKNOWN_PARTITION},
+		{runtime.ErrRebalanceInProgress, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_REBALANCE_IN_PROGRESS},
+		{runtime.ErrInconsistentGroupProtocol, codes.FailedPrecondition, cpv1.ErrCode_ERR_CODE_INCONSISTENT_GROUP_PROTOCOL},
+		{runtime.ErrTopicExists, codes.AlreadyExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
 	}
 	for _, c := range cases {
-		err := toRPCError(c.code, core.MaybeApplied)
+		err := toRPCError(c.code, runtime.MaybeApplied)
 		st, ok := status.FromError(err)
 		if !ok {
 			t.Fatalf("%v: not a status error: %v", c.code, err)
@@ -66,7 +66,7 @@ func TestToRPCErrorTable(t *testing.T) {
 
 // TestToRPCErrorOKIsNil: an OK code is not an error.
 func TestToRPCErrorOKIsNil(t *testing.T) {
-	if err := toRPCError(core.OK, core.Applied); err != nil {
+	if err := toRPCError(runtime.OK, runtime.Applied); err != nil {
 		t.Fatalf("OK: err = %v, want nil", err)
 	}
 }

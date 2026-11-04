@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
 )
 
@@ -23,7 +24,7 @@ func TestProtocolMismatch(t *testing.T) {
 	// A second member with another protocol type is refused at once.
 	other := h.joinReq("p", "")
 	other.ProtocolType = "connect"
-	if r, err := h.c.JoinGroup(t.Context(), other); err != nil || r.Err != core.ErrInconsistentGroupProtocol {
+	if r, err := h.c.JoinGroup(t.Context(), other); err != nil || r.Err != runtime.ErrInconsistentGroupProtocol {
 		t.Fatalf("wrong type: %+v %v", r, err)
 	}
 	h.clock.Advance(defaultInitialRebalanceDelay)
@@ -35,10 +36,10 @@ func TestProtocolMismatch(t *testing.T) {
 	a, chA2 := h2.join("q", "range")
 	b, chB := h2.join("q", "roundrobin")
 	h2.clock.Advance(defaultInitialRebalanceDelay)
-	if r := h2.recvJoin(chA2); r.response.Err != core.ErrInconsistentGroupProtocol {
+	if r := h2.recvJoin(chA2); r.response.Err != runtime.ErrInconsistentGroupProtocol {
 		t.Fatalf("a: %+v", r.response)
 	}
-	if r := h2.recvJoin(chB); r.response.Err != core.ErrInconsistentGroupProtocol {
+	if r := h2.recvJoin(chB); r.response.Err != runtime.ErrInconsistentGroupProtocol {
 		t.Fatalf("b: %+v", r.response)
 	}
 	if v := peek(h2.c, "q"); v.phase != "PreparingRebalance" || !slices.Equal(v.members, []string{a, b}) {
@@ -47,7 +48,7 @@ func TestProtocolMismatch(t *testing.T) {
 	chA3 := h2.rejoin("q", a, "range", "roundrobin")
 	chB2 := h2.rejoin("q", b, "roundrobin")
 	ra, rb := h2.recvJoin(chA3), h2.recvJoin(chB2)
-	if ra.response.Err != core.OK || rb.response.Err != core.OK || ra.response.Protocol != "roundrobin" || rb.response.Generation != 1 {
+	if ra.response.Err != runtime.OK || rb.response.Err != runtime.OK || ra.response.Protocol != "roundrobin" || rb.response.Generation != 1 {
 		t.Fatalf("retry: %+v / %+v", ra.response, rb.response)
 	}
 }
@@ -61,15 +62,15 @@ func TestEmptyMemberIDAndBadJoins(t *testing.T) {
 	waitUntil(t, func() bool { return peek(h.c, "g").joined["cli-m1"] })
 	h.clock.Advance(defaultInitialRebalanceDelay)
 	r := h.recvJoin(ch)
-	if r.response.Err != core.OK || r.response.MemberID != "cli-m1" {
+	if r.response.Err != runtime.OK || r.response.MemberID != "cli-m1" {
 		t.Fatalf("new member id: %+v", r.response)
 	}
-	if r, err := h.c.JoinGroup(t.Context(), h.joinReq("g", "nobody")); err != nil || r.Err != core.ErrUnknownMember {
+	if r, err := h.c.JoinGroup(t.Context(), h.joinReq("g", "nobody")); err != nil || r.Err != runtime.ErrUnknownMember {
 		t.Fatalf("unknown member id: %+v %v", r, err)
 	}
 	bad := h.joinReq("g", "")
 	bad.SessionTimeoutMs = 0
-	if r, err := h.c.JoinGroup(t.Context(), bad); err != nil || r.Err != core.ErrInvalid {
+	if r, err := h.c.JoinGroup(t.Context(), bad); err != nil || r.Err != runtime.ErrInvalid {
 		t.Fatalf("zero session: %+v %v", r, err)
 	}
 }
@@ -77,35 +78,35 @@ func TestEmptyMemberIDAndBadJoins(t *testing.T) {
 func TestSyncRules(t *testing.T) {
 	h := newHarness(t, Config{})
 	a, chA := h.join("g")
-	if r, _ := h.c.SyncGroup(t.Context(), SyncReq{Group: "nope", MemberID: a, Generation: 1}); r.Err != core.ErrUnknownMember {
+	if r, _ := h.c.SyncGroup(t.Context(), SyncReq{Group: "nope", MemberID: a, Generation: 1}); r.Err != runtime.ErrUnknownMember {
 		t.Fatalf("unknown group: %v", r.Err)
 	}
 	// The round is open: a sync is refused with a rebalance in progress.
-	if r := h.sync("g", a, 0); r.Err != core.ErrRebalanceInProgress {
+	if r := h.sync("g", a, 0); r.Err != runtime.ErrRebalanceInProgress {
 		t.Fatalf("open round: %v", r.Err)
 	}
-	if r := h.sync("g", "zz", 0); r.Err != core.ErrUnknownMember {
+	if r := h.sync("g", "zz", 0); r.Err != runtime.ErrUnknownMember {
 		t.Fatalf("unknown member: %v", r.Err)
 	}
 	h.clock.Advance(defaultInitialRebalanceDelay)
 	h.recvJoin(chA)
-	if r := h.sync("g", a, 9); r.Err != core.ErrIllegalGeneration {
+	if r := h.sync("g", a, 9); r.Err != runtime.ErrIllegalGeneration {
 		t.Fatalf("wrong generation: %v", r.Err)
 	}
-	if r := h.sync("g", "zz", 1); r.Err != core.ErrUnknownMember {
+	if r := h.sync("g", "zz", 1); r.Err != runtime.ErrUnknownMember {
 		t.Fatalf("unknown sync member: %v", r.Err)
 	}
-	if r := h.sync("g", a, 1, Assignment{Member: "zz"}); r.Err != core.ErrUnknownMember {
+	if r := h.sync("g", a, 1, Assignment{Member: "zz"}); r.Err != runtime.ErrUnknownMember {
 		t.Fatalf("assignment to unknown member: %v", r.Err)
 	}
-	if r := h.sync("g", a, 1, Assignment{Member: a}, Assignment{Member: a}); r.Err != core.ErrInvalid {
+	if r := h.sync("g", a, 1, Assignment{Member: a}, Assignment{Member: a}); r.Err != runtime.ErrInvalid {
 		t.Fatalf("duplicate assignment: %v", r.Err)
 	}
-	if r := h.sync("g", a, 1, Assignment{Member: a, Bytes: []byte("ok")}); r.Err != core.OK {
+	if r := h.sync("g", a, 1, Assignment{Member: a, Bytes: []byte("ok")}); r.Err != runtime.OK {
 		t.Fatalf("leader sync: %v", r.Err)
 	}
 	// Stable: the stored assignment comes back at once, to any member.
-	if r := h.sync("g", a, 1); r.Err != core.OK || string(r.Assignment) != "ok" {
+	if r := h.sync("g", a, 1); r.Err != runtime.OK || string(r.Assignment) != "ok" {
 		t.Fatalf("stable sync: %+v", r)
 	}
 }
@@ -113,41 +114,41 @@ func TestSyncRules(t *testing.T) {
 func TestOffsetCommitChecks(t *testing.T) {
 	h := newHarness(t, Config{})
 	ctx := t.Context()
-	if code, err := storecall.Code(ctx, h.store, core.CreateTopic{Name: "t", Partitions: 2}); err != nil || code != core.OK {
+	if code, err := storecall.Code(ctx, h.store, contract.CreateTopic{Name: "t", Partitions: 2}); err != nil || code != runtime.OK {
 		t.Fatalf("topic: %v %v", code, err)
 	}
 	a, _ := h.stableTwo("g")
-	commit := func(member string, gen int32, offs ...core.PartitionOffset) (core.OffsetCommitResp, core.ErrCode) {
-		return h.c.OffsetCommit(ctx, core.OffsetCommit{Group: "g", Member: member, Generation: gen, Offsets: offs})
+	commit := func(member string, gen int32, offs ...contract.PartitionOffset) (contract.OffsetCommitResp, runtime.ErrCode) {
+		return h.c.OffsetCommit(ctx, contract.OffsetCommit{Group: "g", Member: member, Generation: gen, Offsets: offs})
 	}
-	tp0 := core.NewTopicPartition("t", 0)
+	tp0 := contract.NewTopicPartition("t", 0)
 	response, code := commit(a, 2,
-		core.PartitionOffset{TopicPartition: tp0, Offset: 5},
-		core.PartitionOffset{TopicPartition: core.NewTopicPartition("t", 9), Offset: 1},
-		core.PartitionOffset{TopicPartition: tp0, Offset: -1},
+		contract.PartitionOffset{TopicPartition: tp0, Offset: 5},
+		contract.PartitionOffset{TopicPartition: contract.NewTopicPartition("t", 9), Offset: 1},
+		contract.PartitionOffset{TopicPartition: tp0, Offset: -1},
 	)
-	if code != core.OK || !slices.Equal(response.Errs, []core.ErrCode{core.OK, core.ErrUnknownPartition, core.ErrInvalid}) {
+	if code != runtime.OK || !slices.Equal(response.Errs, []runtime.ErrCode{runtime.OK, runtime.ErrUnknownPartition, runtime.ErrInvalid}) {
 		t.Fatalf("commit: %v %v", code, response.Errs)
 	}
-	if _, code := commit(a, 1, core.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != core.ErrIllegalGeneration {
+	if _, code := commit(a, 1, contract.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != runtime.ErrIllegalGeneration {
 		t.Fatalf("wrong generation: %v", code)
 	}
-	if _, code := commit("zz", 2, core.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != core.ErrUnknownMember {
+	if _, code := commit("zz", 2, contract.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != runtime.ErrUnknownMember {
 		t.Fatalf("unknown member: %v", code)
 	}
-	if _, code := commit("", -1, core.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != core.ErrIllegalGeneration {
+	if _, code := commit("", -1, contract.PartitionOffset{TopicPartition: tp0, Offset: 6}); code != runtime.ErrIllegalGeneration {
 		t.Fatalf("manual commit with members: %v", code)
 	}
-	if _, code := h.c.OffsetCommit(ctx, core.OffsetCommit{Group: "fresh", Generation: -1, Offsets: []core.PartitionOffset{{TopicPartition: tp0, Offset: 3}}}); code != core.OK {
+	if _, code := h.c.OffsetCommit(ctx, contract.OffsetCommit{Group: "fresh", Generation: -1, Offsets: []contract.PartitionOffset{{TopicPartition: tp0, Offset: 3}}}); code != runtime.OK {
 		t.Fatalf("manual commit, no members: %v", code)
 	}
-	f, code := h.c.OffsetFetch(ctx, core.OffsetFetch{Group: "g", Partitions: []core.TopicPartition{tp0}})
-	if code != core.OK || len(f.Offsets) != 1 || f.Offsets[0].Offset != 5 {
+	f, code := h.c.OffsetFetch(ctx, contract.OffsetFetch{Group: "g", Partitions: []contract.TopicPartition{tp0}})
+	if code != runtime.OK || len(f.Offsets) != 1 || f.Offsets[0].Offset != 5 {
 		t.Fatalf("fetch: %v %+v", code, f)
 	}
 	lg, code := h.c.ListGroups(ctx)
 	// "fresh" has no installed generation, so the log does not list it.
-	if code != core.OK || len(lg) != 1 || lg[0].Name != "g" {
+	if code != runtime.OK || len(lg) != 1 || lg[0].Name != "g" {
 		t.Fatalf("list: %v %+v", code, lg)
 	}
 }
@@ -166,13 +167,13 @@ func TestLeaderNeverSyncs(t *testing.T) {
 	chS := h.syncAsync("g", b, 1)
 	waitUntil(t, func() bool { return peek(h.c, "g").synced[b] })
 	h.clock.Advance(5 * time.Second)
-	if s := h.recvSync(chS); s.response.Err != core.ErrRebalanceInProgress {
+	if s := h.recvSync(chS); s.response.Err != runtime.ErrRebalanceInProgress {
 		t.Fatalf("parked sync after timeout: %+v %v", s.response, s.err)
 	}
 	if v := peek(h.c, "g"); v.phase != "PreparingRebalance" {
 		t.Fatalf("phase after timeout: %s", v.phase)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: b, Generation: 1}); c != core.ErrRebalanceInProgress {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: b, Generation: 1}); c != runtime.ErrRebalanceInProgress {
 		t.Fatalf("heartbeat: %v", c)
 	}
 
@@ -226,7 +227,7 @@ func TestRebuildKeepsMembersAndExpiresSilent(t *testing.T) {
 	if v := peek(c2, "g"); v.phase != "Stable" || len(v.members) != 2 {
 		t.Fatalf("expired during grace: %+v", v)
 	}
-	if c := c2.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != core.OK {
+	if c := c2.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != runtime.OK {
 		t.Fatalf("live member after rebuild: %v", c)
 	}
 	h.clock.Advance(1500 * time.Millisecond)
@@ -242,13 +243,13 @@ func TestCloseWakesParkedCalls(t *testing.T) {
 	h := newHarness(t, Config{})
 	_, ch := h.join("g")
 	h.c.Close()
-	if r := h.recvJoin(ch); r.response.Err != core.ErrUnavailable {
+	if r := h.recvJoin(ch); r.response.Err != runtime.ErrUnavailable {
 		t.Fatalf("parked join after close: %+v", r.response)
 	}
 	if err := h.c.Rebuild(t.Context()); !errors.Is(err, ErrClosed) {
 		t.Fatalf("rebuild after close: %v", err)
 	}
-	if r, _ := h.c.JoinGroup(t.Context(), h.joinReq("g", "")); r.Err != core.ErrUnavailable {
+	if r, _ := h.c.JoinGroup(t.Context(), h.joinReq("g", "")); r.Err != runtime.ErrUnavailable {
 		t.Fatalf("join after close: %+v", r)
 	}
 	if n := h.clock.Pending(); n != 0 {
@@ -270,14 +271,14 @@ func TestStoreFailureBreaksTermAndRebuildRecovers(t *testing.T) {
 	_, ch := h.join("g")
 	flaky.failInstall.Store(true)
 	clock.Advance(defaultInitialRebalanceDelay)
-	if r := h.recvJoin(ch); r.response.Err != core.ErrUnavailable {
+	if r := h.recvJoin(ch); r.response.Err != runtime.ErrUnavailable {
 		t.Fatalf("failed install: %+v", r.response)
 	}
 	if c.Serving() {
 		t.Fatal("broken term still serves")
 	}
 	flaky.failInstall.Store(false)
-	if r, err := c.JoinGroup(t.Context(), h.joinReq("g", "")); err != nil || r.Err != core.ErrUnavailable {
+	if r, err := c.JoinGroup(t.Context(), h.joinReq("g", "")); err != nil || r.Err != runtime.ErrUnavailable {
 		t.Fatalf("join on broken term: %+v %v", r, err)
 	}
 	c.Stop()
@@ -289,7 +290,7 @@ func TestStoreFailureBreaksTermAndRebuildRecovers(t *testing.T) {
 	}
 	_, ch2 := h.join("g")
 	clock.Advance(defaultInitialRebalanceDelay)
-	if r := h.recvJoin(ch2); r.response.Err != core.OK || r.response.Generation != 1 {
+	if r := h.recvJoin(ch2); r.response.Err != runtime.OK || r.response.Generation != 1 {
 		t.Fatalf("join after recovery: %+v", r.response)
 	}
 }
@@ -300,9 +301,9 @@ type flakyStore struct {
 	failInstall atomic.Bool
 }
 
-func (f *flakyStore) Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error) {
-	if _, ok := operation.(core.GroupInstall); ok && f.failInstall.Load() {
-		return core.ControlPlaneDone{}, errors.New("log down")
+func (f *flakyStore) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
+	if _, ok := operation.(contract.GroupInstall); ok && f.failInstall.Load() {
+		return runtime.ControlPlaneDone{}, errors.New("log down")
 	}
 	return f.Store.Exec(ctx, operation)
 }
@@ -334,7 +335,7 @@ func TestConcurrentJoinsOneRound(t *testing.T) {
 	generation := int32(-1)
 	ids := []string{}
 	for i := range n {
-		if errs[i] != nil || res[i].Err != core.OK {
+		if errs[i] != nil || res[i].Err != runtime.OK {
 			t.Fatalf("join %d: %+v %v", i, res[i], errs[i])
 		}
 		if generation == -1 {
@@ -361,7 +362,7 @@ func TestConcurrentJoinsOneRound(t *testing.T) {
 	for _, id := range ids {
 		wg.Go(func() {
 			r, err := c.SyncGroup(t.Context(), SyncReq{Group: "g", MemberID: id, Generation: generation, Assignments: assigns})
-			if err != nil || r.Err != core.OK || string(r.Assignment) != "as-"+id {
+			if err != nil || r.Err != runtime.OK || string(r.Assignment) != "as-"+id {
 				t.Errorf("sync %s: %+v %v", id, r, err)
 			}
 		})

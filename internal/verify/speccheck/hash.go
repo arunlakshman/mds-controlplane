@@ -3,21 +3,22 @@ package speccheck
 import (
 	"slices"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // stateHasher is FNV-1a over a canonical byte stream. Every variable-length field
 // is length-prefixed so distinct states cannot collide by concatenation.
-type stateHasher = core.Hasher
+type stateHasher = runtime.Hasher
 
-func newStateHasher() stateHasher { return core.NewHasher() }
+func newStateHasher() stateHasher { return runtime.NewHasher() }
 
-func hashTopicPartition(h *stateHasher, topicPartition core.TopicPartition) {
+func hashTopicPartition(h *stateHasher, topicPartition contract.TopicPartition) {
 	h.StringValue(topicPartition.Topic)
 	h.Uint64Value(uint64(topicPartition.Partition))
 }
 
-func hashBatchRanges(h *stateHasher, rs []core.BatchRange) {
+func hashBatchRanges(h *stateHasher, rs []contract.BatchRange) {
 	h.Uint64Value(uint64(len(rs)))
 	for _, r := range rs {
 		hashTopicPartition(h, r.TopicPartition)

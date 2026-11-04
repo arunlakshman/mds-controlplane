@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
 
@@ -12,23 +12,23 @@ import (
 // Operation i carries RequestID i+1. The mix includes the empty key, reads past
 // the end of an object, Len <= 0 (read to the end), and prefixes with and
 // without a slash, because each of these is a place where stores differ.
-func ObjectOps(p InputProfile) func(r *checker.Rand, i int) core.IOCall {
-	return func(r *checker.Rand, i int) core.IOCall {
-		request := core.RequestID(i + 1)
+func ObjectOps(p InputProfile) func(r *checker.Rand, i int) runtime.IOCall {
+	return func(r *checker.Rand, i int) runtime.IOCall {
+		request := runtime.RequestID(i + 1)
 		key := pick(r, p.ObjectKeys)
 		if percent(r, p.EmptyKeyPercent) {
 			key = ""
 		}
 		switch chooseByWeight(r, p.PutWeight, p.GetWeight, p.DeleteWeight, p.ListWeight) {
 		case 0:
-			return core.ObjectPut{Req: request, Key: key, Data: randomData(r, p.MaxDataLen)}
+			return runtime.ObjectPut{Req: request, Key: key, Data: randomData(r, p.MaxDataLen)}
 		case 1:
-			ref := core.SegmentRef{Key: key, Off: int64(r.Intn(p.RangeSpan) - 1), Len: int64(r.Intn(p.RangeSpan) - 1)}
-			return core.ObjectGet{Req: request, Ref: ref}
+			ref := runtime.SegmentRef{Key: key, Off: int64(r.Intn(p.RangeSpan) - 1), Len: int64(r.Intn(p.RangeSpan) - 1)}
+			return runtime.ObjectGet{Req: request, Ref: ref}
 		case 2:
-			return core.ObjectDelete{Req: request, Key: key}
+			return runtime.ObjectDelete{Req: request, Key: key}
 		}
-		return core.ObjectList{Req: request, Prefix: pick(r, p.ObjectPrefixes)}
+		return runtime.ObjectList{Req: request, Prefix: pick(r, p.ObjectPrefixes)}
 	}
 }
 
@@ -45,59 +45,59 @@ func randomData(r *checker.Rand, maxLen int) []byte {
 // MinimizeObjectOp returns simpler versions of op, simplest first: less data, a
 // range that starts at 0 and reads to the end, and a shorter key or prefix.
 // It never returns op itself, so a caller that keeps shrinking always ends.
-func MinimizeObjectOp(operation core.IOCall) []core.IOCall {
+func MinimizeObjectOp(operation runtime.IOCall) []runtime.IOCall {
 	switch operation := operation.(type) {
-	case core.ObjectPut:
+	case runtime.ObjectPut:
 		return minimizePut(operation)
-	case core.ObjectGet:
+	case runtime.ObjectGet:
 		return minimizeGet(operation)
-	case core.ObjectDelete:
-		var out []core.IOCall
+	case runtime.ObjectDelete:
+		var out []runtime.IOCall
 		for _, k := range shortenStrings(operation.Key) {
-			out = append(out, core.ObjectDelete{Req: operation.Req, Key: k})
+			out = append(out, runtime.ObjectDelete{Req: operation.Req, Key: k})
 		}
 		return out
-	case core.ObjectList:
-		var out []core.IOCall
+	case runtime.ObjectList:
+		var out []runtime.IOCall
 		for _, p := range shortenStrings(operation.Prefix) {
-			out = append(out, core.ObjectList{Req: operation.Req, Prefix: p})
+			out = append(out, runtime.ObjectList{Req: operation.Req, Prefix: p})
 		}
 		return out
 	}
 	return nil
 }
 
-func minimizePut(operation core.ObjectPut) []core.IOCall {
-	var out []core.IOCall
+func minimizePut(operation runtime.ObjectPut) []runtime.IOCall {
+	var out []runtime.IOCall
 	if len(operation.Data) > 0 {
-		out = append(out, core.ObjectPut{Req: operation.Req, Key: operation.Key, Data: nil})
+		out = append(out, runtime.ObjectPut{Req: operation.Req, Key: operation.Key, Data: nil})
 	}
 	if len(operation.Data) > 1 {
-		out = append(out, core.ObjectPut{Req: operation.Req, Key: operation.Key, Data: operation.Data[:len(operation.Data)/2]})
-		out = append(out, core.ObjectPut{Req: operation.Req, Key: operation.Key, Data: operation.Data[:len(operation.Data)-1]})
+		out = append(out, runtime.ObjectPut{Req: operation.Req, Key: operation.Key, Data: operation.Data[:len(operation.Data)/2]})
+		out = append(out, runtime.ObjectPut{Req: operation.Req, Key: operation.Key, Data: operation.Data[:len(operation.Data)-1]})
 	}
 	for _, k := range shortenStrings(operation.Key) {
-		out = append(out, core.ObjectPut{Req: operation.Req, Key: k, Data: operation.Data})
+		out = append(out, runtime.ObjectPut{Req: operation.Req, Key: k, Data: operation.Data})
 	}
 	return out
 }
 
-func minimizeGet(operation core.ObjectGet) []core.IOCall {
-	var out []core.IOCall
+func minimizeGet(operation runtime.ObjectGet) []runtime.IOCall {
+	var out []runtime.IOCall
 	if operation.Ref.Len != 0 {
 		ref := operation.Ref
 		ref.Len = 0
-		out = append(out, core.ObjectGet{Req: operation.Req, Ref: ref})
+		out = append(out, runtime.ObjectGet{Req: operation.Req, Ref: ref})
 	}
 	if operation.Ref.Off != 0 {
 		ref := operation.Ref
 		ref.Off = 0
-		out = append(out, core.ObjectGet{Req: operation.Req, Ref: ref})
+		out = append(out, runtime.ObjectGet{Req: operation.Req, Ref: ref})
 	}
 	for _, k := range shortenStrings(operation.Ref.Key) {
 		ref := operation.Ref
 		ref.Key = k
-		out = append(out, core.ObjectGet{Req: operation.Req, Ref: ref})
+		out = append(out, runtime.ObjectGet{Req: operation.Req, Ref: ref})
 	}
 	return out
 }
@@ -118,16 +118,16 @@ func shortenStrings(s string) []string {
 
 // FormatObjectOp returns op as a Go expression that you can paste into a
 // regression test.
-func FormatObjectOp(operation core.IOCall) string {
+func FormatObjectOp(operation runtime.IOCall) string {
 	switch operation := operation.(type) {
-	case core.ObjectPut:
-		return fmt.Sprintf("core.ObjectPut{Req: %d, Key: %q%s}", operation.Req, operation.Key, formatDataField(operation.Data))
-	case core.ObjectGet:
-		return fmt.Sprintf("core.ObjectGet{Req: %d, Ref: %s}", operation.Req, formatRef(operation.Ref))
-	case core.ObjectDelete:
-		return fmt.Sprintf("core.ObjectDelete{Req: %d, Key: %q}", operation.Req, operation.Key)
-	case core.ObjectList:
-		return fmt.Sprintf("core.ObjectList{Req: %d, Prefix: %q}", operation.Req, operation.Prefix)
+	case runtime.ObjectPut:
+		return fmt.Sprintf("runtime.ObjectPut{Req: %d, Key: %q%s}", operation.Req, operation.Key, formatDataField(operation.Data))
+	case runtime.ObjectGet:
+		return fmt.Sprintf("runtime.ObjectGet{Req: %d, Ref: %s}", operation.Req, formatRef(operation.Ref))
+	case runtime.ObjectDelete:
+		return fmt.Sprintf("runtime.ObjectDelete{Req: %d, Key: %q}", operation.Req, operation.Key)
+	case runtime.ObjectList:
+		return fmt.Sprintf("runtime.ObjectList{Req: %d, Prefix: %q}", operation.Req, operation.Prefix)
 	}
 	return fmt.Sprintf("%#v", operation)
 }
@@ -144,8 +144,8 @@ func formatDataField(data []byte) string {
 	return fmt.Sprintf(", Data: []byte(%q)", string(data))
 }
 
-func formatRef(ref core.SegmentRef) string {
+func formatRef(ref runtime.SegmentRef) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "core.SegmentRef{Key: %q, Off: %d, Len: %d}", ref.Key, ref.Off, ref.Len)
+	fmt.Fprintf(&b, "runtime.SegmentRef{Key: %q, Off: %d, Len: %d}", ref.Key, ref.Off, ref.Len)
 	return b.String()
 }

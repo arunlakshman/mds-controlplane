@@ -5,8 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Group commands (slice 4a). The fold of GroupInstall, GroupAssign,
@@ -44,7 +45,7 @@ func (c *cmdSize) str(s string)   { c.n += 4 + len(s) }
 func (c *cmdSize) bytes(b []byte) { c.n += 4 + len(b) }
 func (c *cmdSize) num()           { c.n += 10 }
 
-func installSize(operation core.GroupInstall) int {
+func installSize(operation contract.GroupInstall) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.str(operation.ProtocolType)
@@ -65,7 +66,7 @@ func installSize(operation core.GroupInstall) int {
 	return c.n
 }
 
-func assignSize(operation core.GroupAssign) int {
+func assignSize(operation contract.GroupAssign) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.num()
@@ -79,7 +80,7 @@ func assignSize(operation core.GroupAssign) int {
 	return c.n
 }
 
-func removeSize(operation core.GroupRemove) int {
+func removeSize(operation contract.GroupRemove) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.num()
@@ -91,7 +92,7 @@ func removeSize(operation core.GroupRemove) int {
 	return c.n
 }
 
-func offsetCommitSize(operation core.OffsetCommit) int {
+func offsetCommitSize(operation contract.OffsetCommit) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.str(operation.Member)
@@ -150,7 +151,7 @@ func decodeHeader(group string, b []byte) groupHeader {
 	return h
 }
 
-func encodeMember(m core.GroupMemberInfo) []byte {
+func encodeMember(m contract.GroupMemberInfo) []byte {
 	b := appendStr(nil, m.ClientID)
 	b = appendStr(b, m.ClientHost)
 	b = appendStr(b, m.GroupInstanceID)
@@ -162,9 +163,9 @@ func encodeMember(m core.GroupMemberInfo) []byte {
 }
 
 // decodeMember reads a member record; id is the member id from its key.
-func decodeMember(group, id string, b []byte) core.GroupMemberInfo {
+func decodeMember(group, id string, b []byte) contract.GroupMemberInfo {
 	r := kv.NewReader(b)
-	m := core.GroupMemberInfo{GroupMember: core.GroupMember{MemberID: id}}
+	m := contract.GroupMemberInfo{GroupMember: contract.GroupMember{MemberID: id}}
 	m.ClientID = r.String()
 	m.ClientHost = r.String()
 	m.GroupInstanceID = r.String()
@@ -197,26 +198,26 @@ func decodeOffset(group string, b []byte) offsetRecord {
 
 // write runs one group write in transaction. partitions is asked by an offset
 // commit, to check that the partition exists.
-func write(transaction kv.Transaction, operation core.ControlPlaneOperation, partitions Partitions) core.ControlPlaneDone {
+func write(transaction kv.Transaction, operation runtime.ControlPlaneOperation, partitions Partitions) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
-	case core.GroupInstall:
+	case contract.GroupInstall:
 		return groupAnswer(installGroup(transaction, x))
-	case core.GroupAssign:
+	case contract.GroupAssign:
 		return groupAnswer(assignGroup(transaction, x))
-	case core.GroupRemove:
+	case contract.GroupRemove:
 		return groupAnswer(removeGroup(transaction, x))
-	case core.OffsetCommit:
+	case contract.OffsetCommit:
 		return commitOffsets(transaction, x, partitions)
 	}
-	return core.ControlPlaneDone{Err: core.ErrInvalid}
+	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 }
 
 // groupAnswer is the answer to a group write that has no response.
-func groupAnswer(code core.ErrCode) core.ControlPlaneDone {
-	if code != core.OK {
-		return core.ControlPlaneDone{Err: code}
+func groupAnswer(code runtime.ErrCode) runtime.ControlPlaneDone {
+	if code != runtime.OK {
+		return runtime.ControlPlaneDone{Err: code}
 	}
-	return core.ControlPlaneDone{Outcome: core.Applied}
+	return runtime.ControlPlaneDone{Outcome: runtime.Applied}
 }
 
 // readHeader returns the header of group; found is false when it was never installed.
@@ -240,8 +241,8 @@ func memberKeys(transaction kv.Transaction, group string) [][]byte {
 }
 
 // readMembers lists the members of a group, sorted by member id.
-func readMembers(transaction kv.Transaction, group string) []core.GroupMemberInfo {
-	var out []core.GroupMemberInfo
+func readMembers(transaction kv.Transaction, group string) []contract.GroupMemberInfo {
+	var out []contract.GroupMemberInfo
 	lo := groupPrefix(prefixMember, group)
 	transaction.Ascend(lo, kv.PrefixEnd(lo), func(k, v []byte) bool {
 		out = append(out, decodeMember(group, string(k[len(lo):]), v))
@@ -250,32 +251,32 @@ func readMembers(transaction kv.Transaction, group string) []core.GroupMemberInf
 	return out
 }
 
-func installGroup(transaction kv.Transaction, operation core.GroupInstall) core.ErrCode {
+func installGroup(transaction kv.Transaction, operation contract.GroupInstall) runtime.ErrCode {
 	if installSize(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	if !validInstall(operation) {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	h, _ := readHeader(transaction, operation.Group)
 	if operation.Generation != h.generation+1 {
-		return core.ErrIllegalGeneration
+		return runtime.ErrIllegalGeneration
 	}
 	for _, k := range memberKeys(transaction, operation.Group) {
 		transaction.Delete(k)
 	}
 	for _, m := range operation.Members {
-		info := core.GroupMemberInfo{GroupMember: m, JoinedTimeMs: operation.TimeMs}
+		info := contract.GroupMemberInfo{GroupMember: m, JoinedTimeMs: operation.TimeMs}
 		transaction.Set(memberKey(operation.Group, m.MemberID), encodeMember(info))
 	}
 	next := groupHeader{generation: operation.Generation, protoType: operation.ProtocolType, protocol: operation.Protocol, leader: operation.Leader}
 	transaction.Set(groupKey(operation.Group), next.encode())
-	return core.OK
+	return runtime.OK
 }
 
 // validInstall checks the shape of a join result: a group name, members with
 // unique non-empty ids, and a leader that is one of them.
-func validInstall(operation core.GroupInstall) bool {
+func validInstall(operation contract.GroupInstall) bool {
 	if operation.Group == "" || len(operation.Members) == 0 {
 		return false
 	}
@@ -289,24 +290,24 @@ func validInstall(operation core.GroupInstall) bool {
 	return ids[operation.Leader]
 }
 
-func assignGroup(transaction kv.Transaction, operation core.GroupAssign) core.ErrCode {
+func assignGroup(transaction kv.Transaction, operation contract.GroupAssign) runtime.ErrCode {
 	if assignSize(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	h, found := readHeader(transaction, operation.Group)
 	if operation.Generation != h.generation {
-		return core.ErrIllegalGeneration
+		return runtime.ErrIllegalGeneration
 	}
 	if !found || operation.Leader != h.leader || transaction.Get(memberKey(operation.Group, operation.Leader)) == nil {
-		return core.ErrUnknownMember
+		return runtime.ErrUnknownMember
 	}
 	want := map[string][]byte{}
 	for _, a := range operation.Assignments {
 		if transaction.Get(memberKey(operation.Group, a.Member)) == nil {
-			return core.ErrUnknownMember
+			return runtime.ErrUnknownMember
 		}
 		if _, dup := want[a.Member]; dup {
-			return core.ErrInvalid
+			return runtime.ErrInvalid
 		}
 		want[a.Member] = a.Bytes
 	}
@@ -316,16 +317,16 @@ func assignGroup(transaction kv.Transaction, operation core.GroupAssign) core.Er
 	}
 	h.assignedGen = operation.Generation
 	transaction.Set(groupKey(operation.Group), h.encode())
-	return core.OK
+	return runtime.OK
 }
 
-func removeGroup(transaction kv.Transaction, operation core.GroupRemove) core.ErrCode {
+func removeGroup(transaction kv.Transaction, operation contract.GroupRemove) runtime.ErrCode {
 	if removeSize(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	h, found := readHeader(transaction, operation.Group)
 	if !found {
-		return core.OK
+		return runtime.OK
 	}
 	left := len(memberKeys(transaction, operation.Group))
 	for _, id := range operation.Members {
@@ -343,53 +344,53 @@ func removeGroup(transaction kv.Transaction, operation core.GroupRemove) core.Er
 		h.assignedGen = 0
 	}
 	transaction.Set(groupKey(operation.Group), h.encode())
-	return core.OK
+	return runtime.OK
 }
 
-func commitOffsets(transaction kv.Transaction, operation core.OffsetCommit, partitions Partitions) core.ControlPlaneDone {
+func commitOffsets(transaction kv.Transaction, operation contract.OffsetCommit, partitions Partitions) runtime.ControlPlaneDone {
 	if offsetCommitSize(operation) > maxGroupCommand {
-		return core.ControlPlaneDone{Err: core.ErrTooLarge}
+		return runtime.ControlPlaneDone{Err: runtime.ErrTooLarge}
 	}
 	h, found := readHeader(transaction, operation.Group)
 	switch {
 	case operation.Generation >= 0:
 		if !found || transaction.Get(memberKey(operation.Group, operation.Member)) == nil {
-			return core.ControlPlaneDone{Err: core.ErrUnknownMember}
+			return runtime.ControlPlaneDone{Err: runtime.ErrUnknownMember}
 		}
 		if operation.Generation != h.generation {
-			return core.ControlPlaneDone{Err: core.ErrIllegalGeneration}
+			return runtime.ControlPlaneDone{Err: runtime.ErrIllegalGeneration}
 		}
 	case operation.Generation == -1 && operation.Member == "":
 		if len(memberKeys(transaction, operation.Group)) > 0 {
-			return core.ControlPlaneDone{Err: core.ErrIllegalGeneration}
+			return runtime.ControlPlaneDone{Err: runtime.ErrIllegalGeneration}
 		}
 	default:
-		return core.ControlPlaneDone{Err: core.ErrIllegalGeneration}
+		return runtime.ControlPlaneDone{Err: runtime.ErrIllegalGeneration}
 	}
-	var errs []core.ErrCode
+	var errs []runtime.ErrCode
 	saved := false
 	for _, o := range operation.Offsets {
 		code := commitOne(transaction, operation, o, partitions)
-		saved = saved || code == core.OK
+		saved = saved || code == runtime.OK
 		errs = append(errs, code)
 	}
-	done := core.ControlPlaneDone{Resp: core.OffsetCommitResp{Errs: errs}}
+	done := runtime.ControlPlaneDone{Resp: contract.OffsetCommitResp{Errs: errs}}
 	if saved {
-		done.Outcome = core.Applied
+		done.Outcome = runtime.Applied
 	}
 	return done
 }
 
 // commitOne checks and stores one offset of an OffsetCommit.
-func commitOne(transaction kv.Transaction, operation core.OffsetCommit, o core.PartitionOffset, partitions Partitions) core.ErrCode {
+func commitOne(transaction kv.Transaction, operation contract.OffsetCommit, o contract.PartitionOffset, partitions Partitions) runtime.ErrCode {
 	n := partitions(transaction, o.TopicPartition.Topic)
 	if o.TopicPartition.Partition < 0 || int64(o.TopicPartition.Partition) >= n {
-		return core.ErrUnknownPartition
+		return runtime.ErrUnknownPartition
 	}
 	if o.Offset < 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	rec := offsetRecord{offset: o.Offset, epoch: o.LeaderEpoch, meta: o.Metadata, time: operation.TimeMs}
 	transaction.Set(offsetKey(operation.Group, o.TopicPartition), rec.encode())
-	return core.OK
+	return runtime.OK
 }

@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // dynamoItemLimit is the largest DynamoDB item, in bytes (400 KiB).
@@ -14,27 +15,27 @@ const dynamoItemLimit = 400 << 10
 
 // sizedCommit is a commit with the given number of batches, one per partition.
 func sizedCommit(key string, batches int) metadata.Entry {
-	bs := make([]core.PendingBatch, batches)
+	bs := make([]contract.PendingBatch, batches)
 	for i := range bs {
-		bs[i] = core.PendingBatch{
-			TopicPartition: core.NewTopicPartition("orders", int32(i)), Records: 100,
-			Loc: core.SegmentRef{Key: key, Off: int64(i) * 1000, Len: 1000},
+		bs[i] = contract.PendingBatch{
+			TopicPartition: contract.NewTopicPartition("orders", int32(i)), Records: 100,
+			Loc: runtime.SegmentRef{Key: key, Off: int64(i) * 1000, Len: 1000},
 		}
 	}
-	return metadata.Entry{Kind: metadata.KindCommit, Op: core.CommitSegment{SegmentKey: key, Batches: bs}}
+	return metadata.Entry{Kind: metadata.KindCommit, Op: contract.CommitSegment{SegmentKey: key, Batches: bs}}
 }
 
 // appendsUntilQueueEmpty finishes each append in turn, so the machine builds
 // the next group from the queue, and returns every LogAppend it emitted.
-func appendsUntilQueueEmpty(t *testing.T, m *replica.Replica, first core.LogAppend) []core.LogAppend {
+func appendsUntilQueueEmpty(t *testing.T, m *replica.Replica, first runtime.LogAppend) []runtime.LogAppend {
 	t.Helper()
-	all := []core.LogAppend{first}
+	all := []runtime.LogAppend{first}
 	cur := first
 	for m.QueueDepth() > 0 {
-		acts := step(m, core.LogAppendDone{Req: cur.Req, Slot: cur.Slot, Err: core.OK, Outcome: core.Applied})
-		var next *core.LogAppend
+		acts := step(m, runtime.LogAppendDone{Req: cur.Req, Slot: cur.Slot, Err: runtime.OK, Outcome: runtime.Applied})
+		var next *runtime.LogAppend
 		for _, a := range acts {
-			if ap, ok := a.(core.LogAppend); ok {
+			if ap, ok := a.(runtime.LogAppend); ok {
 				next = &ap
 			}
 		}
@@ -47,7 +48,7 @@ func appendsUntilQueueEmpty(t *testing.T, m *replica.Replica, first core.LogAppe
 	return all
 }
 
-func commandsIn(t *testing.T, ap core.LogAppend) int {
+func commandsIn(t *testing.T, ap runtime.LogAppend) int {
 	t.Helper()
 	_, cmds, ok := replica.DecodeGroup(ap.Data)
 	if !ok {
@@ -62,7 +63,7 @@ func TestGroupStopsAtTheEntryByteLimit(t *testing.T) {
 	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: sizedCommit("seg/0", 50)}))
 	const queued = 80
 	for i := 2; i <= queued+1; i++ {
-		m.Offer(replica.ClientOperation{Req: core.RequestID(i), Cmd: sizedCommit(fmt.Sprintf("seg/%d", i), 50)})
+		m.Offer(replica.ClientOperation{Req: runtime.RequestID(i), Cmd: sizedCommit(fmt.Sprintf("seg/%d", i), 50)})
 	}
 	appends := appendsUntilQueueEmpty(t, m, first)
 	if len(appends) < 3 {
@@ -85,7 +86,7 @@ func TestDefaultLimitKeepsEntriesUnderTheDynamoDBItemLimit(t *testing.T) {
 	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: sizedCommit("seg/0", 256)}))
 	const queued = 200 // 256 commands of 256 batches made a 725 KB entry before the limit
 	for i := 2; i <= queued+1; i++ {
-		m.Offer(replica.ClientOperation{Req: core.RequestID(i), Cmd: sizedCommit(fmt.Sprintf("seg/%d", i), 256)})
+		m.Offer(replica.ClientOperation{Req: runtime.RequestID(i), Cmd: sizedCommit(fmt.Sprintf("seg/%d", i), 256)})
 	}
 	total := 0
 	for i, ap := range appendsUntilQueueEmpty(t, m, first) {
@@ -106,7 +107,7 @@ func TestCommandTooLargeForOneEntryIsRefused(t *testing.T) {
 		t.Fatalf("a command too large for one entry must not be appended, got %v", acts)
 	}
 	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != core.ErrTooLarge {
+	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != runtime.ErrTooLarge {
 		t.Fatalf("answers = %+v, want one ErrTooLarge for request 7", ans)
 	}
 	if m.QueueDepth() != 0 || m.InFlightCommits() != 0 {

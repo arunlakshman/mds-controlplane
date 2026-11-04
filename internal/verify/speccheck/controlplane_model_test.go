@@ -7,7 +7,8 @@ import (
 
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
 
@@ -18,36 +19,36 @@ import (
 
 // naiveControlPlane keeps every committed segment and every run in simple lists.
 type naiveControlPlane struct {
-	segKeys []string                                  // keys in commit order
-	segs    map[string]modelSegment                   // key -> what was committed
-	runs    map[core.TopicPartition][]core.BatchRange // partition -> runs in order
-	topics  map[string]int32                          // topic -> partition count
+	segKeys []string                                          // keys in commit order
+	segs    map[string]modelSegment                           // key -> what was committed
+	runs    map[contract.TopicPartition][]contract.BatchRange // partition -> runs in order
+	topics  map[string]int32                                  // topic -> partition count
 }
 
 type modelSegment struct {
-	batches []core.PendingBatch
-	ranges  []core.BatchRange
+	batches []contract.PendingBatch
+	ranges  []contract.BatchRange
 }
 
 func newNaiveControlPlane() *naiveControlPlane {
 	return &naiveControlPlane{
 		segs:   map[string]modelSegment{},
-		runs:   map[core.TopicPartition][]core.BatchRange{},
+		runs:   map[contract.TopicPartition][]contract.BatchRange{},
 		topics: map[string]int32{},
 	}
 }
 
 // end adds up the counts of all runs. The rules say offsets are contiguous
 // from 0, so the sum is the next offset.
-func (m *naiveControlPlane) end(p core.TopicPartition) core.Offset {
+func (m *naiveControlPlane) end(p contract.TopicPartition) contract.Offset {
 	var total int64
 	for _, r := range m.runs[p] {
 		total += r.Count
 	}
-	return core.Offset(total)
+	return contract.Offset(total)
 }
 
-func sameBatches(a, b []core.PendingBatch) bool {
+func sameBatches(a, b []contract.PendingBatch) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -59,35 +60,35 @@ func sameBatches(a, b []core.PendingBatch) bool {
 	return true
 }
 
-func (m *naiveControlPlane) createTopic(name string, parts int32) core.ErrCode {
+func (m *naiveControlPlane) createTopic(name string, parts int32) runtime.ErrCode {
 	if name == "" || parts <= 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	if parts > m.topics[name] {
 		m.topics[name] = parts
 	}
-	return core.OK
+	return runtime.OK
 }
 
-func (m *naiveControlPlane) commit(request core.RequestID, operation core.CommitSegment) core.ControlPlaneDone {
+func (m *naiveControlPlane) commit(request runtime.RequestID, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	if old, found := m.segs[operation.SegmentKey]; found {
 		if !sameBatches(old.batches, operation.Batches) {
-			return core.ControlPlaneDone{Req: request, Err: core.ErrConflict}
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrConflict}
 		}
-		response := core.CommitSegmentResp{Assigned: slices.Clone(old.ranges)}
-		return core.ControlPlaneDone{Req: request, Resp: response, Outcome: core.Applied}
+		response := contract.CommitSegmentResp{Assigned: slices.Clone(old.ranges)}
+		return runtime.ControlPlaneDone{Req: request, Resp: response, Outcome: runtime.Applied}
 	}
 	if operation.SegmentKey == "" || len(operation.Batches) == 0 {
-		return core.ControlPlaneDone{Req: request, Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrInvalid}
 	}
 	for _, b := range operation.Batches {
 		if b.Records <= 0 || b.TopicPartition.Topic == "" || b.TopicPartition.Partition < 0 {
-			return core.ControlPlaneDone{Req: request, Err: core.ErrInvalid}
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrInvalid}
 		}
 	}
-	var assigned []core.BatchRange
+	var assigned []contract.BatchRange
 	for _, b := range operation.Batches {
-		r := core.BatchRange{TopicPartition: b.TopicPartition, Base: m.end(b.TopicPartition), Count: b.Records, Loc: b.Loc}
+		r := contract.BatchRange{TopicPartition: b.TopicPartition, Base: m.end(b.TopicPartition), Count: b.Records, Loc: b.Loc}
 		m.runs[b.TopicPartition] = append(m.runs[b.TopicPartition], r)
 		if b.TopicPartition.Partition+1 > m.topics[b.TopicPartition.Topic] {
 			m.topics[b.TopicPartition.Topic] = b.TopicPartition.Partition + 1
@@ -96,18 +97,18 @@ func (m *naiveControlPlane) commit(request core.RequestID, operation core.Commit
 	}
 	m.segKeys = append(m.segKeys, operation.SegmentKey)
 	m.segs[operation.SegmentKey] = modelSegment{batches: slices.Clone(operation.Batches), ranges: assigned}
-	response := core.CommitSegmentResp{Assigned: slices.Clone(assigned)}
-	return core.ControlPlaneDone{Req: request, Resp: response, Outcome: core.Applied}
+	response := contract.CommitSegmentResp{Assigned: slices.Clone(assigned)}
+	return runtime.ControlPlaneDone{Req: request, Resp: response, Outcome: runtime.Applied}
 }
 
-func (m *naiveControlPlane) lookup(request core.RequestID, operation core.FindSegments) core.ControlPlaneDone {
+func (m *naiveControlPlane) lookup(request runtime.RequestID, operation contract.FindSegments) runtime.ControlPlaneDone {
 	if operation.From < 0 {
-		return core.ControlPlaneDone{Req: request, Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrInvalid}
 	}
-	response := core.FindSegmentsResp{End: m.end(operation.TopicPartition)}
+	response := contract.FindSegmentsResp{End: m.end(operation.TopicPartition)}
 	var sum int64
 	for _, r := range m.runs[operation.TopicPartition] {
-		if r.Base+core.Offset(r.Count)-1 < operation.From {
+		if r.Base+contract.Offset(r.Count)-1 < operation.From {
 			continue
 		}
 		response.Ranges = append(response.Ranges, r)
@@ -116,19 +117,19 @@ func (m *naiveControlPlane) lookup(request core.RequestID, operation core.FindSe
 			break
 		}
 	}
-	return core.ControlPlaneDone{Req: request, Resp: response}
+	return runtime.ControlPlaneDone{Req: request, Resp: response}
 }
 
-func (m *naiveControlPlane) describe(request core.RequestID, operation core.DescribeTopics) core.ControlPlaneDone {
+func (m *naiveControlPlane) describe(request runtime.RequestID, operation contract.DescribeTopics) runtime.ControlPlaneDone {
 	names := slices.Sorted(maps.Keys(m.topics))
-	var response core.DescribeTopicsResp
+	var response contract.DescribeTopicsResp
 	for _, name := range names {
 		wanted := len(operation.Topics) == 0 || slices.Contains(operation.Topics, name)
 		if wanted {
-			response.Topics = append(response.Topics, core.TopicInfo{Name: name, Partitions: m.topics[name]})
+			response.Topics = append(response.Topics, contract.TopicInfo{Name: name, Partitions: m.topics[name]})
 		}
 	}
-	return core.ControlPlaneDone{Req: request, Resp: response}
+	return runtime.ControlPlaneDone{Req: request, Resp: response}
 }
 
 // cpModelOp is one operation. Kind is one of create, commit, lookup, describe.
@@ -136,8 +137,8 @@ type cpModelOp struct {
 	Kind           string
 	Name           string // topic for create, segment key for commit
 	Parts          int32
-	Batches        []core.PendingBatch
-	TopicPartition core.TopicPartition
+	Batches        []contract.PendingBatch
+	TopicPartition contract.TopicPartition
 	From           int64
 	MaxBytes       int32
 	Topics         []string
@@ -153,19 +154,19 @@ var (
 	modelKeys   = []string{"k0", "k1", "k2", "k3", "k4", "k5"}
 )
 
-func modelTP(r *checker.Rand) core.TopicPartition {
-	return core.NewTopicPartition(modelTopics[r.Intn(len(modelTopics))], int32(r.Intn(3)))
+func modelTP(r *checker.Rand) contract.TopicPartition {
+	return contract.NewTopicPartition(modelTopics[r.Intn(len(modelTopics))], int32(r.Intn(3)))
 }
 
 // canonicalBatches gives the same batches every time for one key. A commit
 // that repeats a key with these batches is a valid replay.
-func canonicalBatches(key string) []core.PendingBatch {
+func canonicalBatches(key string) []contract.PendingBatch {
 	k := int(key[1] - '0')
-	var bs []core.PendingBatch
+	var bs []contract.PendingBatch
 	for j := range k%3 + 1 {
-		p := core.NewTopicPartition(modelTopics[(k+j)%len(modelTopics)], int32((k+2*j)%3))
+		p := contract.NewTopicPartition(modelTopics[(k+j)%len(modelTopics)], int32((k+2*j)%3))
 		n := int64(1 + (k+j)%4)
-		bs = append(bs, core.PendingBatch{TopicPartition: p, Records: n, Loc: core.SegmentRef{Key: "o" + key, Off: int64(j), Len: n * 10}})
+		bs = append(bs, contract.PendingBatch{TopicPartition: p, Records: n, Loc: runtime.SegmentRef{Key: "o" + key, Off: int64(j), Len: n * 10}})
 	}
 	return bs
 }
@@ -189,7 +190,7 @@ func genCPModelOp(r *checker.Rand, _ int) cpModelOp {
 			bs = nil
 			for n := 0; n <= r.Intn(3); n++ {
 				recs := int64(r.Intn(5)) // 0 is invalid
-				bs = append(bs, core.PendingBatch{TopicPartition: modelTP(r), Records: recs, Loc: core.SegmentRef{Key: "x", Len: recs * 7}})
+				bs = append(bs, contract.PendingBatch{TopicPartition: modelTP(r), Records: recs, Loc: runtime.SegmentRef{Key: "x", Len: recs * 7}})
 			}
 		case 2: // invalid pieces
 			switch r.Intn(4) {
@@ -216,8 +217,8 @@ func genCPModelOp(r *checker.Rand, _ int) cpModelOp {
 }
 
 func stepCPModel(s cpModelPair, operation cpModelOp) error {
-	const request = core.RequestID(5)
-	var got, want core.ControlPlaneDone
+	const request = runtime.RequestID(5)
+	var got, want runtime.ControlPlaneDone
 	switch operation.Kind {
 	case "create":
 		g, w := s.spec.CreateTopic(operation.Name, operation.Parts), s.model.createTopic(operation.Name, operation.Parts)
@@ -226,16 +227,16 @@ func stepCPModel(s cpModelPair, operation cpModelOp) error {
 		}
 		return nil
 	case "commit":
-		cs := core.CommitSegment{SegmentKey: operation.Name, Batches: operation.Batches}
-		got = s.spec.Exec(core.ControlPlaneCall{Req: request, Op: cs}).(core.ControlPlaneDone)
+		cs := contract.CommitSegment{SegmentKey: operation.Name, Batches: operation.Batches}
+		got = s.spec.Exec(runtime.ControlPlaneCall{Req: request, Op: cs}).(runtime.ControlPlaneDone)
 		want = s.model.commit(request, cs)
 	case "lookup":
-		l := core.FindSegments{TopicPartition: operation.TopicPartition, From: core.Offset(operation.From), MaxBytes: operation.MaxBytes}
-		got = s.spec.Exec(core.ControlPlaneCall{Req: request, Op: l}).(core.ControlPlaneDone)
+		l := contract.FindSegments{TopicPartition: operation.TopicPartition, From: contract.Offset(operation.From), MaxBytes: operation.MaxBytes}
+		got = s.spec.Exec(runtime.ControlPlaneCall{Req: request, Op: l}).(runtime.ControlPlaneDone)
 		want = s.model.lookup(request, l)
 	default:
-		d := core.DescribeTopics{Topics: operation.Topics}
-		got = s.spec.Exec(core.ControlPlaneCall{Req: request, Op: d}).(core.ControlPlaneDone)
+		d := contract.DescribeTopics{Topics: operation.Topics}
+		got = s.spec.Exec(runtime.ControlPlaneCall{Req: request, Op: d}).(runtime.ControlPlaneDone)
 		want = s.model.describe(request, d)
 	}
 	if g, w := fmt.Sprintf("%+v", got), fmt.Sprintf("%+v", want); g != w {
@@ -249,7 +250,7 @@ func stepCPModel(s cpModelPair, operation cpModelOp) error {
 func checkCPModelState(s cpModelPair) error {
 	for _, t := range modelTopics {
 		for p := range int32(3) {
-			topicPartition := core.NewTopicPartition(t, p)
+			topicPartition := contract.NewTopicPartition(t, p)
 			if g, w := s.spec.End(topicPartition), s.model.end(topicPartition); g != w {
 				return fmt.Errorf("End(%v): the spec returned %d, the model returned %d", topicPartition, g, w)
 			}

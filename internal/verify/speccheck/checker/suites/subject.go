@@ -3,7 +3,8 @@ package suites
 import (
 	"errors"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
@@ -17,7 +18,7 @@ import (
 // the same content. It returns ok = false when the subject has no spec hash,
 // for example real S3.
 type ObjectSubject interface {
-	Do(operation core.IOCall) (observation.ObjectResult, error)
+	Do(operation runtime.IOCall) (observation.ObjectResult, error)
 	StateHash() (hash uint64, ok bool)
 }
 
@@ -35,9 +36,9 @@ type ControlPlaneSubject interface {
 // rules as speccheck.Partition. StateHash returns ok = false when the subject
 // has no spec hash.
 type PartitionSubject interface {
-	Append(batch [][]byte) core.Offset
-	Read(from core.Offset, max int) ([]speccheck.StoredRecord, bool)
-	HighWatermark() core.Offset
+	Append(batch [][]byte) contract.Offset
+	Read(from contract.Offset, max int) ([]speccheck.StoredRecord, bool)
+	HighWatermark() contract.Offset
 	StateHash() (hash uint64, ok bool)
 }
 
@@ -50,7 +51,7 @@ func NewSpecObjectSubject() ObjectSubject {
 	return &specObjectSubject{store: speccheck.NewObjectStore()}
 }
 
-func (s *specObjectSubject) Do(operation core.IOCall) (observation.ObjectResult, error) {
+func (s *specObjectSubject) Do(operation runtime.IOCall) (observation.ObjectResult, error) {
 	return observation.FromObjectCompletion(s.store.Exec(operation)), nil
 }
 
@@ -69,7 +70,7 @@ func (s *specControlPlaneSubject) Do(operation generator.ControlPlaneTestStep) (
 		code := s.cp.CreateTopic(operation.CreateTopic.Name, operation.CreateTopic.Partitions)
 		return observation.ControlPlaneResult{Code: code}, nil
 	case operation.Call != nil:
-		done, ok := s.cp.Exec(*operation.Call).(core.ControlPlaneDone)
+		done, ok := s.cp.Exec(*operation.Call).(runtime.ControlPlaneDone)
 		if !ok {
 			return observation.ControlPlaneResult{}, errors.New("the spec control plane did not return a CPDone")
 		}
@@ -87,13 +88,13 @@ func NewSpecPartitionSubject() PartitionSubject {
 	return &specPartitionSubject{p: &speccheck.Partition{}}
 }
 
-func (s *specPartitionSubject) Append(batch [][]byte) core.Offset { return s.p.Append(batch) }
+func (s *specPartitionSubject) Append(batch [][]byte) contract.Offset { return s.p.Append(batch) }
 
-func (s *specPartitionSubject) Read(from core.Offset, max int) ([]speccheck.StoredRecord, bool) {
+func (s *specPartitionSubject) Read(from contract.Offset, max int) ([]speccheck.StoredRecord, bool) {
 	return s.p.Read(from, max)
 }
 
-func (s *specPartitionSubject) HighWatermark() core.Offset { return s.p.HighWatermark() }
+func (s *specPartitionSubject) HighWatermark() contract.Offset { return s.p.HighWatermark() }
 
 func (s *specPartitionSubject) StateHash() (uint64, bool) { return s.p.StateHash(), true }
 

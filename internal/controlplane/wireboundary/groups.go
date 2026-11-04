@@ -2,8 +2,9 @@ package wireboundary
 
 import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"slices"
 )
 
@@ -106,17 +107,17 @@ func LeaveGroupToCore(request *cpv1.LeaveGroupRequest) groups.LeaveReq {
 }
 
 // LeaveGroupRespFromCore builds a LeaveGroupResponse from one code per member.
-func LeaveGroupRespFromCore(errs []core.ErrCode) *cpv1.LeaveGroupResponse {
+func LeaveGroupRespFromCore(errs []runtime.ErrCode) *cpv1.LeaveGroupResponse {
 	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, FromCoreErr)}
 }
 
 // LeaveGroupRespToCore rebuilds the codes of a leave answer.
-func LeaveGroupRespToCore(r *cpv1.LeaveGroupResponse) []core.ErrCode {
+func LeaveGroupRespToCore(r *cpv1.LeaveGroupResponse) []runtime.ErrCode {
 	return mapSlice(r.GetErrs(), ToCoreErr)
 }
 
 // OffsetCommitFromCore builds a GroupOffsetCommitRequest from a commit.
-func OffsetCommitFromCore(operation core.OffsetCommit) *cpv1.GroupOffsetCommitRequest {
+func OffsetCommitFromCore(operation contract.OffsetCommit) *cpv1.GroupOffsetCommitRequest {
 	return &cpv1.GroupOffsetCommitRequest{
 		Group: operation.Group, MemberId: operation.Member, Generation: operation.Generation,
 		Offsets: mapSlice(operation.Offsets, partitionOffsetCommitFromCore),
@@ -124,25 +125,25 @@ func OffsetCommitFromCore(operation core.OffsetCommit) *cpv1.GroupOffsetCommitRe
 }
 
 // OffsetCommitToCore rebuilds a commit from a request. TimeMs is set by the coordinator.
-func OffsetCommitToCore(request *cpv1.GroupOffsetCommitRequest) core.OffsetCommit {
-	return core.OffsetCommit{
+func OffsetCommitToCore(request *cpv1.GroupOffsetCommitRequest) contract.OffsetCommit {
+	return contract.OffsetCommit{
 		Group: request.GetGroup(), Member: request.GetMemberId(), Generation: request.GetGeneration(),
 		Offsets: mapSlice(request.GetOffsets(), partitionOffsetCommitToCore),
 	}
 }
 
 // OffsetCommitRespFromCore builds a GroupOffsetCommitResponse from one code per partition.
-func OffsetCommitRespFromCore(r core.OffsetCommitResp) *cpv1.GroupOffsetCommitResponse {
+func OffsetCommitRespFromCore(r contract.OffsetCommitResp) *cpv1.GroupOffsetCommitResponse {
 	return &cpv1.GroupOffsetCommitResponse{Errs: mapSlice(r.Errs, FromCoreErr)}
 }
 
 // OffsetCommitRespToCore rebuilds the codes of a commit answer.
-func OffsetCommitRespToCore(r *cpv1.GroupOffsetCommitResponse) core.OffsetCommitResp {
-	return core.OffsetCommitResp{Errs: mapSlice(r.GetErrs(), ToCoreErr)}
+func OffsetCommitRespToCore(r *cpv1.GroupOffsetCommitResponse) contract.OffsetCommitResp {
+	return contract.OffsetCommitResp{Errs: mapSlice(r.GetErrs(), ToCoreErr)}
 }
 
 // OffsetFetchFromCore builds a GroupOffsetFetchRequest.
-func OffsetFetchFromCore(operation core.OffsetFetch) *cpv1.GroupOffsetFetchRequest {
+func OffsetFetchFromCore(operation contract.OffsetFetch) *cpv1.GroupOffsetFetchRequest {
 	return &cpv1.GroupOffsetFetchRequest{
 		Group:      operation.Group,
 		Partitions: mapSlice(operation.Partitions, topicPartitionFromCore),
@@ -150,45 +151,45 @@ func OffsetFetchFromCore(operation core.OffsetFetch) *cpv1.GroupOffsetFetchReque
 }
 
 // OffsetFetchToCore rebuilds an offset fetch from a request.
-func OffsetFetchToCore(request *cpv1.GroupOffsetFetchRequest) core.OffsetFetch {
-	return core.OffsetFetch{
+func OffsetFetchToCore(request *cpv1.GroupOffsetFetchRequest) contract.OffsetFetch {
+	return contract.OffsetFetch{
 		Group:      request.GetGroup(),
 		Partitions: mapSlice(request.GetPartitions(), topicPartitionToCore),
 	}
 }
 
 // OffsetFetchRespFromCore builds a GroupOffsetFetchResponse.
-func OffsetFetchRespFromCore(r core.OffsetFetchResp) *cpv1.GroupOffsetFetchResponse {
+func OffsetFetchRespFromCore(r contract.OffsetFetchResp) *cpv1.GroupOffsetFetchResponse {
 	return &cpv1.GroupOffsetFetchResponse{Offsets: mapSlice(r.Offsets, partitionOffsetFromCore)}
 }
 
 // OffsetFetchRespToCore rebuilds an offset fetch answer.
-func OffsetFetchRespToCore(r *cpv1.GroupOffsetFetchResponse) core.OffsetFetchResp {
-	return core.OffsetFetchResp{Offsets: mapSlice(r.GetOffsets(), partitionOffsetToCore)}
+func OffsetFetchRespToCore(r *cpv1.GroupOffsetFetchResponse) contract.OffsetFetchResp {
+	return contract.OffsetFetchResp{Offsets: mapSlice(r.GetOffsets(), partitionOffsetToCore)}
 }
 
 // The commit request and the fetch answer carry the same fields in two wire
 // types, PartitionOffsetCommit and PartitionOffset.
-func partitionOffsetCommitFromCore(o core.PartitionOffset) *cpv1.PartitionOffsetCommit {
+func partitionOffsetCommitFromCore(o contract.PartitionOffset) *cpv1.PartitionOffsetCommit {
 	return &cpv1.PartitionOffsetCommit{
 		Tp: topicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
 	}
 }
 
-func partitionOffsetCommitToCore(o *cpv1.PartitionOffsetCommit) core.PartitionOffset {
-	return core.PartitionOffset{
+func partitionOffsetCommitToCore(o *cpv1.PartitionOffsetCommit) contract.PartitionOffset {
+	return contract.PartitionOffset{
 		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
 	}
 }
 
-func partitionOffsetFromCore(o core.PartitionOffset) *cpv1.PartitionOffset {
+func partitionOffsetFromCore(o contract.PartitionOffset) *cpv1.PartitionOffset {
 	return &cpv1.PartitionOffset{
 		Tp: topicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
 	}
 }
 
-func partitionOffsetToCore(o *cpv1.PartitionOffset) core.PartitionOffset {
-	return core.PartitionOffset{
+func partitionOffsetToCore(o *cpv1.PartitionOffset) contract.PartitionOffset {
+	return contract.PartitionOffset{
 		TopicPartition: topicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
 	}
 }
@@ -217,7 +218,7 @@ func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription 
 	return &cpv1.GroupDescription{
 		Name: g.Name, Exists: g.Exists, Generation: g.Generation, ProtocolType: g.ProtocolType,
 		Protocol: g.Protocol, Leader: g.Leader, AssignedGeneration: g.AssignedGeneration, State: g.State,
-		Members: mapSlice(g.Members, func(m core.GroupMemberInfo) *cpv1.GroupMemberInfo {
+		Members: mapSlice(g.Members, func(m contract.GroupMemberInfo) *cpv1.GroupMemberInfo {
 			return &cpv1.GroupMemberInfo{
 				MemberId: m.MemberID, ClientId: m.ClientID, ClientHost: m.ClientHost,
 				GroupInstanceId: m.GroupInstanceID, SessionTimeoutMs: m.SessionTimeoutMs,
@@ -233,13 +234,13 @@ func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription 
 func groupDescriptionToCore(d *cpv1.GroupDescription) groups.GroupDescription {
 	return groups.GroupDescription{
 		Name: d.GetName(),
-		DescribeGroupResp: core.DescribeGroupResp{
+		DescribeGroupResp: contract.DescribeGroupResp{
 			Exists: d.GetExists(), Generation: d.GetGeneration(), ProtocolType: d.GetProtocolType(),
 			Protocol: d.GetProtocol(), Leader: d.GetLeader(), AssignedGeneration: d.GetAssignedGeneration(),
 			State: d.GetState(),
-			Members: mapSlice(d.GetMembers(), func(m *cpv1.GroupMemberInfo) core.GroupMemberInfo {
-				return core.GroupMemberInfo{
-					GroupMember: core.GroupMember{
+			Members: mapSlice(d.GetMembers(), func(m *cpv1.GroupMemberInfo) contract.GroupMemberInfo {
+				return contract.GroupMemberInfo{
+					GroupMember: contract.GroupMember{
 						MemberID: m.GetMemberId(), ClientID: m.GetClientId(), ClientHost: m.GetClientHost(),
 						GroupInstanceID: m.GetGroupInstanceId(), SessionTimeoutMs: m.GetSessionTimeoutMs(),
 						RebalanceTimeoutMs: m.GetRebalanceTimeoutMs(), Metadata: m.GetMetadata(),
@@ -253,15 +254,15 @@ func groupDescriptionToCore(d *cpv1.GroupDescription) groups.GroupDescription {
 }
 
 // ListGroupsRespFromCore builds a ListGroupsResponse.
-func ListGroupsRespFromCore(groups []core.GroupSummary) *cpv1.ListGroupsResponse {
-	return &cpv1.ListGroupsResponse{Groups: mapSlice(groups, func(g core.GroupSummary) *cpv1.GroupSummary {
+func ListGroupsRespFromCore(groups []contract.GroupSummary) *cpv1.ListGroupsResponse {
+	return &cpv1.ListGroupsResponse{Groups: mapSlice(groups, func(g contract.GroupSummary) *cpv1.GroupSummary {
 		return &cpv1.GroupSummary{Name: g.Name, ProtocolType: g.ProtocolType, State: g.State}
 	})}
 }
 
 // ListGroupsRespToCore rebuilds the group list from a response.
-func ListGroupsRespToCore(r *cpv1.ListGroupsResponse) []core.GroupSummary {
-	return mapSlice(r.GetGroups(), func(g *cpv1.GroupSummary) core.GroupSummary {
-		return core.GroupSummary{Name: g.GetName(), ProtocolType: g.GetProtocolType(), State: g.GetState()}
+func ListGroupsRespToCore(r *cpv1.ListGroupsResponse) []contract.GroupSummary {
+	return mapSlice(r.GetGroups(), func(g *cpv1.GroupSummary) contract.GroupSummary {
+		return contract.GroupSummary{Name: g.GetName(), ProtocolType: g.GetProtocolType(), State: g.GetState()}
 	})
 }

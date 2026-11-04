@@ -7,17 +7,18 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func code(err error) core.ErrCode {
+func code(err error) runtime.ErrCode {
 	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Code
 	}
 	if err == nil {
-		return core.OK
+		return runtime.OK
 	}
-	return core.ErrIO
+	return runtime.ErrIO
 }
 
 func TestObjectStore(t *testing.T) {
@@ -27,17 +28,17 @@ func TestObjectStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = s.Put(ctx, "b", nil)
-	got, err := s.Get(ctx, core.SegmentRef{Key: "a/1", Off: 1, Len: 3})
+	got, err := s.Get(ctx, runtime.SegmentRef{Key: "a/1", Off: 1, Len: 3})
 	if err != nil || string(got) != "ell" {
 		t.Fatalf("get: %q %v", got, err)
 	}
-	if _, err := s.Get(ctx, core.SegmentRef{Key: "zz"}); code(err) != core.ErrNotFound {
+	if _, err := s.Get(ctx, runtime.SegmentRef{Key: "zz"}); code(err) != runtime.ErrNotFound {
 		t.Fatalf("missing: %v", err)
 	}
 	if keys, _ := s.List(ctx, "a"); !slices.Equal(keys, []string{"a/1"}) {
 		t.Fatalf("list: %v", keys)
 	}
-	if err := s.Delete(ctx, "b"); err != nil || code(s.Delete(ctx, "b")) != core.ErrNotFound {
+	if err := s.Delete(ctx, "b"); err != nil || code(s.Delete(ctx, "b")) != runtime.ErrNotFound {
 		t.Fatal("delete")
 	}
 	cancelled, cancel := context.WithCancel(ctx)
@@ -50,13 +51,13 @@ func TestObjectStore(t *testing.T) {
 func TestControlPlaneConcurrent(t *testing.T) {
 	ctx := t.Context()
 	c := NewControlPlane()
-	topicPartition := core.NewTopicPartition("t", 0)
+	topicPartition := contract.NewTopicPartition("t", 0)
 	var wg sync.WaitGroup
 	for i := range 8 {
 		wg.Go(func() {
-			_, err := c.Call(ctx, core.CommitSegment{
+			_, err := c.Call(ctx, contract.CommitSegment{
 				SegmentKey: string(rune('a' + i)),
-				Batches:    []core.PendingBatch{{TopicPartition: topicPartition, Records: 2}},
+				Batches:    []contract.PendingBatch{{TopicPartition: topicPartition, Records: 2}},
 			})
 			if err != nil {
 				t.Error(err)
@@ -64,25 +65,25 @@ func TestControlPlaneConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	response, _ := c.Call(ctx, core.FindSegments{TopicPartition: topicPartition})
-	if end := response.(core.FindSegmentsResp).End; end != 16 {
+	response, _ := c.Call(ctx, contract.FindSegments{TopicPartition: topicPartition})
+	if end := response.(contract.FindSegmentsResp).End; end != 16 {
 		t.Fatalf("end %d", end)
 	}
-	if got := len(response.(core.FindSegmentsResp).Ranges); got != 8 {
+	if got := len(response.(contract.FindSegmentsResp).Ranges); got != 8 {
 		t.Fatalf("%d ranges", got)
 	}
-	next := core.Offset(0)
-	for _, r := range response.(core.FindSegmentsResp).Ranges {
+	next := contract.Offset(0)
+	for _, r := range response.(contract.FindSegmentsResp).Ranges {
 		if r.Base != next {
 			t.Fatalf("gap or overlap at %d, want %d", r.Base, next)
 		}
-		next += core.Offset(r.Count)
+		next += contract.Offset(r.Count)
 	}
-	_, err := c.Call(ctx, core.CommitSegment{SegmentKey: "a", Batches: []core.PendingBatch{{TopicPartition: topicPartition, Records: 1}}})
-	if code(err) != core.ErrConflict {
+	_, err := c.Call(ctx, contract.CommitSegment{SegmentKey: "a", Batches: []contract.PendingBatch{{TopicPartition: topicPartition, Records: 1}}})
+	if code(err) != runtime.ErrConflict {
 		t.Fatalf("different request under a used key: %v", err)
 	}
-	if err := c.CreateTopic("", 1); code(err) != core.ErrInvalid {
+	if err := c.CreateTopic("", 1); code(err) != runtime.ErrInvalid {
 		t.Fatalf("create: %v", err)
 	}
 }

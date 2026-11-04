@@ -13,7 +13,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/logtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // The Postgres tests need a real database. Set MDS_TEST_POSTGRES_DSN, or run
@@ -148,7 +148,7 @@ func TestSQLLogTrimAndAppendLeaveNoStrayRows(t *testing.T) {
 	const slots = 300
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		for through := core.LogPosition(10); through < slots; through += 10 {
+		for through := runtime.LogPosition(10); through < slots; through += 10 {
 			if err := l.TrimThrough(t.Context(), through); err != nil {
 				t.Error(err)
 				return
@@ -157,7 +157,7 @@ func TestSQLLogTrimAndAppendLeaveNoStrayRows(t *testing.T) {
 	})
 	for w := range 4 {
 		wg.Go(func() {
-			for s := core.LogPosition(w); s < slots; s += 4 {
+			for s := runtime.LogPosition(w); s < slots; s += 4 {
 				if _, _, err := l.Append(t.Context(), s, []byte("x")); err != nil {
 					t.Error(err)
 					return

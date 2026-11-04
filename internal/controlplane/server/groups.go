@@ -6,10 +6,11 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Where the pieces of the consumer group feature live:
@@ -31,7 +32,7 @@ import (
 //   - replica/client.go: passes the group calls to the replica.
 //   - replica/commit.go: encodes and decodes the group entries in the log.
 //   - replica/replay.go: decodes group entries when it replays the log.
-//   - core/controlplane.go: the group types (GroupInstall, GroupAssign,
+//   - controlplane/contract/contract.go: the group types (GroupInstall, GroupAssign,
 //     GroupRemove, OffsetCommit and the others).
 
 // groupWatchEvery is how often the node checks whether it is the active
@@ -46,16 +47,16 @@ type nodeGroups struct{ n *Node }
 var _ groups.Store = nodeGroups{}
 
 // Exec runs one group operation through Node.Exec.
-func (s nodeGroups) Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error) {
+func (s nodeGroups) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	d, err := s.n.Exec(ctx, operation)
 	if isCommand(operation) {
 		return d, err
 	}
 	if err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
-	if d.Err != core.OK {
-		return core.ControlPlaneDone{}, controlplane.ErrUnavailable
+	if d.Err != runtime.OK {
+		return runtime.ControlPlaneDone{}, controlplane.ErrUnavailable
 	}
 	return d, nil
 }
@@ -63,7 +64,7 @@ func (s nodeGroups) Exec(ctx context.Context, operation core.ControlPlaneOperati
 // groupRole reports whether this node is the active appender and ready.
 func (n *Node) groupRole(ctx context.Context) (bool, error) {
 	active := false
-	err := n.onLoop(ctx, func(m *replica.Replica) []core.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
 		active = m.IsActive() && m.Ready()
 		return nil
 	})
@@ -77,7 +78,7 @@ func (n *Node) groupRole(ctx context.Context) (bool, error) {
 func (n *Node) watchGroups(ctx context.Context) {
 	for {
 		tick := make(chan struct{})
-		timer := n.config.Clock.AfterFunc(core.Duration(groupWatchEvery), func() { close(tick) })
+		timer := n.config.Clock.AfterFunc(runtime.Duration(groupWatchEvery), func() { close(tick) })
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -105,35 +106,35 @@ func (n *Node) watchGroups(ctx context.Context) {
 func (n *Node) groupCoordinator(ctx context.Context) (*groups.Coordinator, error) {
 	active, err := n.groupRole(ctx)
 	if err != nil {
-		return nil, toRPCError(core.ErrIO, core.NotApplied)
+		return nil, toRPCError(runtime.ErrIO, runtime.NotApplied)
 	}
 	if !active || !n.groups.Serving() {
-		return nil, toRPCError(core.ErrUnavailable, core.NotApplied)
+		return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 	}
 	return n.groups, nil
 }
 
 // groupOutcome is the outcome of a group answer that failed. An unavailable
 // answer may come after a log write, so it is MaybeApplied.
-func groupOutcome(code core.ErrCode) core.Outcome {
-	if code == core.ErrUnavailable {
-		return core.MaybeApplied
+func groupOutcome(code runtime.ErrCode) runtime.Outcome {
+	if code == runtime.ErrUnavailable {
+		return runtime.MaybeApplied
 	}
-	return core.NotApplied
+	return runtime.NotApplied
 }
 
 // groupCtxErr maps a call that ended with its context.
 func groupCtxErr() error {
-	return toRPCError(core.ErrTimeout, core.MaybeApplied)
+	return toRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
 }
 
 // groupReplyErr maps a coordinator answer to an RPC error. A call that
 // ended with its context gives a timeout. A failed answer gives its code.
-func groupReplyErr(code core.ErrCode, err error) error {
+func groupReplyErr(code runtime.ErrCode, err error) error {
 	if err != nil {
 		return groupCtxErr()
 	}
-	if code != core.OK {
+	if code != runtime.OK {
 		return toRPCError(code, groupOutcome(code))
 	}
 	return nil
@@ -145,7 +146,7 @@ func groupReplyErr(code core.ErrCode, err error) error {
 // the wire type Out.
 type groupReplyCall[Op, R, Out any] struct {
 	call    func(*groups.Coordinator, context.Context, Op) (R, error)
-	codeOf  func(R) core.ErrCode
+	codeOf  func(R) runtime.ErrCode
 	convert func(R) Out
 }
 
@@ -169,8 +170,8 @@ func (g groupReplyCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Ou
 // code is (it differs between a write and a read), and how to convert the answer
 // to the wire type Out.
 type groupCodeCall[Op, R, Out any] struct {
-	call    func(*groups.Coordinator, context.Context, Op) (R, core.ErrCode)
-	outcome func(core.ErrCode) core.Outcome
+	call    func(*groups.Coordinator, context.Context, Op) (R, runtime.ErrCode)
+	outcome func(runtime.ErrCode) runtime.Outcome
 	convert func(R) Out
 }
 
@@ -183,7 +184,7 @@ func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out
 		return zero, err
 	}
 	r, code := g.call(c, ctx, op)
-	if code != core.OK {
+	if code != runtime.OK {
 		return zero, toRPCError(code, g.outcome(code))
 	}
 	return g.convert(r), nil
@@ -191,21 +192,21 @@ func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out
 
 var (
 	groupJoin = groupReplyCall[groups.JoinReq, groups.JoinResp, *cpv1.JoinGroupResponse]{
-		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) core.ErrCode { return r.Err }, wireboundary.JoinGroupRespFromCore}
+		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, wireboundary.JoinGroupRespFromCore}
 	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
-		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) core.ErrCode { return r.Err }, wireboundary.SyncGroupRespFromCore}
-	groupOffsetCommit = groupCodeCall[core.OffsetCommit, core.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
+		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, wireboundary.SyncGroupRespFromCore}
+	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
 		(*groups.Coordinator).OffsetCommit, groupOutcome, wireboundary.OffsetCommitRespFromCore}
-	groupOffsetFetch = groupCodeCall[core.OffsetFetch, core.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
+	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
 		(*groups.Coordinator).OffsetFetch, notApplied, wireboundary.OffsetFetchRespFromCore}
-	groupList = groupCodeCall[struct{}, []core.GroupSummary, *cpv1.ListGroupsResponse]{
-		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]core.GroupSummary, core.ErrCode) {
+	groupList = groupCodeCall[struct{}, []contract.GroupSummary, *cpv1.ListGroupsResponse]{
+		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]contract.GroupSummary, runtime.ErrCode) {
 			return c.ListGroups(ctx)
 		}, notApplied, wireboundary.ListGroupsRespFromCore}
 )
 
 // notApplied is the outcome of a failed read.
-func notApplied(core.ErrCode) core.Outcome { return core.NotApplied }
+func notApplied(runtime.ErrCode) runtime.Outcome { return runtime.NotApplied }
 
 // JoinGroup implements ControlPlane.
 func (n *Node) JoinGroup(ctx context.Context, request *cpv1.JoinGroupRequest) (*cpv1.JoinGroupResponse, error) {
@@ -223,7 +224,7 @@ func (n *Node) GroupHeartbeat(ctx context.Context, request *cpv1.GroupHeartbeatR
 	if err != nil {
 		return nil, err
 	}
-	if code := c.Heartbeat(ctx, wireboundary.HeartbeatToCore(request)); code != core.OK {
+	if code := c.Heartbeat(ctx, wireboundary.HeartbeatToCore(request)); code != runtime.OK {
 		return nil, toRPCError(code, groupOutcome(code))
 	}
 	return &cpv1.GroupHeartbeatResponse{}, nil
@@ -257,8 +258,8 @@ func (n *Node) DescribeGroups(ctx context.Context, request *cpv1.DescribeGroupsR
 	var out []groups.GroupDescription
 	for _, name := range wireboundary.DescribeGroupsToCore(request) {
 		d, code := c.DescribeGroup(ctx, name)
-		if code != core.OK {
-			return nil, toRPCError(code, core.NotApplied)
+		if code != runtime.OK {
+			return nil, toRPCError(code, runtime.NotApplied)
 		}
 		out = append(out, groups.GroupDescription{Name: name, DescribeGroupResp: d})
 	}

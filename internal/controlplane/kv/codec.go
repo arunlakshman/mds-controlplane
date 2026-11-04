@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 )
 
 // Reader is a cursor over a packed record. The first failure sticks: OK stays
@@ -100,7 +100,7 @@ func (r *Reader) String() string {
 }
 
 // AppendTopicPartition appends uvarint(len topic), topic, partition (4, big endian).
-func AppendTopicPartition(b []byte, topicPartition core.TopicPartition) []byte {
+func AppendTopicPartition(b []byte, topicPartition contract.TopicPartition) []byte {
 	b = binary.AppendUvarint(b, uint64(len(topicPartition.Topic)))
 	b = append(b, topicPartition.Topic...)
 	return binary.BigEndian.AppendUint32(b, uint32(topicPartition.Partition))
@@ -108,13 +108,13 @@ func AppendTopicPartition(b []byte, topicPartition core.TopicPartition) []byte {
 
 // SplitTopicPartition reads a partition that AppendTopicPartition wrote, with
 // nothing after it.
-func SplitTopicPartition(b []byte) (core.TopicPartition, bool) {
+func SplitTopicPartition(b []byte) (contract.TopicPartition, bool) {
 	r := NewReader(b)
 	topic := r.String()
 	if !r.OK() || len(r.Rest()) != 4 {
-		return core.TopicPartition{}, false
+		return contract.TopicPartition{}, false
 	}
-	return core.TopicPartition{Topic: topic, Partition: int32(binary.BigEndian.Uint32(r.Rest()))}, true
+	return contract.TopicPartition{Topic: topic, Partition: int32(binary.BigEndian.Uint32(r.Rest()))}, true
 }
 
 // Writer builds a packed record. It writes what Reader reads: varints, and

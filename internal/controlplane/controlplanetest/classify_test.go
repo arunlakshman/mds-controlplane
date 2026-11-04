@@ -12,14 +12,15 @@ import (
 
 	"google.golang.org/grpc/codes"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestClassifier(t *testing.T) {
-	commit := core.ControlPlaneCall{Op: core.CommitSegment{}}
-	look := core.ControlPlaneCall{Op: core.FindSegments{}}
-	desc := core.ControlPlaneCall{Op: core.DescribeTopics{}}
+	commit := runtime.ControlPlaneCall{Op: contract.CommitSegment{}}
+	look := runtime.ControlPlaneCall{Op: contract.FindSegments{}}
+	desc := runtime.ControlPlaneCall{Op: contract.DescribeTopics{}}
 	dial := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
 	reset := &net.OpError{Op: "read", Err: syscall.ECONNRESET}
 	dns := &net.DNSError{Err: "no such host", Name: "cp"}
@@ -28,28 +29,28 @@ func TestClassifier(t *testing.T) {
 	}
 	cases := []struct {
 		name string
-		a    core.IOCall
+		a    runtime.IOCall
 		err  error
-		code core.ErrCode
-		out  core.Outcome
+		code runtime.ErrCode
+		out  runtime.Outcome
 	}{
-		{"business too large", commit, &controlplaneclient.Error{Code: core.ErrTooLarge}, core.ErrTooLarge, core.NotApplied},
-		{"business conflict", commit, &controlplaneclient.Error{Code: core.ErrConflict}, core.ErrConflict, core.NotApplied},
-		{"business invalid lookup", look, &controlplaneclient.Error{Code: core.ErrInvalid}, core.ErrInvalid, core.NotApplied},
-		{"refused commit", commit, ce(false, codes.OK, dial), core.ErrUnavailable, core.NotApplied},
-		{"dns commit", commit, ce(false, codes.OK, dns), core.ErrUnavailable, core.NotApplied},
-		{"unavailable commit", commit, ce(true, codes.Unavailable, errors.New("unavailable")), core.ErrUnavailable, core.NotApplied},
-		{"internal commit", commit, ce(true, codes.Internal, errors.New("boom")), core.ErrIO, core.MaybeApplied},
-		{"internal lookup", look, ce(true, codes.Internal, nil), core.ErrIO, core.NotApplied},
-		{"deadline sent commit", commit, ce(true, codes.DeadlineExceeded, context.DeadlineExceeded), core.ErrTimeout, core.MaybeApplied},
-		{"deadline sent describe", desc, ce(true, codes.DeadlineExceeded, context.DeadlineExceeded), core.ErrTimeout, core.NotApplied},
-		{"deadline before conn", commit, ce(false, codes.OK, context.DeadlineExceeded), core.ErrTimeout, core.NotApplied},
-		{"reset commit", commit, ce(true, codes.OK, reset), core.ErrIO, core.MaybeApplied},
-		{"eof commit", commit, ce(true, codes.OK, io.ErrUnexpectedEOF), core.ErrIO, core.MaybeApplied},
-		{"reset lookup", look, ce(true, codes.OK, reset), core.ErrIO, core.NotApplied},
-		{"unknown commit", commit, errors.New("?"), core.ErrIO, core.MaybeApplied},
-		{"unknown lookup", look, errors.New("?"), core.ErrIO, core.NotApplied},
-		{"wrapped business", commit, fmt.Errorf("w: %w", &controlplaneclient.Error{Code: core.ErrConflict}), core.ErrConflict, core.NotApplied},
+		{"business too large", commit, &controlplaneclient.Error{Code: runtime.ErrTooLarge}, runtime.ErrTooLarge, runtime.NotApplied},
+		{"business conflict", commit, &controlplaneclient.Error{Code: runtime.ErrConflict}, runtime.ErrConflict, runtime.NotApplied},
+		{"business invalid lookup", look, &controlplaneclient.Error{Code: runtime.ErrInvalid}, runtime.ErrInvalid, runtime.NotApplied},
+		{"refused commit", commit, ce(false, codes.OK, dial), runtime.ErrUnavailable, runtime.NotApplied},
+		{"dns commit", commit, ce(false, codes.OK, dns), runtime.ErrUnavailable, runtime.NotApplied},
+		{"unavailable commit", commit, ce(true, codes.Unavailable, errors.New("unavailable")), runtime.ErrUnavailable, runtime.NotApplied},
+		{"internal commit", commit, ce(true, codes.Internal, errors.New("boom")), runtime.ErrIO, runtime.MaybeApplied},
+		{"internal lookup", look, ce(true, codes.Internal, nil), runtime.ErrIO, runtime.NotApplied},
+		{"deadline sent commit", commit, ce(true, codes.DeadlineExceeded, context.DeadlineExceeded), runtime.ErrTimeout, runtime.MaybeApplied},
+		{"deadline sent describe", desc, ce(true, codes.DeadlineExceeded, context.DeadlineExceeded), runtime.ErrTimeout, runtime.NotApplied},
+		{"deadline before conn", commit, ce(false, codes.OK, context.DeadlineExceeded), runtime.ErrTimeout, runtime.NotApplied},
+		{"reset commit", commit, ce(true, codes.OK, reset), runtime.ErrIO, runtime.MaybeApplied},
+		{"eof commit", commit, ce(true, codes.OK, io.ErrUnexpectedEOF), runtime.ErrIO, runtime.MaybeApplied},
+		{"reset lookup", look, ce(true, codes.OK, reset), runtime.ErrIO, runtime.NotApplied},
+		{"unknown commit", commit, errors.New("?"), runtime.ErrIO, runtime.MaybeApplied},
+		{"unknown lookup", look, errors.New("?"), runtime.ErrIO, runtime.NotApplied},
+		{"wrapped business", commit, fmt.Errorf("w: %w", &controlplaneclient.Error{Code: runtime.ErrConflict}), runtime.ErrConflict, runtime.NotApplied},
 	}
 	for _, c := range cases {
 		code, out := controlplaneclient.Classifier{}.Classify(c.a, c.err)
@@ -65,14 +66,14 @@ func TestClassifierLiveDial(t *testing.T) {
 	_ = l.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	_, err := controlplaneclient.New(addr, nil).Call(ctx, core.CommitSegment{SegmentKey: "k", Batches: []core.PendingBatch{
-		{TopicPartition: core.NewTopicPartition("t", 0), Records: 1},
+	_, err := controlplaneclient.New(addr, nil).Call(ctx, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{
+		{TopicPartition: contract.NewTopicPartition("t", 0), Records: 1},
 	}})
 	if err == nil {
 		t.Fatal("want error")
 	}
-	c, o := controlplaneclient.Classifier{}.Classify(core.ControlPlaneCall{Op: core.CommitSegment{}}, err)
-	if c != core.ErrUnavailable && c != core.ErrIO {
+	c, o := controlplaneclient.Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.CommitSegment{}}, err)
+	if c != runtime.ErrUnavailable && c != runtime.ErrIO {
 		t.Errorf("refused: %v %v (%v)", c, o, err)
 	}
 }

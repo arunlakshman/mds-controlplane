@@ -1,6 +1,8 @@
 package speccheck
 
-import "github.com/manifesterio/mds-controlplane/internal/core"
+import (
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+)
 
 // Partition is the spec of one Kafka partition: an append-only log of records
 // with a high watermark. Offsets are dense from 0; a record's offset is its
@@ -10,13 +12,13 @@ type Partition struct{ recs [][]byte }
 
 // StoredRecord is one log entry as read back.
 type StoredRecord struct {
-	Offset core.Offset
+	Offset contract.Offset
 	Value  []byte
 }
 
 // Append adds a batch and returns the offset of its first record (the high
 // watermark before the call). An empty batch changes nothing.
-func (p *Partition) Append(batch [][]byte) core.Offset {
+func (p *Partition) Append(batch [][]byte) contract.Offset {
 	base := p.HighWatermark()
 	for _, r := range batch {
 		p.recs = append(p.recs, clone(r))
@@ -25,12 +27,12 @@ func (p *Partition) Append(batch [][]byte) core.Offset {
 }
 
 // HighWatermark is the offset one past the last record.
-func (p *Partition) HighWatermark() core.Offset { return core.Offset(len(p.recs)) }
+func (p *Partition) HighWatermark() contract.Offset { return contract.Offset(len(p.recs)) }
 
 // Read returns up to max records (max <= 0: all) starting at from. ok is
 // false if from is negative or beyond the high watermark (Kafka's
 // OFFSET_OUT_OF_RANGE); from == HighWatermark is ok and empty.
-func (p *Partition) Read(from core.Offset, max int) ([]StoredRecord, bool) {
+func (p *Partition) Read(from contract.Offset, max int) ([]StoredRecord, bool) {
 	if from < 0 || from > p.HighWatermark() {
 		return nil, false
 	}

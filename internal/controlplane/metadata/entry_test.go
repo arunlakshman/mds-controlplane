@@ -5,20 +5,21 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestEntryCodecRoundTrip(t *testing.T) {
 	es := []metadata.Entry{
 		{ID: "w/1", Kind: metadata.KindNoop},
-		{ID: "w/2", Kind: metadata.KindCreateTopic, Op: core.CreateTopic{Name: "t", Partitions: 5}},
-		{ID: "w/2x", Kind: metadata.KindCreateTopicExclusive, Op: core.CreateTopic{Name: "t", Partitions: 5, FailIfExists: true}},
-		{ID: "w/3", Kind: metadata.KindCommit, Op: core.CommitSegment{
+		{ID: "w/2", Kind: metadata.KindCreateTopic, Op: contract.CreateTopic{Name: "t", Partitions: 5}},
+		{ID: "w/2x", Kind: metadata.KindCreateTopicExclusive, Op: contract.CreateTopic{Name: "t", Partitions: 5, FailIfExists: true}},
+		{ID: "w/3", Kind: metadata.KindCommit, Op: contract.CommitSegment{
 			SegmentKey: "k",
-			Batches: []core.PendingBatch{
-				{TopicPartition: core.NewTopicPartition("a", 0), Records: 3, Loc: core.SegmentRef{Key: "o", Off: 7, Len: 30}},
-				{TopicPartition: core.NewTopicPartition("a", 1), Records: 1, Loc: core.SegmentRef{Key: "o", Off: 1, Len: 10}},
+			Batches: []contract.PendingBatch{
+				{TopicPartition: contract.NewTopicPartition("a", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o", Off: 7, Len: 30}},
+				{TopicPartition: contract.NewTopicPartition("a", 1), Records: 1, Loc: runtime.SegmentRef{Key: "o", Off: 1, Len: 10}},
 			},
 		}},
 	}
@@ -34,25 +35,25 @@ func TestApplyBytesNoopAndCommit(t *testing.T) {
 	a := metadata.NewMem()
 	t.Cleanup(func() { _ = a.Close() })
 	noop, err := a.ApplyBytes(0, metadata.Encode(metadata.Entry{ID: "n", Kind: metadata.KindNoop}))
-	if err != nil || noop.Err != core.OK {
+	if err != nil || noop.Err != runtime.OK {
 		t.Fatalf("noop: %+v %v", noop, err)
 	}
 	before := a.StateHash()
 	d, err := a.ApplyBytes(1, metadata.Encode(metadata.Entry{
 		ID: "c", Kind: metadata.KindCommit,
-		Op: core.CommitSegment{
+		Op: contract.CommitSegment{
 			SegmentKey: "s1",
-			Batches:    []core.PendingBatch{{TopicPartition: core.NewTopicPartition("t", 0), Records: 2, Loc: core.SegmentRef{Key: "o", Off: 0, Len: 8}}},
+			Batches:    []contract.PendingBatch{{TopicPartition: contract.NewTopicPartition("t", 0), Records: 2, Loc: runtime.SegmentRef{Key: "o", Off: 0, Len: 8}}},
 		},
 	}))
-	if err != nil || d.Err != core.OK || d.Outcome != core.Applied {
+	if err != nil || d.Err != runtime.OK || d.Outcome != runtime.Applied {
 		t.Fatalf("commit: %+v %v", d, err)
 	}
 	if a.StateHash() == before {
 		t.Fatal("commit left StateHash unchanged")
 	}
-	if a.End(core.NewTopicPartition("t", 0)) != 2 {
-		t.Fatalf("end = %d, want 2", a.End(core.NewTopicPartition("t", 0)))
+	if a.End(contract.NewTopicPartition("t", 0)) != 2 {
+		t.Fatalf("end = %d, want 2", a.End(contract.NewTopicPartition("t", 0)))
 	}
 }
 

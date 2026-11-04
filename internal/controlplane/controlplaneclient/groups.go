@@ -4,9 +4,10 @@ import (
 	"context"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Group calls (slice 4b). A JoinGroup or SyncGroup can block for a whole
@@ -34,19 +35,19 @@ func (c *Client) GroupHeartbeat(ctx context.Context, request groups.HeartbeatReq
 }
 
 // LeaveGroup removes members. It returns one code per member, in request order.
-func (c *Client) LeaveGroup(ctx context.Context, request groups.LeaveReq) ([]core.ErrCode, error) {
+func (c *Client) LeaveGroup(ctx context.Context, request groups.LeaveReq) ([]runtime.ErrCode, error) {
 	return callRPC(ctx, c, "LeaveGroup", cpv1.ControlPlaneClient.LeaveGroup,
 		wireboundary.LeaveGroupFromCore(request), wireboundary.LeaveGroupRespToCore)
 }
 
 // GroupOffsetCommit stores committed offsets. It returns one code per partition.
-func (c *Client) GroupOffsetCommit(ctx context.Context, operation core.OffsetCommit) (core.OffsetCommitResp, error) {
+func (c *Client) GroupOffsetCommit(ctx context.Context, operation contract.OffsetCommit) (contract.OffsetCommitResp, error) {
 	return callRPC(ctx, c, "GroupOffsetCommit", cpv1.ControlPlaneClient.GroupOffsetCommit,
 		wireboundary.OffsetCommitFromCore(operation), wireboundary.OffsetCommitRespToCore)
 }
 
 // GroupOffsetFetch reads committed offsets.
-func (c *Client) GroupOffsetFetch(ctx context.Context, operation core.OffsetFetch) (core.OffsetFetchResp, error) {
+func (c *Client) GroupOffsetFetch(ctx context.Context, operation contract.OffsetFetch) (contract.OffsetFetchResp, error) {
 	return callRPC(ctx, c, "GroupOffsetFetch", cpv1.ControlPlaneClient.GroupOffsetFetch,
 		wireboundary.OffsetFetchFromCore(operation), wireboundary.OffsetFetchRespToCore)
 }
@@ -58,7 +59,7 @@ func (c *Client) DescribeGroups(ctx context.Context, names []string) ([]groups.G
 }
 
 // ListGroups lists the groups in the log, sorted by name.
-func (c *Client) ListGroups(ctx context.Context) ([]core.GroupSummary, error) {
+func (c *Client) ListGroups(ctx context.Context) ([]contract.GroupSummary, error) {
 	var out *cpv1.ListGroupsResponse
 	err := c.do(ctx, "ListGroups", func(ctx context.Context, cli cpv1.ControlPlaneClient) error {
 		var e error
@@ -73,49 +74,49 @@ func (c *Client) ListGroups(ctx context.Context) ([]core.GroupSummary, error) {
 
 // callGroup performs one group operation of the broker (Call). A business
 // error comes back as *Error, as for every other call.
-func (c *Client) callGroup(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneResponse, error) {
+func (c *Client) callGroup(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error) {
 	switch operation := operation.(type) {
-	case core.GroupJoin:
+	case contract.GroupJoin:
 		r, err := c.JoinGroup(ctx, joinReq(operation))
 		if err != nil {
 			return nil, err
 		}
 		return joinResp(r), nil
-	case core.GroupSync:
+	case contract.GroupSync:
 		r, err := c.SyncGroup(ctx, syncReq(operation))
 		if err != nil {
 			return nil, err
 		}
-		return core.GroupSyncResp{Assignment: r.Assignment}, nil
-	case core.GroupHeartbeat:
+		return contract.GroupSyncResp{Assignment: r.Assignment}, nil
+	case contract.GroupHeartbeat:
 		return nil, c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: operation.Group, MemberID: operation.MemberID, Generation: operation.Generation})
-	case core.GroupLeave:
+	case contract.GroupLeave:
 		errs, err := c.LeaveGroup(ctx, groups.LeaveReq{Group: operation.Group, Members: operation.Members})
 		if err != nil {
 			return nil, err
 		}
-		return core.GroupLeaveResp{Errs: errs}, nil
-	case core.OffsetCommit:
+		return contract.GroupLeaveResp{Errs: errs}, nil
+	case contract.OffsetCommit:
 		return c.GroupOffsetCommit(ctx, operation)
-	case core.OffsetFetch:
+	case contract.OffsetFetch:
 		return c.GroupOffsetFetch(ctx, operation)
-	case core.ListGroups:
+	case contract.ListGroups:
 		gs, err := c.ListGroups(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return core.ListGroupsResp{Groups: gs}, nil
-	case core.DescribeGroups:
+		return contract.ListGroupsResp{Groups: gs}, nil
+	case contract.DescribeGroups:
 		ds, err := c.DescribeGroups(ctx, operation.Groups)
 		if err != nil {
 			return nil, err
 		}
 		return describeGroupsResp(ds), nil
 	}
-	return nil, &Error{Code: core.ErrInvalid}
+	return nil, &Error{Code: runtime.ErrInvalid}
 }
 
-func joinReq(operation core.GroupJoin) groups.JoinReq {
+func joinReq(operation contract.GroupJoin) groups.JoinReq {
 	r := groups.JoinReq{
 		Group: operation.Group, MemberID: operation.MemberID, GroupInstanceID: operation.GroupInstanceID,
 		ClientID: operation.ClientID, ClientHost: operation.ClientHost,
@@ -128,15 +129,15 @@ func joinReq(operation core.GroupJoin) groups.JoinReq {
 	return r
 }
 
-func joinResp(r groups.JoinResp) core.GroupJoinResp {
-	out := core.GroupJoinResp{Generation: r.Generation, Protocol: r.Protocol, Leader: r.Leader, MemberID: r.MemberID}
+func joinResp(r groups.JoinResp) contract.GroupJoinResp {
+	out := contract.GroupJoinResp{Generation: r.Generation, Protocol: r.Protocol, Leader: r.Leader, MemberID: r.MemberID}
 	for _, m := range r.Members {
-		out.Members = append(out.Members, core.GroupJoinMember{MemberID: m.ID, GroupInstanceID: m.InstanceID, Metadata: m.Metadata})
+		out.Members = append(out.Members, contract.GroupJoinMember{MemberID: m.ID, GroupInstanceID: m.InstanceID, Metadata: m.Metadata})
 	}
 	return out
 }
 
-func syncReq(operation core.GroupSync) groups.SyncReq {
+func syncReq(operation contract.GroupSync) groups.SyncReq {
 	r := groups.SyncReq{Group: operation.Group, MemberID: operation.MemberID, Generation: operation.Generation}
 	for _, a := range operation.Assignments {
 		r.Assignments = append(r.Assignments, groups.Assignment{Member: a.Member, Bytes: a.Bytes})
@@ -144,10 +145,10 @@ func syncReq(operation core.GroupSync) groups.SyncReq {
 	return r
 }
 
-func describeGroupsResp(ds []groups.GroupDescription) core.DescribeGroupsResp {
-	var out core.DescribeGroupsResp
+func describeGroupsResp(ds []groups.GroupDescription) contract.DescribeGroupsResp {
+	var out contract.DescribeGroupsResp
 	for _, d := range ds {
-		out.Groups = append(out.Groups, core.GroupDescription{Name: d.Name, DescribeGroupResp: d.DescribeGroupResp})
+		out.Groups = append(out.Groups, contract.GroupDescription{Name: d.Name, DescribeGroupResp: d.DescribeGroupResp})
 	}
 	return out
 }

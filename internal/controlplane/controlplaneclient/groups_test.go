@@ -9,11 +9,12 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // realGroupClient starts an active node with a short initial rebalance delay.
@@ -21,11 +22,11 @@ func realGroupClient(t *testing.T) *Client {
 	t.Helper()
 	n := server.New(server.Config{
 		Machine: replica.Config{
-			CatchUpEvery: core.Duration(time.Millisecond),
-			Rank:         0, Heartbeat: core.Duration(time.Second),
+			CatchUpEvery: runtime.Duration(time.Millisecond),
+			Rank:         0, Heartbeat: runtime.Duration(time.Second),
 		},
 		Log: executor.NewMemoryLog(), Objects: executor.NewMemoryObjects(),
-		Self:                       core.NodeInstance{Node: "cp-0"},
+		Self:                       runtime.NodeInstance{Node: "cp-0"},
 		GroupInitialRebalanceDelay: 20 * time.Millisecond,
 	})
 	if err := n.Start(t.Context()); err != nil {
@@ -64,7 +65,7 @@ func waitGroupsServing(t *testing.T, c *Client) {
 	}
 }
 
-func groupErr(t *testing.T, err error, want core.ErrCode) {
+func groupErr(t *testing.T, err error, want runtime.ErrCode) {
 	t.Helper()
 	be, ok := errors.AsType[*Error](err)
 	if !ok || be.Code != want {
@@ -89,7 +90,7 @@ func TestClientGroupCallsOverGRPC(t *testing.T) {
 
 	// JoinGroup and SyncGroup: one member, one generation.
 	ja, err := c.JoinGroup(ctx, joinOf("g", ""))
-	if err != nil || ja.Err != core.OK || ja.Generation != 1 || ja.MemberID == "" || ja.Leader != ja.MemberID {
+	if err != nil || ja.Err != runtime.OK || ja.Generation != 1 || ja.MemberID == "" || ja.Leader != ja.MemberID {
 		t.Fatalf("join: %+v %v", ja, err)
 	}
 	a := ja.MemberID
@@ -106,8 +107,8 @@ func TestClientGroupCallsOverGRPC(t *testing.T) {
 	if err := c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: a, Generation: 1}); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
-	groupErr(t, c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: "zz", Generation: 1}), core.ErrUnknownMember)
-	groupErr(t, c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: a, Generation: 5}), core.ErrIllegalGeneration)
+	groupErr(t, c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: "zz", Generation: 1}), runtime.ErrUnknownMember)
+	groupErr(t, c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: a, Generation: 5}), runtime.ErrIllegalGeneration)
 
 	// A second member makes the first one rebalance. Both rejoin.
 	type joinOut struct {
@@ -122,7 +123,7 @@ func TestClientGroupCallsOverGRPC(t *testing.T) {
 	waitUntilGroup(t, func() bool {
 		err := c.GroupHeartbeat(ctx, groups.HeartbeatReq{Group: "g", MemberID: a, Generation: 1})
 		be, ok := errors.AsType[*Error](err)
-		return ok && be.Code == core.ErrRebalanceInProgress
+		return ok && be.Code == runtime.ErrRebalanceInProgress
 	})
 	ra, err := c.JoinGroup(ctx, joinOf("g", a))
 	if err != nil || ra.Generation != 2 {
@@ -148,7 +149,7 @@ func TestClientGroupCallsOverGRPC(t *testing.T) {
 
 	// LeaveGroup gives one code per member.
 	codes, err := c.LeaveGroup(ctx, groups.LeaveReq{Group: "g", Members: []string{b, "nobody"}})
-	if err != nil || !slices.Equal(codes, []core.ErrCode{core.OK, core.ErrUnknownMember}) {
+	if err != nil || !slices.Equal(codes, []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}) {
 		t.Fatalf("leave: %v %v", codes, err)
 	}
 	ra3, err := c.JoinGroup(ctx, joinOf("g", a))
@@ -161,22 +162,22 @@ func TestClientGroupCallsOverGRPC(t *testing.T) {
 	}
 
 	// GroupOffsetCommit: a stale generation is refused, the right one stores.
-	topicPartition := core.NewTopicPartition("t", 0)
-	commit := core.OffsetCommit{Group: "g", Member: a, Generation: 1, Offsets: []core.PartitionOffset{{TopicPartition: topicPartition, Offset: 7, Metadata: "m"}}}
+	topicPartition := contract.NewTopicPartition("t", 0)
+	commit := contract.OffsetCommit{Group: "g", Member: a, Generation: 1, Offsets: []contract.PartitionOffset{{TopicPartition: topicPartition, Offset: 7, Metadata: "m"}}}
 	_, err = c.GroupOffsetCommit(ctx, commit)
-	groupErr(t, err, core.ErrIllegalGeneration)
+	groupErr(t, err, runtime.ErrIllegalGeneration)
 	commit.Generation = 3
 	cr, err := c.GroupOffsetCommit(ctx, commit)
-	if err != nil || !slices.Equal(cr.Errs, []core.ErrCode{core.OK}) {
+	if err != nil || !slices.Equal(cr.Errs, []runtime.ErrCode{runtime.OK}) {
 		t.Fatalf("commit: %+v %v", cr, err)
 	}
 
 	// GroupOffsetFetch: one partition, then all partitions.
-	f, err := c.GroupOffsetFetch(ctx, core.OffsetFetch{Group: "g", Partitions: []core.TopicPartition{topicPartition}})
+	f, err := c.GroupOffsetFetch(ctx, contract.OffsetFetch{Group: "g", Partitions: []contract.TopicPartition{topicPartition}})
 	if err != nil || len(f.Offsets) != 1 || f.Offsets[0].Offset != 7 || f.Offsets[0].Metadata != "m" {
 		t.Fatalf("fetch: %+v %v", f, err)
 	}
-	all, err := c.GroupOffsetFetch(ctx, core.OffsetFetch{Group: "g"})
+	all, err := c.GroupOffsetFetch(ctx, contract.OffsetFetch{Group: "g"})
 	if err != nil || len(all.Offsets) != 1 {
 		t.Fatalf("fetch all: %+v %v", all, err)
 	}
@@ -210,55 +211,55 @@ func waitUntilGroup(t *testing.T, cond func() bool) {
 }
 
 // Call sends the broker's group operations to the control plane, and the
-// answers come back as core responses. A group decision comes back as *Error.
+// answers come back as contract responses. A group decision comes back as *Error.
 func TestCallRoutesGroupOperations(t *testing.T) {
 	c := realGroupClient(t)
 	ctx := t.Context()
 
-	response, err := c.Call(ctx, core.GroupJoin{Group: "g-call", ClientID: "cli", SessionTimeoutMs: 10000, RebalanceTimeoutMs: 10000,
-		ProtocolType: "consumer", Protocols: []core.GroupProtocol{{Name: "range", Metadata: []byte("sub")}}})
+	response, err := c.Call(ctx, contract.GroupJoin{Group: "g-call", ClientID: "cli", SessionTimeoutMs: 10000, RebalanceTimeoutMs: 10000,
+		ProtocolType: "consumer", Protocols: []contract.GroupProtocol{{Name: "range", Metadata: []byte("sub")}}})
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
-	j := response.(core.GroupJoinResp)
+	j := response.(contract.GroupJoinResp)
 	if j.MemberID == "" || j.Leader != j.MemberID || j.Generation != 1 || len(j.Members) != 1 {
 		t.Fatalf("join answer %+v", j)
 	}
 
 	// The leader stores the assignment, so the group is stable for heartbeats.
-	if _, err := c.Call(ctx, core.GroupSync{Group: "g-call", MemberID: j.MemberID, Generation: j.Generation,
-		Assignments: []core.GroupAssignment{{Member: j.MemberID, Bytes: []byte("a")}}}); err != nil {
+	if _, err := c.Call(ctx, contract.GroupSync{Group: "g-call", MemberID: j.MemberID, Generation: j.Generation,
+		Assignments: []contract.GroupAssignment{{Member: j.MemberID, Bytes: []byte("a")}}}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if _, err := c.Call(ctx, core.GroupHeartbeat{Group: "g-call", MemberID: j.MemberID, Generation: j.Generation}); err != nil {
+	if _, err := c.Call(ctx, contract.GroupHeartbeat{Group: "g-call", MemberID: j.MemberID, Generation: j.Generation}); err != nil {
 		t.Fatalf("heartbeat: %v", err)
 	}
 	// A heartbeat from an unknown member is a group decision, not a transport error.
-	_, err = c.Call(ctx, core.GroupHeartbeat{Group: "g-call", MemberID: "nobody", Generation: 1})
-	groupErr(t, err, core.ErrUnknownMember)
+	_, err = c.Call(ctx, contract.GroupHeartbeat{Group: "g-call", MemberID: "nobody", Generation: 1})
+	groupErr(t, err, runtime.ErrUnknownMember)
 
-	response, err = c.Call(ctx, core.DescribeGroups{Groups: []string{"g-call", "g-none"}})
+	response, err = c.Call(ctx, contract.DescribeGroups{Groups: []string{"g-call", "g-none"}})
 	if err != nil {
 		t.Fatalf("describe: %v", err)
 	}
-	ds := response.(core.DescribeGroupsResp).Groups
+	ds := response.(contract.DescribeGroupsResp).Groups
 	if len(ds) != 2 || !ds[0].Exists || ds[0].Name != "g-call" || ds[1].Exists {
 		t.Fatalf("describe answer %+v", ds)
 	}
 
-	response, err = c.Call(ctx, core.GroupLeave{Group: "g-call", Members: []string{j.MemberID, "nobody"}})
+	response, err = c.Call(ctx, contract.GroupLeave{Group: "g-call", Members: []string{j.MemberID, "nobody"}})
 	if err != nil {
 		t.Fatalf("leave: %v", err)
 	}
-	if errs := response.(core.GroupLeaveResp).Errs; len(errs) != 2 || errs[0] != core.OK || errs[1] != core.ErrUnknownMember {
+	if errs := response.(contract.GroupLeaveResp).Errs; len(errs) != 2 || errs[0] != runtime.OK || errs[1] != runtime.ErrUnknownMember {
 		t.Fatalf("leave codes %v", errs)
 	}
 
-	response, err = c.Call(ctx, core.OffsetFetch{Group: "g-call"})
+	response, err = c.Call(ctx, contract.OffsetFetch{Group: "g-call"})
 	if err != nil {
 		t.Fatalf("offset fetch: %v", err)
 	}
-	if len(response.(core.OffsetFetchResp).Offsets) != 0 {
+	if len(response.(contract.OffsetFetchResp).Offsets) != 0 {
 		t.Fatalf("offset fetch answer %+v, want none", response)
 	}
 }

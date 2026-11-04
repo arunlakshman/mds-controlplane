@@ -20,15 +20,15 @@
 //   - api/v1: the gRPC wire contract, defined in controlplane.proto.
 //   - controlplaneclient: the broker-side adapter. It is a system.ControlPlane
 //     over the gRPC API, with one file per context like server.
-//   - wireboundary: the only place that maps between core types and the wire
+//   - wireboundary: the only place that maps between contract types and the wire
 //     (api/v1) messages. It holds no logic.
 //   - server: the gRPC adapter for the control-plane machine. It has one file
 //     per context: topics.go, groups.go, brokers.go and status.go. node.go is
 //     only the node's life: start, stop, the run loop and the roles.
 //   - runloop: the production event loop. One goroutine owns Step, timers and
-//     inject work. It imports only core and the standard library.
+//     inject work. It imports only runtime and the standard library.
 //   - replica: one node's copy of the replicated log: leader or standby,
-//     catch-up, checkpoint and restore. It implements core.Machine.
+//     catch-up, checkpoint and restore. It implements runtime.Machine.
 //   - metadata: the kernel of the replicated state. It sends each operation to
 //     the module that owns it, owns the envelope of a log entry (kind and id)
 //     and the checkpoint, and applies commands in order to an ordered
@@ -59,7 +59,7 @@
 //     handler time, DynamoDB call time, in-flight requests and request sizes.
 //   - controlplanetest: the control-plane tests only.
 //
-// Time: all time comes from one interface, core.Clock (Mono, Wall, AfterFunc).
+// Time: all time comes from one interface, runtime.Clock (Mono, Wall, AfterFunc).
 // system/realclock is the production clock and system/fakeclock is the one for
 // tests and simulation. The domain and server packages may not call time.Now,
 // time.AfterFunc and the like (TestControlPlaneTimeComesFromClock).

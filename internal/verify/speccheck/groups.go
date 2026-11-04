@@ -3,7 +3,8 @@ package speccheck
 import (
 	"slices"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Consumer groups (slice 4a). The spec of the group commands and reads. Plain
@@ -53,7 +54,7 @@ type groupState struct {
 }
 
 type groupMember struct {
-	core.GroupMember
+	contract.GroupMember
 	joined     int64
 	assignment []byte
 }
@@ -72,7 +73,7 @@ func (c *cmdSize) str(s string)   { c.n += 4 + len(s) }
 func (c *cmdSize) bytes(b []byte) { c.n += 4 + len(b) }
 func (c *cmdSize) num()           { c.n += 10 }
 
-func sizeInstall(operation core.GroupInstall) int {
+func sizeInstall(operation contract.GroupInstall) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.str(operation.ProtocolType)
@@ -93,7 +94,7 @@ func sizeInstall(operation core.GroupInstall) int {
 	return c.n
 }
 
-func sizeAssign(operation core.GroupAssign) int {
+func sizeAssign(operation contract.GroupAssign) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.num()
@@ -107,7 +108,7 @@ func sizeAssign(operation core.GroupAssign) int {
 	return c.n
 }
 
-func sizeRemove(operation core.GroupRemove) int {
+func sizeRemove(operation contract.GroupRemove) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.num()
@@ -119,7 +120,7 @@ func sizeRemove(operation core.GroupRemove) int {
 	return c.n
 }
 
-func sizeOffsetCommit(operation core.OffsetCommit) int {
+func sizeOffsetCommit(operation contract.OffsetCommit) int {
 	c := &cmdSize{n: 16}
 	c.str(operation.Group)
 	c.str(operation.Member)
@@ -144,36 +145,36 @@ func noEmpty(b []byte) []byte {
 }
 
 // groupDone is the answer to a group write that has no response.
-func groupDone(request core.RequestID, code core.ErrCode) core.ControlPlaneDone {
-	if code != core.OK {
-		return core.ControlPlaneDone{Req: request, Err: code}
+func groupDone(request runtime.RequestID, code runtime.ErrCode) runtime.ControlPlaneDone {
+	if code != runtime.OK {
+		return runtime.ControlPlaneDone{Req: request, Err: code}
 	}
-	return core.ControlPlaneDone{Req: request, Outcome: core.Applied}
+	return runtime.ControlPlaneDone{Req: request, Outcome: runtime.Applied}
 }
 
-func (c *ControlPlane) groupInstall(operation core.GroupInstall) core.ErrCode {
+func (c *ControlPlane) groupInstall(operation contract.GroupInstall) runtime.ErrCode {
 	if sizeInstall(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	if operation.Group == "" || len(operation.Members) == 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	ids := map[string]bool{}
 	for _, m := range operation.Members {
 		if m.MemberID == "" || ids[m.MemberID] {
-			return core.ErrInvalid
+			return runtime.ErrInvalid
 		}
 		ids[m.MemberID] = true
 	}
 	if !ids[operation.Leader] {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	var cur int32
 	if g := c.groups[operation.Group]; g != nil {
 		cur = g.generation
 	}
 	if operation.Generation != cur+1 {
-		return core.ErrIllegalGeneration
+		return runtime.ErrIllegalGeneration
 	}
 	if c.groups == nil {
 		c.groups = map[string]*groupState{}
@@ -187,7 +188,7 @@ func (c *ControlPlane) groupInstall(operation core.GroupInstall) core.ErrCode {
 	}
 	for _, m := range operation.Members {
 		g.members[m.MemberID] = &groupMember{
-			GroupMember: core.GroupMember{
+			GroupMember: contract.GroupMember{
 				MemberID:           m.MemberID,
 				ClientID:           m.ClientID,
 				ClientHost:         m.ClientHost,
@@ -200,12 +201,12 @@ func (c *ControlPlane) groupInstall(operation core.GroupInstall) core.ErrCode {
 		}
 	}
 	c.groups[operation.Group] = g
-	return core.OK
+	return runtime.OK
 }
 
-func (c *ControlPlane) groupAssign(operation core.GroupAssign) core.ErrCode {
+func (c *ControlPlane) groupAssign(operation contract.GroupAssign) runtime.ErrCode {
 	if sizeAssign(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	g := c.groups[operation.Group]
 	var cur int32
@@ -213,18 +214,18 @@ func (c *ControlPlane) groupAssign(operation core.GroupAssign) core.ErrCode {
 		cur = g.generation
 	}
 	if operation.Generation != cur {
-		return core.ErrIllegalGeneration
+		return runtime.ErrIllegalGeneration
 	}
 	if g == nil || operation.Leader != g.leader || g.members[operation.Leader] == nil {
-		return core.ErrUnknownMember
+		return runtime.ErrUnknownMember
 	}
 	seen := map[string]bool{}
 	for _, a := range operation.Assignments {
 		if g.members[a.Member] == nil {
-			return core.ErrUnknownMember
+			return runtime.ErrUnknownMember
 		}
 		if seen[a.Member] {
-			return core.ErrInvalid
+			return runtime.ErrInvalid
 		}
 		seen[a.Member] = true
 	}
@@ -235,16 +236,16 @@ func (c *ControlPlane) groupAssign(operation core.GroupAssign) core.ErrCode {
 		g.members[a.Member].assignment = noEmpty(a.Bytes)
 	}
 	g.assignedGen = operation.Generation
-	return core.OK
+	return runtime.OK
 }
 
-func (c *ControlPlane) groupRemove(operation core.GroupRemove) core.ErrCode {
+func (c *ControlPlane) groupRemove(operation contract.GroupRemove) runtime.ErrCode {
 	if sizeRemove(operation) > maxGroupCommand {
-		return core.ErrTooLarge
+		return runtime.ErrTooLarge
 	}
 	g := c.groups[operation.Group]
 	if g == nil {
-		return core.OK
+		return runtime.OK
 	}
 	for _, id := range operation.Members {
 		delete(g.members, id)
@@ -255,86 +256,86 @@ func (c *ControlPlane) groupRemove(operation core.GroupRemove) core.ErrCode {
 	if len(g.members) == 0 {
 		g.assignedGen = 0
 	}
-	return core.OK
+	return runtime.OK
 }
 
-func (c *ControlPlane) offsetCommit(request core.RequestID, operation core.OffsetCommit) core.ControlPlaneDone {
+func (c *ControlPlane) offsetCommit(request runtime.RequestID, operation contract.OffsetCommit) runtime.ControlPlaneDone {
 	if sizeOffsetCommit(operation) > maxGroupCommand {
-		return core.ControlPlaneDone{Req: request, Err: core.ErrTooLarge}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrTooLarge}
 	}
 	g := c.groups[operation.Group]
 	switch {
 	case operation.Generation >= 0:
 		if g == nil || g.members[operation.Member] == nil {
-			return core.ControlPlaneDone{Req: request, Err: core.ErrUnknownMember}
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrUnknownMember}
 		}
 		if operation.Generation != g.generation {
-			return core.ControlPlaneDone{Req: request, Err: core.ErrIllegalGeneration}
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrIllegalGeneration}
 		}
 	case operation.Generation == -1 && operation.Member == "":
 		if g != nil && len(g.members) > 0 {
-			return core.ControlPlaneDone{Req: request, Err: core.ErrIllegalGeneration}
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrIllegalGeneration}
 		}
 	default:
-		return core.ControlPlaneDone{Req: request, Err: core.ErrIllegalGeneration}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrIllegalGeneration}
 	}
-	var errs []core.ErrCode
+	var errs []runtime.ErrCode
 	saved := false
 	for _, o := range operation.Offsets {
 		code := c.commitOne(operation, o)
-		if code == core.OK {
+		if code == runtime.OK {
 			saved = true
 		}
 		errs = append(errs, code)
 	}
-	done := core.ControlPlaneDone{Req: request, Resp: core.OffsetCommitResp{Errs: errs}}
+	done := runtime.ControlPlaneDone{Req: request, Resp: contract.OffsetCommitResp{Errs: errs}}
 	if saved {
-		done.Outcome = core.Applied
+		done.Outcome = runtime.Applied
 	}
 	return done
 }
 
-func (c *ControlPlane) commitOne(operation core.OffsetCommit, o core.PartitionOffset) core.ErrCode {
+func (c *ControlPlane) commitOne(operation contract.OffsetCommit, o contract.PartitionOffset) runtime.ErrCode {
 	if o.TopicPartition.Partition < 0 || o.TopicPartition.Partition >= c.topics[o.TopicPartition.Topic] {
-		return core.ErrUnknownPartition
+		return runtime.ErrUnknownPartition
 	}
 	if o.Offset < 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	if c.offsets == nil {
-		c.offsets = map[string]map[core.TopicPartition]committedOffset{}
+		c.offsets = map[string]map[contract.TopicPartition]committedOffset{}
 	}
 	if c.offsets[operation.Group] == nil {
-		c.offsets[operation.Group] = map[core.TopicPartition]committedOffset{}
+		c.offsets[operation.Group] = map[contract.TopicPartition]committedOffset{}
 	}
 	c.offsets[operation.Group][o.TopicPartition] = committedOffset{offset: o.Offset, epoch: o.LeaderEpoch, meta: o.Metadata, time: operation.TimeMs}
-	return core.OK
+	return runtime.OK
 }
 
-func (c *ControlPlane) offsetFetch(operation core.OffsetFetch) core.OffsetFetchResp {
-	var out []core.PartitionOffset
+func (c *ControlPlane) offsetFetch(operation contract.OffsetFetch) contract.OffsetFetchResp {
+	var out []contract.PartitionOffset
 	committed := c.offsets[operation.Group]
 	if len(operation.Partitions) == 0 {
 		for _, topicPartition := range sortedTPs(committed) {
 			v := committed[topicPartition]
-			out = append(out, core.PartitionOffset{TopicPartition: topicPartition, Offset: v.offset, LeaderEpoch: v.epoch, Metadata: v.meta})
+			out = append(out, contract.PartitionOffset{TopicPartition: topicPartition, Offset: v.offset, LeaderEpoch: v.epoch, Metadata: v.meta})
 		}
-		return core.OffsetFetchResp{Offsets: out}
+		return contract.OffsetFetchResp{Offsets: out}
 	}
 	for _, topicPartition := range operation.Partitions {
 		v, ok := committed[topicPartition]
 		if !ok {
-			out = append(out, core.PartitionOffset{TopicPartition: topicPartition, Offset: -1, LeaderEpoch: -1})
+			out = append(out, contract.PartitionOffset{TopicPartition: topicPartition, Offset: -1, LeaderEpoch: -1})
 			continue
 		}
-		out = append(out, core.PartitionOffset{TopicPartition: topicPartition, Offset: v.offset, LeaderEpoch: v.epoch, Metadata: v.meta})
+		out = append(out, contract.PartitionOffset{TopicPartition: topicPartition, Offset: v.offset, LeaderEpoch: v.epoch, Metadata: v.meta})
 	}
-	return core.OffsetFetchResp{Offsets: out}
+	return contract.OffsetFetchResp{Offsets: out}
 }
 
 // sortedTPs returns the partitions of m in topic and partition order.
-func sortedTPs(m map[core.TopicPartition]committedOffset) []core.TopicPartition {
-	keys := make([]core.TopicPartition, 0, len(m))
+func sortedTPs(m map[contract.TopicPartition]committedOffset) []contract.TopicPartition {
+	keys := make([]contract.TopicPartition, 0, len(m))
 	for tp := range m { //determinismcheck:ok keys are sorted before use
 		keys = append(keys, tp)
 	}
@@ -342,7 +343,7 @@ func sortedTPs(m map[core.TopicPartition]committedOffset) []core.TopicPartition 
 	return keys
 }
 
-func compareTP(a, b core.TopicPartition) int {
+func compareTP(a, b contract.TopicPartition) int {
 	if a.Topic != b.Topic {
 		if a.Topic < b.Topic {
 			return -1
@@ -363,12 +364,12 @@ func groupStateName(g *groupState) string {
 	return "PreparingSync"
 }
 
-func (c *ControlPlane) describeGroup(operation core.DescribeGroup) core.DescribeGroupResp {
+func (c *ControlPlane) describeGroup(operation contract.DescribeGroup) contract.DescribeGroupResp {
 	g := c.groups[operation.Group]
 	if g == nil {
-		return core.DescribeGroupResp{}
+		return contract.DescribeGroupResp{}
 	}
-	response := core.DescribeGroupResp{
+	response := contract.DescribeGroupResp{
 		Exists:             true,
 		Generation:         g.generation,
 		ProtocolType:       g.protoType,
@@ -379,7 +380,7 @@ func (c *ControlPlane) describeGroup(operation core.DescribeGroup) core.Describe
 	}
 	for _, id := range sortedKeys(g.members) {
 		m := g.members[id]
-		response.Members = append(response.Members, core.GroupMemberInfo{
+		response.Members = append(response.Members, contract.GroupMemberInfo{
 			GroupMember:  m.GroupMember,
 			JoinedTimeMs: m.joined,
 			Assignment:   noEmpty(m.assignment),
@@ -388,11 +389,11 @@ func (c *ControlPlane) describeGroup(operation core.DescribeGroup) core.Describe
 	return response
 }
 
-func (c *ControlPlane) listGroups() core.ListGroupsResp {
-	var response core.ListGroupsResp
+func (c *ControlPlane) listGroups() contract.ListGroupsResp {
+	var response contract.ListGroupsResp
 	for _, name := range sortedKeys(c.groups) {
 		g := c.groups[name]
-		response.Groups = append(response.Groups, core.GroupSummary{Name: name, ProtocolType: g.protoType, State: groupStateName(g)})
+		response.Groups = append(response.Groups, contract.GroupSummary{Name: name, ProtocolType: g.protoType, State: groupStateName(g)})
 	}
 	return response
 }

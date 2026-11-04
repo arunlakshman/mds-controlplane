@@ -2,7 +2,8 @@ package wireboundary
 
 import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Conversions shared by every context: error codes and outcomes, and the
@@ -11,44 +12,44 @@ import (
 
 // ---- Error and outcome codes ----
 
-// errCodePairs is the one list that ties each core error code to its wire code.
+// errCodePairs is the one list that ties each runtime error code to its wire code.
 // Both directions read it. To add a code, add one line here, plus the new
-// constant in core and the new value in the proto enum. TestErrCodeTableIsComplete
+// constant in runtime and the new value in the proto enum. TestErrCodeTableIsComplete
 // fails if a code is missing.
 var errCodePairs = [...]struct {
-	core core.ErrCode
+	core runtime.ErrCode
 	wire cpv1.ErrCode
 }{
-	{core.OK, cpv1.ErrCode_ERR_CODE_OK},
-	{core.ErrTimeout, cpv1.ErrCode_ERR_CODE_TIMEOUT},
-	{core.ErrUnavailable, cpv1.ErrCode_ERR_CODE_UNAVAILABLE},
-	{core.ErrNotFound, cpv1.ErrCode_ERR_CODE_NOT_FOUND},
-	{core.ErrConflict, cpv1.ErrCode_ERR_CODE_CONFLICT},
-	{core.ErrConnClosed, cpv1.ErrCode_ERR_CODE_CONN_CLOSED},
-	{core.ErrTooLarge, cpv1.ErrCode_ERR_CODE_TOO_LARGE},
-	{core.ErrCorrupt, cpv1.ErrCode_ERR_CODE_CORRUPT},
-	{core.ErrInvalid, cpv1.ErrCode_ERR_CODE_INVALID},
-	{core.ErrIO, cpv1.ErrCode_ERR_CODE_IO},
-	{core.ErrUnknownMember, cpv1.ErrCode_ERR_CODE_UNKNOWN_MEMBER},
-	{core.ErrIllegalGeneration, cpv1.ErrCode_ERR_CODE_ILLEGAL_GENERATION},
-	{core.ErrUnknownPartition, cpv1.ErrCode_ERR_CODE_UNKNOWN_PARTITION},
-	{core.ErrRebalanceInProgress, cpv1.ErrCode_ERR_CODE_REBALANCE_IN_PROGRESS},
-	{core.ErrInconsistentGroupProtocol, cpv1.ErrCode_ERR_CODE_INCONSISTENT_GROUP_PROTOCOL},
-	{core.ErrTopicExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
+	{runtime.OK, cpv1.ErrCode_ERR_CODE_OK},
+	{runtime.ErrTimeout, cpv1.ErrCode_ERR_CODE_TIMEOUT},
+	{runtime.ErrUnavailable, cpv1.ErrCode_ERR_CODE_UNAVAILABLE},
+	{runtime.ErrNotFound, cpv1.ErrCode_ERR_CODE_NOT_FOUND},
+	{runtime.ErrConflict, cpv1.ErrCode_ERR_CODE_CONFLICT},
+	{runtime.ErrConnClosed, cpv1.ErrCode_ERR_CODE_CONN_CLOSED},
+	{runtime.ErrTooLarge, cpv1.ErrCode_ERR_CODE_TOO_LARGE},
+	{runtime.ErrCorrupt, cpv1.ErrCode_ERR_CODE_CORRUPT},
+	{runtime.ErrInvalid, cpv1.ErrCode_ERR_CODE_INVALID},
+	{runtime.ErrIO, cpv1.ErrCode_ERR_CODE_IO},
+	{runtime.ErrUnknownMember, cpv1.ErrCode_ERR_CODE_UNKNOWN_MEMBER},
+	{runtime.ErrIllegalGeneration, cpv1.ErrCode_ERR_CODE_ILLEGAL_GENERATION},
+	{runtime.ErrUnknownPartition, cpv1.ErrCode_ERR_CODE_UNKNOWN_PARTITION},
+	{runtime.ErrRebalanceInProgress, cpv1.ErrCode_ERR_CODE_REBALANCE_IN_PROGRESS},
+	{runtime.ErrInconsistentGroupProtocol, cpv1.ErrCode_ERR_CODE_INCONSISTENT_GROUP_PROTOCOL},
+	{runtime.ErrTopicExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
 }
 
-// ToCoreErr maps a wire ErrCode to core.ErrCode. Unknown values become ErrIO.
-func ToCoreErr(c cpv1.ErrCode) core.ErrCode {
+// ToCoreErr maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
+func ToCoreErr(c cpv1.ErrCode) runtime.ErrCode {
 	for _, pair := range errCodePairs {
 		if pair.wire == c {
 			return pair.core
 		}
 	}
-	return core.ErrIO
+	return runtime.ErrIO
 }
 
-// FromCoreErr maps core.ErrCode to the wire enum. Unknown values become ERR_CODE_IO.
-func FromCoreErr(c core.ErrCode) cpv1.ErrCode {
+// FromCoreErr maps runtime.ErrCode to the wire enum. Unknown values become ERR_CODE_IO.
+func FromCoreErr(c runtime.ErrCode) cpv1.ErrCode {
 	for _, pair := range errCodePairs {
 		if pair.core == c {
 			return pair.wire
@@ -57,24 +58,24 @@ func FromCoreErr(c core.ErrCode) cpv1.ErrCode {
 	return cpv1.ErrCode_ERR_CODE_IO
 }
 
-// ToCoreOutcome maps a wire Outcome to core.Outcome. Unknown values become NotApplied.
-func ToCoreOutcome(o cpv1.Outcome) core.Outcome {
+// ToCoreOutcome maps a wire Outcome to runtime.Outcome. Unknown values become NotApplied.
+func ToCoreOutcome(o cpv1.Outcome) runtime.Outcome {
 	switch o {
 	case cpv1.Outcome_OUTCOME_MAYBE_APPLIED:
-		return core.MaybeApplied
+		return runtime.MaybeApplied
 	case cpv1.Outcome_OUTCOME_APPLIED:
-		return core.Applied
+		return runtime.Applied
 	default:
-		return core.NotApplied
+		return runtime.NotApplied
 	}
 }
 
-// FromCoreOutcome maps core.Outcome to the wire enum.
-func FromCoreOutcome(o core.Outcome) cpv1.Outcome {
+// FromCoreOutcome maps runtime.Outcome to the wire enum.
+func FromCoreOutcome(o runtime.Outcome) cpv1.Outcome {
 	switch o {
-	case core.MaybeApplied:
+	case runtime.MaybeApplied:
 		return cpv1.Outcome_OUTCOME_MAYBE_APPLIED
-	case core.Applied:
+	case runtime.Applied:
 		return cpv1.Outcome_OUTCOME_APPLIED
 	default:
 		return cpv1.Outcome_OUTCOME_NOT_APPLIED
@@ -100,23 +101,23 @@ func mapSlice[From, To any](in []From, convert func(From) To) []To {
 	return out
 }
 
-func topicPartitionFromCore(tp core.TopicPartition) *cpv1.TopicPartition {
+func topicPartitionFromCore(tp contract.TopicPartition) *cpv1.TopicPartition {
 	return &cpv1.TopicPartition{Topic: tp.Topic, Partition: tp.Partition}
 }
 
-func topicPartitionToCore(tp *cpv1.TopicPartition) core.TopicPartition {
-	return core.NewTopicPartition(tp.GetTopic(), tp.GetPartition())
+func topicPartitionToCore(tp *cpv1.TopicPartition) contract.TopicPartition {
+	return contract.NewTopicPartition(tp.GetTopic(), tp.GetPartition())
 }
 
-func segmentRefFromCore(ref core.SegmentRef) *cpv1.SegmentRef {
+func segmentRefFromCore(ref runtime.SegmentRef) *cpv1.SegmentRef {
 	return &cpv1.SegmentRef{Key: ref.Key, Off: ref.Off, Len: ref.Len}
 }
 
-func segmentRefToCore(ref *cpv1.SegmentRef) core.SegmentRef {
-	return core.SegmentRef{Key: ref.GetKey(), Off: ref.GetOff(), Len: ref.GetLen()}
+func segmentRefToCore(ref *cpv1.SegmentRef) runtime.SegmentRef {
+	return runtime.SegmentRef{Key: ref.GetKey(), Off: ref.GetOff(), Len: ref.GetLen()}
 }
 
-func pendingBatchFromCore(b core.PendingBatch) *cpv1.PendingBatch {
+func pendingBatchFromCore(b contract.PendingBatch) *cpv1.PendingBatch {
 	return &cpv1.PendingBatch{
 		Tp:      topicPartitionFromCore(b.TopicPartition),
 		Records: b.Records,
@@ -124,15 +125,15 @@ func pendingBatchFromCore(b core.PendingBatch) *cpv1.PendingBatch {
 	}
 }
 
-func pendingBatchToCore(b *cpv1.PendingBatch) core.PendingBatch {
-	return core.PendingBatch{
+func pendingBatchToCore(b *cpv1.PendingBatch) contract.PendingBatch {
+	return contract.PendingBatch{
 		TopicPartition: topicPartitionToCore(b.GetTp()),
 		Records:        b.GetRecords(),
 		Loc:            segmentRefToCore(b.GetLoc()),
 	}
 }
 
-func batchRangeFromCore(br core.BatchRange) *cpv1.BatchRange {
+func batchRangeFromCore(br contract.BatchRange) *cpv1.BatchRange {
 	return &cpv1.BatchRange{
 		Tp:    topicPartitionFromCore(br.TopicPartition),
 		Base:  int64(br.Base),
@@ -141,10 +142,10 @@ func batchRangeFromCore(br core.BatchRange) *cpv1.BatchRange {
 	}
 }
 
-func batchRangeToCore(br *cpv1.BatchRange) core.BatchRange {
-	return core.BatchRange{
+func batchRangeToCore(br *cpv1.BatchRange) contract.BatchRange {
+	return contract.BatchRange{
 		TopicPartition: topicPartitionToCore(br.GetTp()),
-		Base:           core.Offset(br.GetBase()),
+		Base:           contract.Offset(br.GetBase()),
 		Count:          br.GetCount(),
 		Loc:            segmentRefToCore(br.GetLoc()),
 	}

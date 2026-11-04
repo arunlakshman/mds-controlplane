@@ -9,7 +9,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestMemLogRoundTrip(t *testing.T) {
@@ -54,18 +54,18 @@ func TestMemObjects(t *testing.T) {
 	if err := o.Put(ctx, "k", []byte("hello")); err != nil {
 		t.Fatal(err)
 	}
-	got, err := o.Get(ctx, core.SegmentRef{Key: "k", Off: 1, Len: 3})
+	got, err := o.Get(ctx, runtime.SegmentRef{Key: "k", Off: 1, Len: 3})
 	if err != nil || string(got) != "ell" {
 		t.Fatalf("get slice: %q %v", got, err)
 	}
-	got, err = o.Get(ctx, core.SegmentRef{Key: "k", Off: 2, Len: 0})
+	got, err = o.Get(ctx, runtime.SegmentRef{Key: "k", Off: 2, Len: 0})
 	if err != nil || string(got) != "llo" {
 		t.Fatalf("get rest: %q %v", got, err)
 	}
-	if _, err := o.Get(ctx, core.SegmentRef{Key: "missing"}); !errors.Is(err, executor.ErrNotFound) {
+	if _, err := o.Get(ctx, runtime.SegmentRef{Key: "missing"}); !errors.Is(err, executor.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
-	if _, err := o.Get(ctx, core.SegmentRef{Key: "k", Off: 10, Len: 1}); !errors.Is(err, executor.ErrNotFound) {
+	if _, err := o.Get(ctx, runtime.SegmentRef{Key: "k", Off: 10, Len: 1}); !errors.Is(err, executor.ErrNotFound) {
 		t.Fatalf("oob: %v", err)
 	}
 	keys, err := o.List(ctx, "k")
@@ -82,33 +82,33 @@ func TestMemObjects(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
-	code, out := executor.Classify(core.LogAppend{}, nil)
-	if code != core.OK || out != core.Applied {
+	code, out := executor.Classify(runtime.LogAppend{}, nil)
+	if code != runtime.OK || out != runtime.Applied {
 		t.Fatalf("nil: %v %v", code, out)
 	}
-	code, out = executor.Classify(core.LogAppend{}, context.Canceled)
-	if code != core.ErrTimeout || out != core.MaybeApplied {
+	code, out = executor.Classify(runtime.LogAppend{}, context.Canceled)
+	if code != runtime.ErrTimeout || out != runtime.MaybeApplied {
 		t.Fatalf("cancel append: %v %v", code, out)
 	}
-	code, out = executor.Classify(core.LogRead{}, context.DeadlineExceeded)
-	if code != core.ErrTimeout || out != core.NotApplied {
+	code, out = executor.Classify(runtime.LogRead{}, context.DeadlineExceeded)
+	if code != runtime.ErrTimeout || out != runtime.NotApplied {
 		t.Fatalf("deadline read: %v %v", code, out)
 	}
-	code, out = executor.Classify(core.ObjectGet{}, executor.ErrNotFound)
-	if code != core.ErrNotFound || out != core.NotApplied {
+	code, out = executor.Classify(runtime.ObjectGet{}, executor.ErrNotFound)
+	if code != runtime.ErrNotFound || out != runtime.NotApplied {
 		t.Fatalf("not found: %v %v", code, out)
 	}
-	code, out = executor.Classify(core.LogAppend{}, executor.ErrInvalidSlot)
-	if code != core.ErrInvalid || out != core.NotApplied {
+	code, out = executor.Classify(runtime.LogAppend{}, executor.ErrInvalidSlot)
+	if code != runtime.ErrInvalid || out != runtime.NotApplied {
 		t.Fatalf("invalid: %v %v", code, out)
 	}
-	code, out = executor.Classify(core.ObjectPut{}, errors.New("boom"))
-	if code != core.ErrIO || out != core.MaybeApplied {
+	code, out = executor.Classify(runtime.ObjectPut{}, errors.New("boom"))
+	if code != runtime.ErrIO || out != runtime.MaybeApplied {
 		t.Fatalf("io: %v %v", code, out)
 	}
 	var ne net.Error = timeoutError{}
-	code, out = executor.Classify(core.LogDeleteOld{}, ne)
-	if code != core.ErrTimeout || out != core.MaybeApplied {
+	code, out = executor.Classify(runtime.LogDeleteOld{}, ne)
+	if code != runtime.ErrTimeout || out != runtime.MaybeApplied {
 		t.Fatalf("net timeout: %v %v", code, out)
 	}
 }
@@ -125,19 +125,19 @@ func TestExecutorIOResults(t *testing.T) {
 	ctx := t.Context()
 	in := runloop.NewInbox(8)
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second, ObjTimeout: time.Second}, executor.NewMemoryLog(), executor.NewMemoryObjects(), in)
-	ex.Execute(core.LogAppend{Req: 1, Slot: 0, Data: []byte("a")})
-	ex.Execute(core.ObjectPut{Req: 2, Key: "k", Data: []byte("v")})
-	ex.Execute(core.LogGetEnd{Req: 3})
-	ex.Execute(core.LogRead{Req: 4, From: 0, Limit: 1})
-	ex.Execute(core.ObjectGet{Req: 5, Ref: core.SegmentRef{Key: "k", Len: 1}})
-	ex.Execute(core.ObjectList{Req: 6, Prefix: "k"})
-	ex.Execute(core.LogDeleteOld{Req: 7, Through: 0})
-	ex.Execute(core.ObjectDelete{Req: 8, Key: "k"})
+	ex.Execute(runtime.LogAppend{Req: 1, Slot: 0, Data: []byte("a")})
+	ex.Execute(runtime.ObjectPut{Req: 2, Key: "k", Data: []byte("v")})
+	ex.Execute(runtime.LogGetEnd{Req: 3})
+	ex.Execute(runtime.LogRead{Req: 4, From: 0, Limit: 1})
+	ex.Execute(runtime.ObjectGet{Req: 5, Ref: runtime.SegmentRef{Key: "k", Len: 1}})
+	ex.Execute(runtime.ObjectList{Req: 6, Prefix: "k"})
+	ex.Execute(runtime.LogDeleteOld{Req: 7, Through: 0})
+	ex.Execute(runtime.ObjectDelete{Req: 8, Key: "k"})
 	deadline := time.Now().Add(2 * time.Second)
 	got := 0
 	for got < 8 && time.Now().Before(deadline) {
 		if b, ok := in.Control().Pop(); ok {
-			if _, ok := b.(core.IOResult); ok {
+			if _, ok := b.(runtime.IOResult); ok {
 				got++
 			}
 			continue

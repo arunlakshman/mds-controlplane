@@ -6,16 +6,17 @@ import (
 	"testing"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestCommitSegmentRoundTrip(t *testing.T) {
-	operation := core.CommitSegment{
+	operation := contract.CommitSegment{
 		SegmentKey: "seg/abc",
-		Batches: []core.PendingBatch{{
-			TopicPartition: core.NewTopicPartition("t", 1), Records: 3,
-			Loc: core.SegmentRef{Key: "seg/abc", Off: 0, Len: 10},
+		Batches: []contract.PendingBatch{{
+			TopicPartition: contract.NewTopicPartition("t", 1), Records: 3,
+			Loc: runtime.SegmentRef{Key: "seg/abc", Off: 0, Len: 10},
 		}},
 	}
 	got := CommitSegmentToCore(CommitSegmentFromCore(operation))
@@ -29,11 +30,11 @@ func TestCommitSegmentRoundTrip(t *testing.T) {
 }
 
 func TestLookupDescribeRoundTrip(t *testing.T) {
-	lk := core.FindSegments{TopicPartition: core.NewTopicPartition("t", 2), From: 5, MaxBytes: 100}
+	lk := contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 2), From: 5, MaxBytes: 100}
 	if got := LookupToCore(LookupFromCore(lk)); got != lk {
 		t.Fatalf("lookup %+v", got)
 	}
-	dt := core.DescribeTopics{Topics: []string{"a", "b"}}
+	dt := contract.DescribeTopics{Topics: []string{"a", "b"}}
 	got := DescribeTopicsToCore(DescribeTopicsFromCore(dt))
 	if len(got.Topics) != 2 || got.Topics[0] != "a" || got.Topics[1] != "b" {
 		t.Fatalf("describe %+v", got)
@@ -41,20 +42,20 @@ func TestLookupDescribeRoundTrip(t *testing.T) {
 }
 
 func TestResponseRoundTrip(t *testing.T) {
-	cr := core.CommitSegmentResp{Assigned: []core.BatchRange{{
-		TopicPartition: core.NewTopicPartition("t", 0), Base: 10, Count: 2,
-		Loc: core.SegmentRef{Key: "k", Off: 1, Len: 2},
+	cr := contract.CommitSegmentResp{Assigned: []contract.BatchRange{{
+		TopicPartition: contract.NewTopicPartition("t", 0), Base: 10, Count: 2,
+		Loc: runtime.SegmentRef{Key: "k", Off: 1, Len: 2},
 	}}}
 	got := CommitSegmentRespToCore(CommitSegmentRespFromCore(cr))
 	if len(got.Assigned) != 1 || got.Assigned[0] != cr.Assigned[0] {
 		t.Fatalf("commit resp %+v", got)
 	}
-	lr := core.FindSegmentsResp{Ranges: cr.Assigned, End: 12}
+	lr := contract.FindSegmentsResp{Ranges: cr.Assigned, End: 12}
 	lgot := LookupRespToCore(LookupRespFromCore(lr))
 	if lgot.End != 12 || len(lgot.Ranges) != 1 {
 		t.Fatalf("lookup resp %+v", lgot)
 	}
-	dr := core.DescribeTopicsResp{Topics: []core.TopicInfo{{Name: "t", Partitions: 3}}}
+	dr := contract.DescribeTopicsResp{Topics: []contract.TopicInfo{{Name: "t", Partitions: 3}}}
 	dgot := DescribeTopicsRespToCore(DescribeTopicsRespFromCore(dr))
 	if len(dgot.Topics) != 1 || dgot.Topics[0] != dr.Topics[0] {
 		t.Fatalf("describe resp %+v", dgot)
@@ -62,18 +63,18 @@ func TestResponseRoundTrip(t *testing.T) {
 }
 
 func TestErrOutcomeMaps(t *testing.T) {
-	for _, c := range []core.ErrCode{
-		core.OK, core.ErrTimeout, core.ErrUnavailable, core.ErrNotFound,
-		core.ErrConflict, core.ErrConnClosed, core.ErrTooLarge, core.ErrCorrupt,
-		core.ErrInvalid, core.ErrIO,
-		core.ErrUnknownMember, core.ErrIllegalGeneration, core.ErrUnknownPartition,
-		core.ErrRebalanceInProgress, core.ErrInconsistentGroupProtocol, core.ErrTopicExists,
+	for _, c := range []runtime.ErrCode{
+		runtime.OK, runtime.ErrTimeout, runtime.ErrUnavailable, runtime.ErrNotFound,
+		runtime.ErrConflict, runtime.ErrConnClosed, runtime.ErrTooLarge, runtime.ErrCorrupt,
+		runtime.ErrInvalid, runtime.ErrIO,
+		runtime.ErrUnknownMember, runtime.ErrIllegalGeneration, runtime.ErrUnknownPartition,
+		runtime.ErrRebalanceInProgress, runtime.ErrInconsistentGroupProtocol, runtime.ErrTopicExists,
 	} {
 		if ToCoreErr(FromCoreErr(c)) != c {
 			t.Fatalf("err %v", c)
 		}
 	}
-	for _, o := range []core.Outcome{core.NotApplied, core.MaybeApplied, core.Applied} {
+	for _, o := range []runtime.Outcome{runtime.NotApplied, runtime.MaybeApplied, runtime.Applied} {
 		if ToCoreOutcome(FromCoreOutcome(o)) != o {
 			t.Fatalf("outcome %v", o)
 		}
@@ -108,18 +109,18 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 	leave := groups.LeaveReq{Group: "g", Members: []string{"a", "b"}}
 	sameValue(t, "leave", LeaveGroupToCore(LeaveGroupFromCore(leave)), leave)
 
-	commit := core.OffsetCommit{
+	commit := contract.OffsetCommit{
 		Group: "g", Member: "m", Generation: 5,
-		Offsets: []core.PartitionOffset{
-			{TopicPartition: core.NewTopicPartition("t", 0), Offset: 9, LeaderEpoch: 2, Metadata: "x"},
-			{TopicPartition: core.NewTopicPartition("t", 1), Offset: 10},
+		Offsets: []contract.PartitionOffset{
+			{TopicPartition: contract.NewTopicPartition("t", 0), Offset: 9, LeaderEpoch: 2, Metadata: "x"},
+			{TopicPartition: contract.NewTopicPartition("t", 1), Offset: 10},
 		},
 	}
 	sameValue(t, "offset commit", OffsetCommitToCore(OffsetCommitFromCore(commit)), commit)
 
-	fetch := core.OffsetFetch{
+	fetch := contract.OffsetFetch{
 		Group:      "g",
-		Partitions: []core.TopicPartition{core.NewTopicPartition("t", 0), core.NewTopicPartition("u", 7)},
+		Partitions: []contract.TopicPartition{contract.NewTopicPartition("t", 0), contract.NewTopicPartition("u", 7)},
 	}
 	sameValue(t, "offset fetch", OffsetFetchToCore(OffsetFetchFromCore(fetch)), fetch)
 
@@ -137,24 +138,24 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	sync := groups.SyncResp{Assignment: []byte{7, 8}}
 	sameValue(t, "sync resp", SyncGroupRespToCore(SyncGroupRespFromCore(sync)), sync)
 
-	codes := []core.ErrCode{core.OK, core.ErrUnknownMember}
+	codes := []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}
 	sameValue(t, "leave resp", LeaveGroupRespToCore(LeaveGroupRespFromCore(codes)), codes)
 
-	commit := core.OffsetCommitResp{Errs: []core.ErrCode{core.OK, core.ErrIllegalGeneration}}
+	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrIllegalGeneration}}
 	sameValue(t, "offset commit resp", OffsetCommitRespToCore(OffsetCommitRespFromCore(commit)), commit)
 
-	fetch := core.OffsetFetchResp{Offsets: []core.PartitionOffset{
-		{TopicPartition: core.NewTopicPartition("t", 2), Offset: 5, LeaderEpoch: 1, Metadata: "m"},
+	fetch := contract.OffsetFetchResp{Offsets: []contract.PartitionOffset{
+		{TopicPartition: contract.NewTopicPartition("t", 2), Offset: 5, LeaderEpoch: 1, Metadata: "m"},
 	}}
 	sameValue(t, "offset fetch resp", OffsetFetchRespToCore(OffsetFetchRespFromCore(fetch)), fetch)
 
 	described := []groups.GroupDescription{{
 		Name: "g",
-		DescribeGroupResp: core.DescribeGroupResp{
+		DescribeGroupResp: contract.DescribeGroupResp{
 			Exists: true, Generation: 2, ProtocolType: "consumer", Protocol: "range",
 			Leader: "l", AssignedGeneration: 2, State: "Stable",
-			Members: []core.GroupMemberInfo{{
-				GroupMember: core.GroupMember{
+			Members: []contract.GroupMemberInfo{{
+				GroupMember: contract.GroupMember{
 					MemberID: "m", ClientID: "c", ClientHost: "h", GroupInstanceID: "i",
 					SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, Metadata: []byte{1},
 				},
@@ -164,37 +165,37 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	}, {Name: "empty"}}
 	sameValue(t, "describe groups resp", DescribeGroupsRespToCore(DescribeGroupsRespFromCore(described)), described)
 
-	listed := []core.GroupSummary{{Name: "g", ProtocolType: "consumer", State: "Stable"}}
+	listed := []contract.GroupSummary{{Name: "g", ProtocolType: "consumer", State: "Stable"}}
 	sameValue(t, "list groups resp", ListGroupsRespToCore(ListGroupsRespFromCore(listed)), listed)
 }
 
 func TestBrokerHeartbeatRoundTrip(t *testing.T) {
-	self := core.BrokerAddr{NodeID: 3, Host: "h", Port: 9092}
+	self := contract.BrokerAddr{NodeID: 3, Host: "h", Port: 9092}
 	sameValue(t, "broker heartbeat", BrokerHeartbeatToCore(BrokerHeartbeatFromCore(self)), self)
 
-	live := []core.BrokerAddr{self, {NodeID: 4, Host: "k", Port: 9093}}
+	live := []contract.BrokerAddr{self, {NodeID: 4, Host: "k", Port: 9093}}
 	sameValue(t, "broker heartbeat resp", BrokerHeartbeatRespToCore(BrokerHeartbeatRespFromCore(live)), live)
 }
 
 // Nil messages and empty lists must give zero values, never a panic.
 func TestNilAndEmptyInputs(t *testing.T) {
-	sameValue(t, "nil commit", CommitSegmentToCore(nil), core.CommitSegment{})
-	sameValue(t, "nil lookup", LookupToCore(nil), core.FindSegments{})
-	sameValue(t, "nil describe", DescribeTopicsToCore(nil), core.DescribeTopics{})
-	sameValue(t, "nil commit resp", CommitSegmentRespToCore(nil), core.CommitSegmentResp{})
-	sameValue(t, "nil lookup resp", LookupRespToCore(nil), core.FindSegmentsResp{})
-	sameValue(t, "nil describe resp", DescribeTopicsRespToCore(nil), core.DescribeTopicsResp{})
+	sameValue(t, "nil commit", CommitSegmentToCore(nil), contract.CommitSegment{})
+	sameValue(t, "nil lookup", LookupToCore(nil), contract.FindSegments{})
+	sameValue(t, "nil describe", DescribeTopicsToCore(nil), contract.DescribeTopics{})
+	sameValue(t, "nil commit resp", CommitSegmentRespToCore(nil), contract.CommitSegmentResp{})
+	sameValue(t, "nil lookup resp", LookupRespToCore(nil), contract.FindSegmentsResp{})
+	sameValue(t, "nil describe resp", DescribeTopicsRespToCore(nil), contract.DescribeTopicsResp{})
 	sameValue(t, "nil join", JoinGroupToCore(nil), groups.JoinReq{})
 	sameValue(t, "nil join resp", JoinGroupRespToCore(nil), groups.JoinResp{})
-	sameValue(t, "nil broker heartbeat", BrokerHeartbeatToCore(nil), core.BrokerAddr{})
-	sameValue(t, "empty live set", BrokerHeartbeatRespToCore(BrokerHeartbeatRespFromCore(nil)), []core.BrokerAddr(nil))
+	sameValue(t, "nil broker heartbeat", BrokerHeartbeatToCore(nil), contract.BrokerAddr{})
+	sameValue(t, "empty live set", BrokerHeartbeatRespToCore(BrokerHeartbeatRespFromCore(nil)), []contract.BrokerAddr(nil))
 
 	// A batch with missing parts keeps its place and gets zero values.
 	got := CommitSegmentToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*cpv1.PendingBatch{{Records: 2}}})
-	sameValue(t, "partial batch", got, core.CommitSegment{SegmentKey: "k", Batches: []core.PendingBatch{{Records: 2}}})
+	sameValue(t, "partial batch", got, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{{Records: 2}}})
 }
 
-// Every wire code must map to a core code and back, so a new code cannot be forgotten on one side.
+// Every wire code must map to a runtime code and back, so a new code cannot be forgotten on one side.
 func TestErrCodeTableIsComplete(t *testing.T) {
 	for number, name := range cpv1.ErrCode_name {
 		wire := cpv1.ErrCode(number)
@@ -202,7 +203,7 @@ func TestErrCodeTableIsComplete(t *testing.T) {
 			t.Errorf("wire code %s comes back as %s", name, back)
 		}
 	}
-	for code := core.OK; code <= core.ErrTopicExists; code++ {
+	for code := runtime.OK; code <= runtime.ErrTopicExists; code++ {
 		if strings.HasPrefix(code.String(), "ErrCode(") {
 			continue // a retired number
 		}
@@ -210,6 +211,6 @@ func TestErrCodeTableIsComplete(t *testing.T) {
 			t.Errorf("core code %s comes back as %s", code, back)
 		}
 	}
-	sameValue(t, "unknown wire code", ToCoreErr(cpv1.ErrCode(9999)), core.ErrIO)
-	sameValue(t, "unknown core code", FromCoreErr(core.ErrCode(9999)), cpv1.ErrCode_ERR_CODE_IO)
+	sameValue(t, "unknown wire code", ToCoreErr(cpv1.ErrCode(9999)), runtime.ErrIO)
+	sameValue(t, "unknown core code", FromCoreErr(runtime.ErrCode(9999)), cpv1.ErrCode_ERR_CODE_IO)
 }

@@ -1,10 +1,10 @@
 package server
 
 import (
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// productionEnvironment is a minimal core.Environment for production mdscontrolplane (no buggify).
+// productionEnvironment is a minimal runtime.Environment for production mdscontrolplane (no buggify).
 type productionEnvironment struct{ n uint64 }
 
 func (e *productionEnvironment) Uint64() uint64 {
@@ -17,19 +17,19 @@ func (e *productionEnvironment) Intn(n int) int {
 	}
 	return int(e.Uint64() % uint64(n))
 }
-func (e *productionEnvironment) NewID() core.ID {
-	var id core.ID
+func (e *productionEnvironment) NewID() runtime.ID {
+	var id runtime.ID
 	u := e.Uint64()
 	for i := range id {
 		id[i] = byte(u >> (8 * (i % 8)))
 	}
 	return id
 }
-func (productionEnvironment) Maybe(core.FaultPointID) bool                                   { return false }
-func (productionEnvironment) MaybeP(core.FaultPointID, float64) bool                         { return false }
-func (productionEnvironment) Fault(core.FaultPointID, float64) bool                          { return false }
-func (productionEnvironment) Always(bool, core.PropertyID, ...core.ContextPair)              {}
-func (productionEnvironment) AlwaysOrUnreachable(bool, core.PropertyID, ...core.ContextPair) {}
-func (productionEnvironment) Sometimes(bool, core.PropertyID)                                {}
-func (productionEnvironment) Reachable(core.PropertyID)                                      {}
-func (productionEnvironment) Unreachable(core.PropertyID, ...core.ContextPair)               {}
+func (productionEnvironment) Maybe(runtime.FaultPointID) bool                                      { return false }
+func (productionEnvironment) MaybeP(runtime.FaultPointID, float64) bool                            { return false }
+func (productionEnvironment) Fault(runtime.FaultPointID, float64) bool                             { return false }
+func (productionEnvironment) Always(bool, runtime.PropertyID, ...runtime.ContextPair)              {}
+func (productionEnvironment) AlwaysOrUnreachable(bool, runtime.PropertyID, ...runtime.ContextPair) {}
+func (productionEnvironment) Sometimes(bool, runtime.PropertyID)                                   {}
+func (productionEnvironment) Reachable(runtime.PropertyID)                                         {}
+func (productionEnvironment) Unreachable(runtime.PropertyID, ...runtime.ContextPair)               {}

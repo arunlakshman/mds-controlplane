@@ -6,7 +6,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 )
 
@@ -21,14 +22,14 @@ func New() *Store { return &Store{spec: speccheck.NewControlPlane()} }
 
 // Exec runs one operation on the spec. A business error is the Err of the
 // answer. The error result is for the context.
-func (s *Store) Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error) {
+func (s *Store) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	if err := ctx.Err(); err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if x, ok := operation.(core.CreateTopic); ok {
-		return core.ControlPlaneDone{Err: s.spec.CreateTopicIf(x.Name, x.Partitions, x.FailIfExists)}, nil
+	if x, ok := operation.(contract.CreateTopic); ok {
+		return runtime.ControlPlaneDone{Err: s.spec.CreateTopicIf(x.Name, x.Partitions, x.FailIfExists)}, nil
 	}
-	return s.spec.Exec(core.ControlPlaneCall{Op: operation}).(core.ControlPlaneDone), nil
+	return s.spec.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone), nil
 }

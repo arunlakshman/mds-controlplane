@@ -10,7 +10,7 @@ import (
 
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 )
 
@@ -30,42 +30,42 @@ type Classifier struct{}
 var _ system.ErrorClassifier = Classifier{}
 
 // Classify maps an S3 error to an error code and outcome.
-func (Classifier) Classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
+func (Classifier) Classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome) {
 	code, out := classify(a, err)
 	slog.Debug("object call failed", "action", a, "err", err, "code", code, "outcome", out)
 	return code, out
 }
 
-func classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
-	maybe := core.NotApplied
+func classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome) {
+	maybe := runtime.NotApplied
 	switch a.(type) {
-	case core.ObjectPut, core.ObjectDelete:
-		maybe = core.MaybeApplied
+	case runtime.ObjectPut, runtime.ObjectDelete:
+		maybe = runtime.MaybeApplied
 	}
 	if se, ok := errors.AsType[*Error](err); ok {
-		return se.Code, core.NotApplied
+		return se.Code, runtime.NotApplied
 	}
 	if isDial(err) {
-		return core.ErrUnavailable, core.NotApplied
+		return runtime.ErrUnavailable, runtime.NotApplied
 	}
 	switch apiCode(err) {
 	case "SlowDown", "ServiceUnavailable", "RequestLimitExceeded", "Throttling", "ThrottlingException":
-		return core.ErrUnavailable, core.NotApplied
+		return runtime.ErrUnavailable, runtime.NotApplied
 	}
 	if re, ok := errors.AsType[*awshttp.ResponseError](err); ok {
 		switch st := re.HTTPStatusCode(); {
 		case st == http.StatusServiceUnavailable || st == http.StatusTooManyRequests:
-			return core.ErrUnavailable, core.NotApplied
+			return runtime.ErrUnavailable, runtime.NotApplied
 		case st >= 400 && st < 500:
-			return core.ErrIO, core.NotApplied
+			return runtime.ErrIO, runtime.NotApplied
 		}
-		return core.ErrIO, maybe
+		return runtime.ErrIO, maybe
 	}
 	ne, isNet := errors.AsType[net.Error](err)
 	if errors.Is(err, context.DeadlineExceeded) || (isNet && ne.Timeout()) {
-		return core.ErrTimeout, maybe
+		return runtime.ErrTimeout, maybe
 	}
-	return core.ErrIO, maybe
+	return runtime.ErrIO, maybe
 }
 
 // isDial reports a failure to establish a connection (nothing was sent).

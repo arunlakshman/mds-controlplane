@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
-	"github.com/manifesterio/mds-controlplane/internal/core"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 )
 
@@ -50,7 +50,7 @@ func TestPostgresThreeNodesTakeoverWithTrim(t *testing.T) {
 	if err := c.CreateTopic(ctx, "t", 3); err != nil {
 		t.Fatal(err)
 	}
-	a := &acks{rngs: map[string][]core.BatchRange{}}
+	a := &acks{rngs: map[string][]contract.BatchRange{}}
 	var n atomic.Int64
 	stop := make(chan struct{})
 	errs := make(chan error, 3)

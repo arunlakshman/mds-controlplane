@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 var (
@@ -18,21 +18,21 @@ var (
 	ErrKilledByRuntime = errors.New("killed") // graceful stop missed its deadline
 )
 
-// Run delivers NodeStarted, then loops: core.ControlFirstPicker picks, At/Wall are
+// Run delivers NodeStarted, then loops: runtime.ControlFirstPicker picks, At/Wall are
 // stamped at dequeue, Step, actions dispatched in slice order. Returns
 // ErrStoppedForRestart (wrapped with the cause) on StopForRestart, nil on ShutdownDone, ErrStopped on ctx
-// done. When b.Shutdown fires, Run delivers core.StopRequest{Deadline: Mono+StopGrace}
+// done. When b.Shutdown fires, Run delivers runtime.StopRequest{Deadline: Mono+StopGrace}
 // once; if the machine has not emitted ShutdownDone by then, Run returns ErrKilledByRuntime and
 // the supervisor kills the process. It closes b.Inbox on return so late
 // completions are dropped. This goroutine alone owns the machine.
-func Run(ctx context.Context, b Dependencies, exec Executor, f core.MachineFactory, self core.NodeInstance) error {
+func Run(ctx context.Context, b Dependencies, exec Executor, f runtime.MachineFactory, self runtime.NodeInstance) error {
 	in := b.Inbox
 	if in == nil {
 		// A private inbox would be unreachable by the Executor and readers.
 		return errors.New("system.Run: Bundle.Inbox is nil")
 	}
 	defer in.Close()
-	r := &eventLoop{b: b, in: in, exec: exec, timers: map[core.TimerID]*time.Timer{}}
+	r := &eventLoop{b: b, in: in, exec: exec, timers: map[runtime.TimerID]*time.Timer{}}
 	defer func() {
 		for _, t := range r.timers {
 			t.Stop()
@@ -40,14 +40,14 @@ func Run(ctx context.Context, b Dependencies, exec Executor, f core.MachineFacto
 	}()
 	m := f(b.Env, self)
 
-	step := func(body core.EventData) (bool, error) {
-		acts := m.Step(core.Event{At: b.Clock.Mono(), Wall: b.Clock.Wall(), Body: body})
+	step := func(body runtime.EventData) (bool, error) {
+		acts := m.Step(runtime.Event{At: b.Clock.Mono(), Wall: b.Clock.Wall(), Body: body})
 		return r.dispatch(acts)
 	}
-	if done, err := step(core.NodeStarted{Self: self}); done {
+	if done, err := step(runtime.NodeStarted{Self: self}); done {
 		return err
 	}
-	var policy core.InboxPicker = core.ControlFirstPicker{}
+	var policy runtime.InboxPicker = runtime.ControlFirstPicker{}
 	ctrl, data := in.Control(), in.Data()
 	shutdown := b.Shutdown // nil once fired: StopRequest is delivered exactly once
 	var kill <-chan time.Time
@@ -58,7 +58,7 @@ func Run(ctx context.Context, b Dependencies, exec Executor, f core.MachineFacto
 		select {
 		case <-shutdown:
 			shutdown = nil
-			in.DeliverControl(core.StopRequest{Deadline: b.Clock.Mono() + core.NodeTime(b.StopGrace)})
+			in.DeliverControl(runtime.StopRequest{Deadline: b.Clock.Mono() + runtime.NodeTime(b.StopGrace)})
 			t := time.NewTimer(time.Duration(b.StopGrace))
 			defer t.Stop()
 			kill = t.C
@@ -91,26 +91,26 @@ type eventLoop struct {
 	b      Dependencies
 	in     *Inbox
 	exec   Executor
-	timers map[core.TimerID]*time.Timer // loop goroutine only
+	timers map[runtime.TimerID]*time.Timer // loop goroutine only
 }
 
 // dispatch runs one Step's actions in order; done reports StopForRestart or ShutdownDone.
-func (r *eventLoop) dispatch(acts []core.Action) (bool, error) {
+func (r *eventLoop) dispatch(acts []runtime.Action) (bool, error) {
 	for _, a := range acts {
 		switch a := a.(type) {
-		case core.IOCall:
+		case runtime.IOCall:
 			r.exec.Execute(a)
-		case core.RecordFact:
+		case runtime.RecordFact:
 			if r.b.Facts != nil {
 				r.b.Facts(a.Fact)
 			}
-		case core.SetTimer:
+		case runtime.SetTimer:
 			r.setTimer(a)
-		case core.CancelTimer:
+		case runtime.CancelTimer:
 			r.cancelTimer(a.ID)
-		case core.StopForRestart:
+		case runtime.StopForRestart:
 			return true, fmt.Errorf("%w: %s", ErrStoppedForRestart, a.Cause)
-		case core.ShutdownDone:
+		case runtime.ShutdownDone:
 			return true, nil
 		default:
 			return true, fmt.Errorf("system: unknown action %T", a)
@@ -119,17 +119,17 @@ func (r *eventLoop) dispatch(acts []core.Action) (bool, error) {
 	return false, nil
 }
 
-func (r *eventLoop) setTimer(a core.SetTimer) {
+func (r *eventLoop) setTimer(a runtime.SetTimer) {
 	if old := r.timers[a.ID]; old != nil {
 		old.Stop() // stale gen would be ignored anyway
 	}
 	id, gen := a.ID, a.Gen
 	r.timers[id] = time.AfterFunc(time.Duration(a.After), func() {
-		r.in.DeliverControl(core.TimerFired{ID: id, Gen: gen})
+		r.in.DeliverControl(runtime.TimerFired{ID: id, Gen: gen})
 	})
 }
 
-func (r *eventLoop) cancelTimer(id core.TimerID) {
+func (r *eventLoop) cancelTimer(id runtime.TimerID) {
 	if t := r.timers[id]; t != nil {
 		t.Stop()
 		delete(r.timers, id)

@@ -3,7 +3,7 @@ package replica
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Config tunes the control-plane machine. Zero value keeps catch-up and the
@@ -14,7 +14,7 @@ import (
 // CheckpointPrefix arms checkpoint restore/publish and optional LogTrim.
 type Config struct {
 	// CatchUpEvery is the pause between catch-up rounds. Zero disables catch-up.
-	CatchUpEvery core.Duration
+	CatchUpEvery runtime.Duration
 	// ReadLimit caps entries per LogRead during catch-up. Zero means 64.
 	ReadLimit int32
 	// Writer names append IDs (writer/seq). Empty means "cp".
@@ -40,17 +40,17 @@ type Config struct {
 	Rank int
 	// Heartbeat is how long an idle active node waits before a no-op append.
 	// Zero disables heartbeat (and, with TakeoverAfter 0, roles).
-	Heartbeat core.Duration
+	Heartbeat runtime.Duration
 	// TakeoverAfter is how long a standby waits with no other-writer slot
 	// before it claims the write role. Zero means only Promote flips the role.
-	TakeoverAfter core.Duration
+	TakeoverAfter runtime.Duration
 	// TakeoverRankStep is added to TakeoverAfter once per rank, so the standbys
 	// of a lower rank claim first. Zero gives every rank the same wait.
-	TakeoverRankStep core.Duration
+	TakeoverRankStep runtime.Duration
 
 	// CheckpointEvery is the pause between checkpoint attempts on the appender.
 	// Zero disables the timer; set CheckpointPrefix alone to restore on NodeStarted.
-	CheckpointEvery core.Duration
+	CheckpointEvery runtime.Duration
 	// CheckpointMinSlots skips a checkpoint when fewer slots were applied since the
 	// last. Zero means 1.
 	CheckpointMinSlots int64
@@ -81,7 +81,7 @@ type Config struct {
 	// StallProb / CrashProb are per role-tick cooperative faults (sim only).
 	// Fault() suppresses them after EnterRecovery. Zero disables.
 	StallProb, CrashProb float64
-	StallDur, DownDur    [2]core.Duration
+	StallDur, DownDur    [2]runtime.Duration
 }
 
 // InjectedBug constants match sim/engines/fakelogservice (kept numeric for LogParams.Bug).

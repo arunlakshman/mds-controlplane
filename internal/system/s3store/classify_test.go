@@ -10,7 +10,7 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 type apiError struct{ code string }
@@ -23,26 +23,26 @@ func (e apiError) ErrorFault() smithy.ErrorFault { return smithy.FaultServer }
 func TestClassify(t *testing.T) {
 	dial := &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
 	reset := &net.OpError{Op: "read", Err: syscall.ECONNRESET}
-	put, get, del, list := core.ObjectPut{}, core.ObjectGet{}, core.ObjectDelete{}, core.ObjectList{}
+	put, get, del, list := runtime.ObjectPut{}, runtime.ObjectGet{}, runtime.ObjectDelete{}, runtime.ObjectList{}
 	for _, c := range []struct {
 		name string
-		a    core.IOCall
+		a    runtime.IOCall
 		err  error
-		code core.ErrCode
-		out  core.Outcome
+		code runtime.ErrCode
+		out  runtime.Outcome
 	}{
-		{"notfound", get, fail(core.ErrNotFound), core.ErrNotFound, core.NotApplied},
-		{"notfound delete", del, fmt.Errorf("w: %w", fail(core.ErrNotFound)), core.ErrNotFound, core.NotApplied},
-		{"dial put", put, fmt.Errorf("w: %w", dial), core.ErrUnavailable, core.NotApplied},
-		{"slowdown put", put, apiError{"SlowDown"}, core.ErrUnavailable, core.NotApplied},
-		{"timeout put", put, context.DeadlineExceeded, core.ErrTimeout, core.MaybeApplied},
-		{"timeout delete", del, context.DeadlineExceeded, core.ErrTimeout, core.MaybeApplied},
-		{"reset put", put, reset, core.ErrIO, core.MaybeApplied},
-		{"reset delete", del, reset, core.ErrIO, core.MaybeApplied},
-		{"timeout get", get, context.DeadlineExceeded, core.ErrTimeout, core.NotApplied},
-		{"reset get", get, reset, core.ErrIO, core.NotApplied},
-		{"timeout list", list, context.DeadlineExceeded, core.ErrTimeout, core.NotApplied},
-		{"unknown put", put, errors.New("boom"), core.ErrIO, core.MaybeApplied},
+		{"notfound", get, fail(runtime.ErrNotFound), runtime.ErrNotFound, runtime.NotApplied},
+		{"notfound delete", del, fmt.Errorf("w: %w", fail(runtime.ErrNotFound)), runtime.ErrNotFound, runtime.NotApplied},
+		{"dial put", put, fmt.Errorf("w: %w", dial), runtime.ErrUnavailable, runtime.NotApplied},
+		{"slowdown put", put, apiError{"SlowDown"}, runtime.ErrUnavailable, runtime.NotApplied},
+		{"timeout put", put, context.DeadlineExceeded, runtime.ErrTimeout, runtime.MaybeApplied},
+		{"timeout delete", del, context.DeadlineExceeded, runtime.ErrTimeout, runtime.MaybeApplied},
+		{"reset put", put, reset, runtime.ErrIO, runtime.MaybeApplied},
+		{"reset delete", del, reset, runtime.ErrIO, runtime.MaybeApplied},
+		{"timeout get", get, context.DeadlineExceeded, runtime.ErrTimeout, runtime.NotApplied},
+		{"reset get", get, reset, runtime.ErrIO, runtime.NotApplied},
+		{"timeout list", list, context.DeadlineExceeded, runtime.ErrTimeout, runtime.NotApplied},
+		{"unknown put", put, errors.New("boom"), runtime.ErrIO, runtime.MaybeApplied},
 	} {
 		code, out := classify(c.a, c.err)
 		if code != c.code || out != c.out {

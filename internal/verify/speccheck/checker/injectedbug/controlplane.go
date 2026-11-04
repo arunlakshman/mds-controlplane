@@ -4,7 +4,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
@@ -87,11 +88,11 @@ func beforeControlPlane(name, doc string, newChange func() func(inner suites.Con
 }
 
 // commitOf returns the CommitSegment of op, if op is one.
-func commitOf(operation generator.ControlPlaneTestStep) (core.ControlPlaneCall, core.CommitSegment, bool) {
+func commitOf(operation generator.ControlPlaneTestStep) (runtime.ControlPlaneCall, contract.CommitSegment, bool) {
 	if operation.Call == nil {
-		return core.ControlPlaneCall{}, core.CommitSegment{}, false
+		return runtime.ControlPlaneCall{}, contract.CommitSegment{}, false
 	}
-	c, ok := operation.Call.Op.(core.CommitSegment)
+	c, ok := operation.Call.Op.(contract.CommitSegment)
 	return *operation.Call, c, ok
 }
 
@@ -149,17 +150,17 @@ func ReplayWithDifferentRequestNotRejected() ControlPlaneBug {
 	return statefulControlPlane("ReplayWithDifferentRequestNotRejected",
 		"A commit that reuses a segment key with different batches returns the first answer instead of ErrConflict.",
 		func() changeFunc {
-			first := map[string][]core.BatchRange{}
+			first := map[string][]contract.BatchRange{}
 			return func(operation generator.ControlPlaneTestStep, r observation.ControlPlaneResult) observation.ControlPlaneResult {
 				_, commit, ok := commitOf(operation)
 				if !ok {
 					return r
 				}
-				if _, seen := first[commit.SegmentKey]; !seen && r.Code == core.OK {
+				if _, seen := first[commit.SegmentKey]; !seen && r.Code == runtime.OK {
 					first[commit.SegmentKey] = r.Assigned
 				}
-				if r.Code == core.ErrConflict {
-					return observation.ControlPlaneResult{Assigned: first[commit.SegmentKey], Outcome: core.Applied}
+				if r.Code == runtime.ErrConflict {
+					return observation.ControlPlaneResult{Assigned: first[commit.SegmentKey], Outcome: runtime.Applied}
 				}
 				return r
 			}
@@ -172,7 +173,7 @@ func PartialApplyOnInvalidBatch() ControlPlaneBug {
 	return beforeControlPlane("PartialApplyOnInvalidBatch",
 		"A commit with an invalid batch applies the valid batches before it, instead of nothing.",
 		func() func(suites.ControlPlaneSubject, generator.ControlPlaneTestStep) (observation.ControlPlaneResult, error) {
-			n := core.RequestID(0)
+			n := runtime.RequestID(0)
 			return func(inner suites.ControlPlaneSubject, operation generator.ControlPlaneTestStep) (observation.ControlPlaneResult, error) {
 				call, commit, ok := commitOf(operation)
 				if ok && commit.SegmentKey != "" {
@@ -183,8 +184,8 @@ func PartialApplyOnInvalidBatch() ControlPlaneBug {
 					}
 					if valid > 0 && valid < len(commit.Batches) {
 						n++
-						prefix := core.CommitSegment{SegmentKey: commit.SegmentKey + "#partial", Batches: commit.Batches[:valid]}
-						extra := core.ControlPlaneCall{Req: call.Req + 1<<28 + n, Op: prefix}
+						prefix := contract.CommitSegment{SegmentKey: commit.SegmentKey + "#partial", Batches: commit.Batches[:valid]}
+						extra := runtime.ControlPlaneCall{Req: call.Req + 1<<28 + n, Op: prefix}
 						if _, err := inner.Do(generator.NewCall(extra)); err != nil {
 							return observation.ControlPlaneResult{}, err
 						}
@@ -203,9 +204,9 @@ func LookupMaxBytesUsesGreater() ControlPlaneBug {
 		func() func(suites.ControlPlaneSubject, generator.ControlPlaneTestStep) (observation.ControlPlaneResult, error) {
 			return func(inner suites.ControlPlaneSubject, operation generator.ControlPlaneTestStep) (observation.ControlPlaneResult, error) {
 				if operation.Call != nil {
-					if l, ok := operation.Call.Op.(core.FindSegments); ok && l.MaxBytes > 0 && l.MaxBytes < 1<<30 {
+					if l, ok := operation.Call.Op.(contract.FindSegments); ok && l.MaxBytes > 0 && l.MaxBytes < 1<<30 {
 						l.MaxBytes++
-						operation = generator.NewCall(core.ControlPlaneCall{Req: operation.Call.Req, Op: l})
+						operation = generator.NewCall(runtime.ControlPlaneCall{Req: operation.Call.Req, Op: l})
 					}
 				}
 				return inner.Do(operation)
@@ -222,11 +223,11 @@ func LookupSkipsRunContainingFrom() ControlPlaneBug {
 			if operation.Call == nil {
 				return r
 			}
-			l, ok := operation.Call.Op.(core.FindSegments)
-			if !ok || r.Code != core.OK {
+			l, ok := operation.Call.Op.(contract.FindSegments)
+			if !ok || r.Code != runtime.OK {
 				return r
 			}
-			var kept []core.BatchRange
+			var kept []contract.BatchRange
 			for _, run := range r.Ranges {
 				if run.Base >= l.From {
 					kept = append(kept, run)
@@ -243,7 +244,7 @@ func DescribeUnsorted() ControlPlaneBug {
 		"DescribeTopics returns the topics in reverse order instead of sorted by name.",
 		func(operation generator.ControlPlaneTestStep, r observation.ControlPlaneResult) observation.ControlPlaneResult {
 			if operation.Call != nil {
-				if _, ok := operation.Call.Op.(core.DescribeTopics); ok {
+				if _, ok := operation.Call.Op.(contract.DescribeTopics); ok {
 					r.Topics = slices.Clone(r.Topics)
 					slices.Reverse(r.Topics)
 				}
@@ -262,7 +263,7 @@ func TopicPartitionCountShrinks() ControlPlaneBug {
 			return func(operation generator.ControlPlaneTestStep, r observation.ControlPlaneResult) observation.ControlPlaneResult {
 				switch {
 				case operation.CreateTopic != nil:
-					if r.Code == core.OK {
+					if r.Code == runtime.OK {
 						counts[operation.CreateTopic.Name] = operation.CreateTopic.Partitions
 					}
 				case operation.Call != nil:
@@ -275,13 +276,13 @@ func TopicPartitionCountShrinks() ControlPlaneBug {
 
 // minimizeCountsForCall updates the own partition counts of the bug after a
 // commit, and replaces the counts in a describe result with them.
-func minimizeCountsForCall(counts map[string]int32, operation core.ControlPlaneOperation, r observation.ControlPlaneResult) observation.ControlPlaneResult {
+func minimizeCountsForCall(counts map[string]int32, operation runtime.ControlPlaneOperation, r observation.ControlPlaneResult) observation.ControlPlaneResult {
 	switch operation.(type) {
-	case core.CommitSegment:
+	case contract.CommitSegment:
 		for _, a := range r.Assigned {
 			counts[a.TopicPartition.Topic] = max(counts[a.TopicPartition.Topic], a.TopicPartition.Partition+1)
 		}
-	case core.DescribeTopics:
+	case contract.DescribeTopics:
 		r.Topics = slices.Clone(r.Topics)
 		for i, topic := range r.Topics {
 			if n, ok := counts[topic.Name]; ok {

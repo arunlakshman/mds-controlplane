@@ -4,16 +4,17 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestRunRoundTripAndCorruption(t *testing.T) {
-	topicPartition := core.NewTopicPartition("t", 3)
-	rs := []core.BatchRange{
-		{TopicPartition: topicPartition, Base: 10, Count: 2, Loc: core.SegmentRef{Key: "s1", Off: 0, Len: 50}},
-		{TopicPartition: topicPartition, Base: 12, Count: 5, Loc: core.SegmentRef{Key: "s1", Off: 50, Len: -1}},
-		{TopicPartition: topicPartition, Base: 17, Count: 1, Loc: core.SegmentRef{Key: "s2", Off: 7, Len: 9}},
+	topicPartition := contract.NewTopicPartition("t", 3)
+	rs := []contract.BatchRange{
+		{TopicPartition: topicPartition, Base: 10, Count: 2, Loc: runtime.SegmentRef{Key: "s1", Off: 0, Len: 50}},
+		{TopicPartition: topicPartition, Base: 12, Count: 5, Loc: runtime.SegmentRef{Key: "s1", Off: 50, Len: -1}},
+		{TopicPartition: topicPartition, Base: 17, Count: 1, Loc: runtime.SegmentRef{Key: "s2", Off: 7, Len: 9}},
 	}
 	b := encodeBatchRun(rs)
 	got, err := decodeBatchRun(topicPartition, 10, b)
@@ -31,7 +32,7 @@ func TestRunRoundTripAndCorruption(t *testing.T) {
 
 func TestIdemRecordCorruption(t *testing.T) {
 	var dig [checksumLength]byte
-	rec := duplicateCheckRecord(7, dig, []core.BatchRange{{Base: 3}, {Base: 300}})
+	rec := duplicateCheckRecord(7, dig, []contract.BatchRange{{Base: 3}, {Base: 300}})
 	if _, bases, err := parseDuplicateCheck(rec); err != nil || len(bases) != 2 || bases[1] != 300 {
 		t.Fatalf("%v %v", bases, err)
 	}
@@ -44,7 +45,7 @@ func TestIdemRecordCorruption(t *testing.T) {
 
 func TestCorruptStoredRecordsPanic(t *testing.T) {
 	store := kv.NewMemory()
-	topicPartition := core.NewTopicPartition("t", 0)
+	topicPartition := contract.NewTopicPartition("t", 0)
 	_ = store.Update(func(transaction kv.Transaction) {
 		transaction.Set(batchRunKey(topicPartition, 0), []byte{9, 9})
 		transaction.Set(endKey(topicPartition), []byte{5})
@@ -53,11 +54,11 @@ func TestCorruptStoredRecordsPanic(t *testing.T) {
 	for name, f := range map[string]func(){
 		"lookup": func() {
 			_ = store.View(func(transaction kv.Transaction) {
-				Lookup(transaction, core.FindSegments{TopicPartition: topicPartition})
+				Lookup(transaction, contract.FindSegments{TopicPartition: topicPartition})
 			})
 		},
 		"replay": func() {
-			_ = store.Update(func(transaction kv.Transaction) { Commit(transaction, 1, core.CommitSegment{SegmentKey: "k"}) })
+			_ = store.Update(func(transaction kv.Transaction) { Commit(transaction, 1, contract.CommitSegment{SegmentKey: "k"}) })
 		},
 	} {
 		func() {

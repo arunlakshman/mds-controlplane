@@ -1,9 +1,10 @@
 package metadata
 
 import (
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // These methods are the typed calls on the topics module. Each one opens the
@@ -20,51 +21,51 @@ const (
 )
 
 // Commit applies a CommitSegment that sits at log slot slot.
-func (a *Store) Commit(slot int64, operation core.CommitSegment) (core.ControlPlaneDone, error) {
-	var d core.ControlPlaneDone
+func (a *Store) Commit(slot int64, operation contract.CommitSegment) (runtime.ControlPlaneDone, error) {
+	var d runtime.ControlPlaneDone
 	err := a.keyValue.Update(func(transaction kv.Transaction) { d = topics.Commit(transaction, slot, operation) })
 	return d, err
 }
 
 // KnownCommit answers operation from the idempotency window when the key is
 // already present. ok is false when the key is unknown (the caller must append).
-func (a *Store) KnownCommit(operation core.CommitSegment) (core.ControlPlaneDone, bool, error) {
-	var d core.ControlPlaneDone
+func (a *Store) KnownCommit(operation contract.CommitSegment) (runtime.ControlPlaneDone, bool, error) {
+	var d runtime.ControlPlaneDone
 	var ok bool
 	err := a.keyValue.View(func(transaction kv.Transaction) { d, ok = topics.Known(transaction, operation) })
 	return d, ok, err
 }
 
 // commitWithBases is the BugWriterOffsets apply path.
-func (a *Store) commitWithBases(slot int64, operation core.CommitSegment, bases []core.Offset) core.ControlPlaneDone {
-	var d core.ControlPlaneDone
+func (a *Store) commitWithBases(slot int64, operation contract.CommitSegment, bases []contract.Offset) runtime.ControlPlaneDone {
+	var d runtime.ControlPlaneDone
 	mustStore(a.keyValue.Update(func(transaction kv.Transaction) { d = topics.CommitWithBases(transaction, slot, operation, bases) }))
 	return d
 }
 
 // Lookup answers a Lookup from the stored runs.
-func (a *Store) Lookup(operation core.FindSegments) (core.ControlPlaneDone, error) {
+func (a *Store) Lookup(operation contract.FindSegments) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
 }
 
 // Describe answers a DescribeTopics.
-func (a *Store) Describe(operation core.DescribeTopics) (core.ControlPlaneDone, error) {
+func (a *Store) Describe(operation contract.DescribeTopics) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
 }
 
 // CreateTopic creates name with at least partitions partitions (never
 // shrinks). ErrInvalid for an empty name or partitions <= 0.
-func (a *Store) CreateTopic(name string, partitions int32) core.ErrCode {
+func (a *Store) CreateTopic(name string, partitions int32) runtime.ErrCode {
 	return a.CreateTopicIf(name, partitions, false)
 }
 
 // CreateTopicIf is CreateTopic. With failIfExists, an existing topic gives
 // ErrTopicExists and nothing changes.
-func (a *Store) CreateTopicIf(name string, partitions int32, failIfExists bool) core.ErrCode {
+func (a *Store) CreateTopicIf(name string, partitions int32, failIfExists bool) runtime.ErrCode {
 	if name == "" || partitions <= 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
-	code := core.OK
+	code := runtime.OK
 	mustStore(a.keyValue.Update(func(transaction kv.Transaction) {
 		code = topics.Create(transaction, name, partitions, failIfExists)
 	}))
@@ -72,8 +73,8 @@ func (a *Store) CreateTopicIf(name string, partitions int32, failIfExists bool) 
 }
 
 // End is the next offset of topicPartition (0 if unknown).
-func (a *Store) End(topicPartition core.TopicPartition) core.Offset {
-	var end core.Offset
+func (a *Store) End(topicPartition contract.TopicPartition) contract.Offset {
+	var end contract.Offset
 	mustStore(a.keyValue.View(func(transaction kv.Transaction) { end = topics.End(transaction, topicPartition) }))
 	return end
 }
@@ -95,8 +96,8 @@ func (a *Store) Window() int {
 
 // Assigned reports the ranges operation was given if it is the first commit of
 // its key at slot. An indexer uses it to write the run rows of a slot later.
-func (a *Store) Assigned(slot int64, operation core.CommitSegment) ([]core.BatchRange, AssignState, error) {
-	var rs []core.BatchRange
+func (a *Store) Assigned(slot int64, operation contract.CommitSegment) ([]contract.BatchRange, AssignState, error) {
+	var rs []contract.BatchRange
 	var st AssignState
 	err := a.keyValue.View(func(transaction kv.Transaction) { rs, st = topics.Assigned(transaction, slot, operation) })
 	return rs, st, err
@@ -106,16 +107,16 @@ func (a *Store) Assigned(slot int64, operation core.CommitSegment) ([]core.Batch
 // module.
 
 // OffsetFetch answers an OffsetFetch.
-func (a *Store) OffsetFetch(operation core.OffsetFetch) (core.ControlPlaneDone, error) {
+func (a *Store) OffsetFetch(operation contract.OffsetFetch) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
 }
 
 // DescribeGroup answers a DescribeGroup.
-func (a *Store) DescribeGroup(operation core.DescribeGroup) (core.ControlPlaneDone, error) {
+func (a *Store) DescribeGroup(operation contract.DescribeGroup) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
 }
 
 // ListGroups answers a ListGroups.
-func (a *Store) ListGroups(operation core.ListGroups) (core.ControlPlaneDone, error) {
+func (a *Store) ListGroups(operation contract.ListGroups) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
 }

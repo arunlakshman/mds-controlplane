@@ -8,8 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // groupMarker prefixes a multi-command commit entry so drain can tell it from a
@@ -17,31 +18,31 @@ import (
 const groupMarker byte = 0xC5
 
 // ClientOperation is one client command for the commit queue. Prod injects via
-// controlplane/server; sim delivers core.ControlPlaneDeliver which becomes Offer here.
+// controlplane/server; sim delivers runtime.ControlPlaneDeliver which becomes Offer here.
 type ClientOperation struct {
-	Req  core.RequestID
-	Cmd  metadata.Entry    // ID is assigned when the group is built
-	From core.NodeInstance // broker; empty skips ControlPlaneReply (unit tests)
+	Req  runtime.RequestID
+	Cmd  metadata.Entry       // ID is assigned when the group is built
+	From runtime.NodeInstance // broker; empty skips ControlPlaneReply (unit tests)
 }
 
 // ReplyToClient is the apply-time result for one ClientOperation.Req. TakeAnswers drains them.
 type ReplyToClient struct {
-	Req  core.RequestID
-	From core.NodeInstance
-	Done core.ControlPlaneDone
+	Req  runtime.RequestID
+	From runtime.NodeInstance
+	Done runtime.ControlPlaneDone
 }
 
 // waitingCommand is a queued or in-flight client command.
 type waitingCommand struct {
-	request core.RequestID
-	from    core.NodeInstance // broker; namespaces Req across brokers
+	request runtime.RequestID
+	from    runtime.NodeInstance // broker; namespaces Req across brokers
 	cmd     metadata.Entry
 }
 
 // inFlightAppend is one in-flight commit LogAppend (at most one).
 type inFlightAppend struct {
-	request core.RequestID
-	slot    core.LogPosition
+	request runtime.RequestID
+	slot    runtime.LogPosition
 	id      string
 	data    []byte
 	cmds    []waitingCommand
@@ -55,14 +56,14 @@ type inFlightAppend struct {
 // (no LogAppend). A retry for a key still queued or in flight retargets that
 // waiter to the new Req/From so a bridge timeout cannot orphan the apply
 // answer onto a dead broker RequestID.
-func (m *Replica) Offer(operation ClientOperation) []core.Action {
+func (m *Replica) Offer(operation ClientOperation) []runtime.Action {
 	if m.exited {
 		return nil
 	}
 	if !m.canCommit() {
 		m.answers = append(m.answers, ReplyToClient{
 			Req: operation.Req, From: operation.From,
-			Done: core.ControlPlaneDone{Req: operation.Req, Err: core.ErrUnavailable},
+			Done: runtime.ControlPlaneDone{Req: operation.Req, Err: runtime.ErrUnavailable},
 		})
 		return nil
 	}
@@ -80,14 +81,14 @@ func (m *Replica) Offer(operation ClientOperation) []core.Action {
 	if !m.fitsAlone(operation.Cmd) {
 		m.answers = append(m.answers, ReplyToClient{
 			Req: operation.Req, From: operation.From,
-			Done: core.ControlPlaneDone{Req: operation.Req, Err: core.ErrTooLarge},
+			Done: runtime.ControlPlaneDone{Req: operation.Req, Err: runtime.ErrTooLarge},
 		})
 		return nil
 	}
 	if len(m.queue) >= m.config.queueMax() {
 		m.answers = append(m.answers, ReplyToClient{
 			Req: operation.Req, From: operation.From,
-			Done: core.ControlPlaneDone{Req: operation.Req, Err: core.ErrUnavailable},
+			Done: runtime.ControlPlaneDone{Req: operation.Req, Err: runtime.ErrUnavailable},
 		})
 		return nil
 	}
@@ -116,7 +117,7 @@ func (m *Replica) retargetCommit(operation ClientOperation) bool {
 			return true
 		}
 	}
-	reqs := make([]core.RequestID, 0, len(m.inFlightAppends))
+	reqs := make([]runtime.RequestID, 0, len(m.inFlightAppends))
 	for request := range m.inFlightAppends { //determinismcheck:ok keys are collected, then sorted before use
 		reqs = append(reqs, request)
 	}
@@ -145,7 +146,7 @@ func (m *Replica) InFlightCommits() int { return len(m.inFlightAppends) }
 // QueueDepth is the number of client ops waiting for a commit slot.
 func (m *Replica) QueueDepth() int { return len(m.queue) }
 
-func (m *Replica) flushCommits() []core.Action {
+func (m *Replica) flushCommits() []runtime.Action {
 	if m.exited || m.booting {
 		return nil
 	}
@@ -153,14 +154,14 @@ func (m *Replica) flushCommits() []core.Action {
 	if !m.isAppender() && len(m.queue) == 0 {
 		return nil
 	}
-	var acts []core.Action
+	var acts []runtime.Action
 	for len(m.inFlightAppends) == 0 && len(m.queue) > 0 {
 		acts = append(acts, m.emitCommitGroup()...)
 	}
 	return acts
 }
 
-func (m *Replica) emitCommitGroup() []core.Action {
+func (m *Replica) emitCommitGroup() []runtime.Action {
 	limit := min(m.config.maxCmds(), len(m.queue))
 	if limit <= 0 {
 		return nil
@@ -199,14 +200,14 @@ func (m *Replica) emitCommitGroup() []core.Action {
 	data := wrap(m.epoch, m.config.writer(), inner)
 	slot := m.alloc()
 	m.env.Always(slot >= m.trimFloor, "logcp-sim: a Put never wins a slot below the trim floor",
-		core.ContextPair{Key: "slot", Value: slot})
+		runtime.ContextPair{Key: "slot", Value: slot})
 	m.env.Always(len(data) <= m.config.maxEntryBytes() || n == 1, "logcp-sim: a group entry stays under the byte cap",
-		core.ContextPair{Key: "bytes", Value: len(data)})
+		runtime.ContextPair{Key: "bytes", Value: len(data)})
 	m.nextReq++
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: slot, id: id, data: data, cmds: cmds}
 	m.waiters[id] = cmds
-	return []core.Action{core.LogAppend{Req: request, Slot: slot, Data: data}}
+	return []runtime.Action{runtime.LogAppend{Req: request, Slot: slot, Data: data}}
 }
 
 // entryFixedBytes is the most bytes one entry adds around its commands: the
@@ -227,33 +228,33 @@ func (m *Replica) fitsAlone(cmd metadata.Entry) bool {
 
 // projectBases is InjectedBugWriterOffsets: skip one offset per partition so a retry
 // leaves an empty slot in the committed log.
-func (m *Replica) projectBases(c core.CommitSegment) []core.Offset {
+func (m *Replica) projectBases(c contract.CommitSegment) []contract.Offset {
 	if m.proj == nil {
-		m.proj = map[core.TopicPartition]core.Offset{}
+		m.proj = map[contract.TopicPartition]contract.Offset{}
 	}
-	bases := make([]core.Offset, len(c.Batches))
+	bases := make([]contract.Offset, len(c.Batches))
 	for i, b := range c.Batches {
 		e, ok := m.proj[b.TopicPartition]
 		if !ok {
 			e = m.meta.End(b.TopicPartition) + 1 // skip one
 		}
 		bases[i] = e
-		m.proj[b.TopicPartition] = e + core.Offset(b.Records)
+		m.proj[b.TopicPartition] = e + contract.Offset(b.Records)
 	}
 	return bases
 }
 
-func (m *Replica) alloc() core.LogPosition {
+func (m *Replica) alloc() runtime.LogPosition {
 	n := max(m.high, m.applied)
 	m.high = n + 1
 	return n
 }
 
-func (m *Replica) observeSlot(n core.LogPosition) {
+func (m *Replica) observeSlot(n runtime.LogPosition) {
 	m.high = max(m.high, n+1)
 }
 
-func (m *Replica) onCommitAppendDone(d core.LogAppendDone, f *inFlightAppend) []core.Action {
+func (m *Replica) onCommitAppendDone(d runtime.LogAppendDone, f *inFlightAppend) []runtime.Action {
 	if isBelowFloor(d) {
 		// The slot is at or below the floor of the log: this node is far behind
 		// and the put is not a commit. Refuse the clients and restore.
@@ -261,11 +262,11 @@ func (m *Replica) onCommitAppendDone(d core.LogAppendDone, f *inFlightAppend) []
 		return m.hitTrimmed()
 	}
 	delete(m.inFlightAppends, d.Req)
-	if d.Err != core.OK || d.Outcome != core.Applied {
+	if d.Err != runtime.OK || d.Outcome != runtime.Applied {
 		// Conditional put: NotApplied and MaybeApplied both retry the same
 		// slot. Allocating a later slot here would leave an empty slot, and
 		// drain would stop there for good.
-		if d.Outcome == core.MaybeApplied {
+		if d.Outcome == runtime.MaybeApplied {
 			m.env.Reachable("logcp-sim: Put not answered, same slot repeated")
 		}
 		acts := m.retrySameSlot(f)
@@ -284,7 +285,7 @@ func (m *Replica) onCommitAppendDone(d core.LogAppendDone, f *inFlightAppend) []
 	if err := m.drain(); err != nil {
 		return m.trip(err)
 	}
-	var acts []core.Action
+	var acts []runtime.Action
 	if m.fencedFlag {
 		acts = m.stepDown()
 		return append(acts, m.progress()...)
@@ -298,22 +299,22 @@ func (m *Replica) onCommitAppendDone(d core.LogAppendDone, f *inFlightAppend) []
 }
 
 // retrySameSlot repeats the Put at f.slot (conditional append; slot still ours).
-func (m *Replica) retrySameSlot(f *inFlightAppend) []core.Action {
+func (m *Replica) retrySameSlot(f *inFlightAppend) []runtime.Action {
 	m.nextReq++
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: f.slot, id: f.id, data: f.data, cmds: f.cmds}
-	return []core.Action{core.LogAppend{Req: request, Slot: f.slot, Data: f.data}}
+	return []runtime.Action{runtime.LogAppend{Req: request, Slot: f.slot, Data: f.data}}
 }
 
 // retryInFlightAppend appends the same entry (same id and cmds) at the next free slot
 // after another writer won f.slot.
-func (m *Replica) retryInFlightAppend(f *inFlightAppend) []core.Action {
+func (m *Replica) retryInFlightAppend(f *inFlightAppend) []runtime.Action {
 	m.env.Reachable("logcp-sim: lost slot retried at a later slot")
 	slot := m.alloc()
 	m.nextReq++
 	request := m.nextReq
 	m.inFlightAppends[request] = &inFlightAppend{request: request, slot: slot, id: f.id, data: f.data, cmds: f.cmds}
-	return []core.Action{core.LogAppend{Req: request, Slot: slot, Data: f.data}}
+	return []runtime.Action{runtime.LogAppend{Req: request, Slot: slot, Data: f.data}}
 }
 
 func encodeGroup(id string, cmds []metadata.Entry) []byte {
@@ -389,7 +390,7 @@ func takeUvarint(b []byte) (uint64, []byte, bool) {
 	return v, b[n:], true
 }
 
-func (m *Replica) applySlot(slot core.LogPosition, data []byte) error {
+func (m *Replica) applySlot(slot runtime.LogPosition, data []byte) error {
 	epoch, writer, payload, ok := unwrap(data)
 	if !ok {
 		return fmt.Errorf("replica: truncated log envelope at slot %d", slot)
@@ -410,7 +411,7 @@ func (m *Replica) applySlot(slot core.LogPosition, data []byte) error {
 				}
 			}
 		}
-		dones := make([]core.ControlPlaneDone, len(cmds))
+		dones := make([]runtime.ControlPlaneDone, len(cmds))
 		for i, c := range cmds {
 			dones[i] = m.meta.Apply(int64(slot), c)
 		}
@@ -424,13 +425,13 @@ func (m *Replica) applySlot(slot core.LogPosition, data []byte) error {
 	}
 	// Single-entry catch-up: deliver only if we were waiting on it.
 	if e, err := metadata.Decode(payload); err == nil {
-		m.deliver(e.ID, []core.ControlPlaneDone{d})
+		m.deliver(e.ID, []runtime.ControlPlaneDone{d})
 	}
 	m.afterApply(slot)
 	return nil
 }
 
-func (m *Replica) afterApply(slot core.LogPosition) {
+func (m *Replica) afterApply(slot runtime.LogPosition) {
 	m.env.Reachable("logcp-sim: replayed key answered from the window")
 	window := m.config.WindowSlots
 	stride := m.config.TrimStride
@@ -441,7 +442,7 @@ func (m *Replica) afterApply(slot core.LogPosition) {
 		// Mutant: forget by this replica's applied clock, not log stride.
 		_, _ = m.meta.Trim(int64(slot) - window + 1)
 		m.env.Always(false, "logcp-sim: a replica's state equals the replay of the log at its slot",
-			core.ContextPair{Key: "window", Value: window})
+			runtime.ContextPair{Key: "window", Value: window})
 		return
 	}
 	if window > 0 && int64(slot)%stride == 0 && int64(slot) >= window {
@@ -449,18 +450,18 @@ func (m *Replica) afterApply(slot core.LogPosition) {
 	}
 }
 
-func (m *Replica) deliver(id string, dones []core.ControlPlaneDone) {
+func (m *Replica) deliver(id string, dones []runtime.ControlPlaneDone) {
 	ps, ok := m.waiters[id]
 	if !ok {
 		return
 	}
 	delete(m.waiters, id)
 	for i, p := range ps {
-		d := core.ControlPlaneDone{Req: p.request, Err: core.ErrInvalid}
+		d := runtime.ControlPlaneDone{Req: p.request, Err: runtime.ErrInvalid}
 		if i < len(dones) {
 			d = dones[i]
 			d.Req = p.request
-			if d.Err == core.OK && d.Outcome == core.Applied && !m.isAppender() {
+			if d.Err == runtime.OK && d.Outcome == runtime.Applied && !m.isAppender() {
 				m.env.Reachable("logcp-sim: idempotent replay after takeover")
 			}
 		}

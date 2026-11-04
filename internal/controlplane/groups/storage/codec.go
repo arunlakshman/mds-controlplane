@@ -1,9 +1,10 @@
 package storage
 
 import (
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // The log entry kinds of this module. The numbers are part of the log format.
@@ -24,36 +25,36 @@ func (Module) Kinds() []module.Kind {
 }
 
 // KindOf is the kind of a group write.
-func (Module) KindOf(operation core.ControlPlaneOperation) (module.Kind, bool) {
+func (Module) KindOf(operation runtime.ControlPlaneOperation) (module.Kind, bool) {
 	switch operation.(type) {
-	case core.GroupInstall:
+	case contract.GroupInstall:
 		return KindGroupInstall, true
-	case core.GroupAssign:
+	case contract.GroupAssign:
 		return KindGroupAssign, true
-	case core.GroupRemove:
+	case contract.GroupRemove:
 		return KindGroupRemove, true
-	case core.OffsetCommit:
+	case contract.OffsetCommit:
 		return KindOffsetCommit, true
 	}
 	return 0, false
 }
 
 // Encode writes the payload of a group write.
-func (Module) Encode(w *kv.Writer, _ module.Kind, operation core.ControlPlaneOperation) {
+func (Module) Encode(w *kv.Writer, _ module.Kind, operation runtime.ControlPlaneOperation) {
 	switch x := operation.(type) {
-	case core.GroupInstall:
+	case contract.GroupInstall:
 		encodeInstall(w, x)
-	case core.GroupAssign:
+	case contract.GroupAssign:
 		encodeAssign(w, x)
-	case core.GroupRemove:
+	case contract.GroupRemove:
 		encodeRemove(w, x)
-	case core.OffsetCommit:
+	case contract.OffsetCommit:
 		encodeOffsetCommit(w, x)
 	}
 }
 
 // Decode reads the payload of an entry of kind.
-func (Module) Decode(r *kv.Reader, kind module.Kind) core.ControlPlaneOperation {
+func (Module) Decode(r *kv.Reader, kind module.Kind) runtime.ControlPlaneOperation {
 	switch kind {
 	case KindGroupInstall:
 		return decodeInstall(r)
@@ -68,7 +69,7 @@ func (Module) Decode(r *kv.Reader, kind module.Kind) core.ControlPlaneOperation 
 	return nil
 }
 
-func encodeInstall(w *kv.Writer, operation core.GroupInstall) {
+func encodeInstall(w *kv.Writer, operation contract.GroupInstall) {
 	w.String(operation.Group)
 	w.String(operation.ProtocolType)
 	w.String(operation.Protocol)
@@ -87,8 +88,8 @@ func encodeInstall(w *kv.Writer, operation core.GroupInstall) {
 	}
 }
 
-func decodeInstall(r *kv.Reader) core.GroupInstall {
-	var operation core.GroupInstall
+func decodeInstall(r *kv.Reader) contract.GroupInstall {
+	var operation contract.GroupInstall
 	operation.Group = r.String()
 	operation.ProtocolType = r.String()
 	operation.Protocol = r.String()
@@ -96,7 +97,7 @@ func decodeInstall(r *kv.Reader) core.GroupInstall {
 	operation.Leader = r.String()
 	operation.TimeMs = r.Varint()
 	for n := r.Count(); n > 0 && r.OK(); n-- {
-		var m core.GroupMember
+		var m contract.GroupMember
 		m.MemberID = r.String()
 		m.ClientID = r.String()
 		m.ClientHost = r.String()
@@ -109,7 +110,7 @@ func decodeInstall(r *kv.Reader) core.GroupInstall {
 	return operation
 }
 
-func encodeAssign(w *kv.Writer, operation core.GroupAssign) {
+func encodeAssign(w *kv.Writer, operation contract.GroupAssign) {
 	w.String(operation.Group)
 	w.Varint(int64(operation.Generation))
 	w.String(operation.Leader)
@@ -121,14 +122,14 @@ func encodeAssign(w *kv.Writer, operation core.GroupAssign) {
 	}
 }
 
-func decodeAssign(r *kv.Reader) core.GroupAssign {
-	var operation core.GroupAssign
+func decodeAssign(r *kv.Reader) contract.GroupAssign {
+	var operation contract.GroupAssign
 	operation.Group = r.String()
 	operation.Generation = int32(r.Varint())
 	operation.Leader = r.String()
 	operation.TimeMs = r.Varint()
 	for n := r.Count(); n > 0 && r.OK(); n-- {
-		var a core.GroupAssignment
+		var a contract.GroupAssignment
 		a.Member = r.String()
 		a.Bytes = r.Bytes()
 		operation.Assignments = append(operation.Assignments, a)
@@ -136,7 +137,7 @@ func decodeAssign(r *kv.Reader) core.GroupAssign {
 	return operation
 }
 
-func encodeRemove(w *kv.Writer, operation core.GroupRemove) {
+func encodeRemove(w *kv.Writer, operation contract.GroupRemove) {
 	w.String(operation.Group)
 	w.Varint(operation.TimeMs)
 	w.String(operation.Reason)
@@ -146,8 +147,8 @@ func encodeRemove(w *kv.Writer, operation core.GroupRemove) {
 	}
 }
 
-func decodeRemove(r *kv.Reader) core.GroupRemove {
-	var operation core.GroupRemove
+func decodeRemove(r *kv.Reader) contract.GroupRemove {
+	var operation contract.GroupRemove
 	operation.Group = r.String()
 	operation.TimeMs = r.Varint()
 	operation.Reason = r.String()
@@ -157,7 +158,7 @@ func decodeRemove(r *kv.Reader) core.GroupRemove {
 	return operation
 }
 
-func encodeOffsetCommit(w *kv.Writer, operation core.OffsetCommit) {
+func encodeOffsetCommit(w *kv.Writer, operation contract.OffsetCommit) {
 	w.String(operation.Group)
 	w.String(operation.Member)
 	w.Varint(int64(operation.Generation))
@@ -172,14 +173,14 @@ func encodeOffsetCommit(w *kv.Writer, operation core.OffsetCommit) {
 	}
 }
 
-func decodeOffsetCommit(r *kv.Reader) core.OffsetCommit {
-	var operation core.OffsetCommit
+func decodeOffsetCommit(r *kv.Reader) contract.OffsetCommit {
+	var operation contract.OffsetCommit
 	operation.Group = r.String()
 	operation.Member = r.String()
 	operation.Generation = int32(r.Varint())
 	operation.TimeMs = r.Varint()
 	for n := r.Count(); n > 0 && r.OK(); n-- {
-		var o core.PartitionOffset
+		var o contract.PartitionOffset
 		o.TopicPartition.Topic = r.String()
 		o.TopicPartition.Partition = int32(r.Varint())
 		o.Offset = r.Varint()

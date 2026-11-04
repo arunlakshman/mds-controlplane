@@ -88,7 +88,7 @@ Rules used for the right column:
 | `cmd/crapscore` | `cmd/riskscore` |
 | `test/it` | `test/integrationtest` |
 
-## 2. Core ideas (`internal/core`)
+## 2. Core ideas (`internal/runtime`)
 
 | Current | Simple English |
 |---|---|
@@ -122,7 +122,7 @@ Rules used for the right column:
 | `fnvP1` … `fnvP8` | `fnvPrimePower1` … `fnvPrimePower8` |
 | `U64`, `I64`, `Str` | `Uint64Value`, `Int64Value`, `StringValue` |
 
-## 3. Actions and events (`internal/core`)
+## 3. Actions and events (`internal/runtime`)
 
 | Current | Simple English |
 |---|---|

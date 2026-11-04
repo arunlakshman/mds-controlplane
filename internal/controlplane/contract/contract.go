@@ -1,19 +1,42 @@
-package core
-
-// ControlPlaneOperation is a control-plane operation as seen by a broker (decision 3). The wire
-// protocol for new work is gRPC (`controlplane/api/v1`, decision 57); ControlPlaneOperation remains
-// the in-process vocabulary until cutover. The metadata store is still invisible
-// to the broker. The invariants below are not provisional.
+// Package contract is the control plane's request and response vocabulary: the
+// operations a broker can ask for (commit a segment, find segments, topics,
+// consumer groups, offsets) and the answers. It is plain data.
 //
-// Brokers are stateless (decision 44): there is no registration, epoch or
-// fencing, and no idempotent producers (decision 41). The control plane
-// assigns offsets (decision 42): the broker never proposes one. How a store
-// stays correct under concurrent committers (a compare-and-set on the run base
-// with an internal retry) is the store's business, not part of this contract.
-type ControlPlaneOperation interface{ isControlPlaneOperation() }
+// contract imports runtime. runtime must never import contract: runtime carries
+// an operation only as the runtime.ControlPlaneOperation interface, which the
+// types here implement.
+package contract
 
-// ControlPlaneResponse is the answer to a ControlPlaneOperation.
-type ControlPlaneResponse interface{ isControlPlaneResponse() }
+import (
+	"fmt"
+
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
+)
+
+// Offset is a partition log offset.
+type Offset int64
+
+// BrokerAddr is one broker's advertised address, as Metadata lists it.
+type BrokerAddr struct {
+	NodeID int32
+	Host   string
+	Port   int32
+}
+
+// TopicPartition names one partition of a topic.
+type TopicPartition struct {
+	Topic     string
+	Partition int32
+}
+
+// NewTopicPartition builds a TopicPartition.
+func NewTopicPartition(topic string, partition int32) TopicPartition {
+	return TopicPartition{Topic: topic, Partition: partition}
+}
+
+func (topicPartition TopicPartition) String() string {
+	return fmt.Sprintf("%s-%d", topicPartition.Topic, topicPartition.Partition)
+}
 
 // CommitSegment registers one uploaded object holding batches for many
 // partitions and assigns their offsets atomically: every batch is assigned or
@@ -39,7 +62,7 @@ type CommitSegment struct {
 type PendingBatch struct {
 	TopicPartition TopicPartition
 	Records        int64 // record count in the batch
-	Loc            SegmentRef
+	Loc            runtime.SegmentRef
 }
 
 // CommitSegmentResp has one entry per request batch, in request order.
@@ -51,7 +74,7 @@ type BatchRange struct {
 	TopicPartition TopicPartition
 	Base           Offset
 	Count          int64
-	Loc            SegmentRef
+	Loc            runtime.SegmentRef
 }
 
 // FindSegments finds which segments hold offsets >= From for a partition.
@@ -186,7 +209,7 @@ type PartitionOffset struct {
 }
 
 // OffsetCommitResp has one error per request offset, in request order.
-type OffsetCommitResp struct{ Errs []ErrCode }
+type OffsetCommitResp struct{ Errs []runtime.ErrCode }
 
 // OffsetFetch reads committed offsets of a group. Empty Partitions means
 // every committed partition, sorted by topic and partition.
@@ -293,7 +316,7 @@ type GroupLeave struct {
 }
 
 // GroupLeaveResp has one code per member, in request order.
-type GroupLeaveResp struct{ Errs []ErrCode }
+type GroupLeaveResp struct{ Errs []runtime.ErrCode }
 
 // DescribeGroups reads several groups in one call.
 type DescribeGroups struct{ Groups []string }
@@ -307,31 +330,31 @@ type GroupDescription struct {
 // DescribeGroupsResp has one entry per name asked, in request order.
 type DescribeGroupsResp struct{ Groups []GroupDescription }
 
-func (CommitSegment) isControlPlaneOperation()  {}
-func (FindSegments) isControlPlaneOperation()   {}
-func (DescribeTopics) isControlPlaneOperation() {}
-func (CreateTopic) isControlPlaneOperation()    {}
-func (GroupInstall) isControlPlaneOperation()   {}
-func (GroupAssign) isControlPlaneOperation()    {}
-func (GroupRemove) isControlPlaneOperation()    {}
-func (OffsetCommit) isControlPlaneOperation()   {}
-func (OffsetFetch) isControlPlaneOperation()    {}
-func (DescribeGroup) isControlPlaneOperation()  {}
-func (ListGroups) isControlPlaneOperation()     {}
-func (GroupJoin) isControlPlaneOperation()      {}
-func (GroupSync) isControlPlaneOperation()      {}
-func (GroupHeartbeat) isControlPlaneOperation() {}
-func (GroupLeave) isControlPlaneOperation()     {}
-func (DescribeGroups) isControlPlaneOperation() {}
+func (CommitSegment) IsControlPlaneOperation()  {}
+func (FindSegments) IsControlPlaneOperation()   {}
+func (DescribeTopics) IsControlPlaneOperation() {}
+func (CreateTopic) IsControlPlaneOperation()    {}
+func (GroupInstall) IsControlPlaneOperation()   {}
+func (GroupAssign) IsControlPlaneOperation()    {}
+func (GroupRemove) IsControlPlaneOperation()    {}
+func (OffsetCommit) IsControlPlaneOperation()   {}
+func (OffsetFetch) IsControlPlaneOperation()    {}
+func (DescribeGroup) IsControlPlaneOperation()  {}
+func (ListGroups) IsControlPlaneOperation()     {}
+func (GroupJoin) IsControlPlaneOperation()      {}
+func (GroupSync) IsControlPlaneOperation()      {}
+func (GroupHeartbeat) IsControlPlaneOperation() {}
+func (GroupLeave) IsControlPlaneOperation()     {}
+func (DescribeGroups) IsControlPlaneOperation() {}
 
-func (CommitSegmentResp) isControlPlaneResponse()  {}
-func (FindSegmentsResp) isControlPlaneResponse()   {}
-func (DescribeTopicsResp) isControlPlaneResponse() {}
-func (OffsetCommitResp) isControlPlaneResponse()   {}
-func (OffsetFetchResp) isControlPlaneResponse()    {}
-func (DescribeGroupResp) isControlPlaneResponse()  {}
-func (ListGroupsResp) isControlPlaneResponse()     {}
-func (GroupJoinResp) isControlPlaneResponse()      {}
-func (GroupSyncResp) isControlPlaneResponse()      {}
-func (GroupLeaveResp) isControlPlaneResponse()     {}
-func (DescribeGroupsResp) isControlPlaneResponse() {}
+func (CommitSegmentResp) IsControlPlaneResponse()  {}
+func (FindSegmentsResp) IsControlPlaneResponse()   {}
+func (DescribeTopicsResp) IsControlPlaneResponse() {}
+func (OffsetCommitResp) IsControlPlaneResponse()   {}
+func (OffsetFetchResp) IsControlPlaneResponse()    {}
+func (DescribeGroupResp) IsControlPlaneResponse()  {}
+func (ListGroupsResp) IsControlPlaneResponse()     {}
+func (GroupJoinResp) IsControlPlaneResponse()      {}
+func (GroupSyncResp) IsControlPlaneResponse()      {}
+func (GroupLeaveResp) IsControlPlaneResponse()     {}
+func (DescribeGroupsResp) IsControlPlaneResponse() {}

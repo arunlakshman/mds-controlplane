@@ -7,40 +7,40 @@ package system
 import (
 	"context"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // ObjectStore is the S3 adapter.
 type ObjectStore interface {
 	Put(ctx context.Context, key string, data []byte) error
-	Get(ctx context.Context, ref core.SegmentRef) ([]byte, error)
+	Get(ctx context.Context, ref runtime.SegmentRef) ([]byte, error)
 	Delete(ctx context.Context, key string) error
 	List(ctx context.Context, prefix string) ([]string, error)
 }
 
 // ControlPlane is the HTTP client adapter for the control plane.
 type ControlPlane interface {
-	Call(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneResponse, error)
+	Call(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error)
 }
 
 // ErrorClassifier is the single place SDK/HTTP/net errors become plain data
 // (lesson 1). Getting Outcome right here is what makes acks honest.
 type ErrorClassifier interface {
-	// Classify reduces err to plain data. It logs err; the core only sees the
+	// Classify reduces err to plain data. It logs err; the machine only sees the
 	// code. The Outcome depends on which operation failed, not only on err.
-	Classify(a core.IOCall, err error) (core.ErrCode, core.Outcome)
+	Classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome)
 }
 
 // InboxWriter is the node's pair of inboxes (docs/flow-control.md sec. 3). Callers route
-// with core.InboxKindOf. The loop picks with core.InboxPicker and stamps At/Wall
+// with runtime.InboxKindOf. The loop picks with runtime.InboxPicker and stamps At/Wall
 // when it dequeues.
 type InboxWriter interface {
 	// DeliverControl is used by timer callbacks and I/O completion goroutines.
 	// It never blocks: the control queue is bounded by construction.
-	DeliverControl(body core.EventData)
+	DeliverControl(body runtime.EventData)
 	// DeliverData is used by senders from outside the node. It blocks when the
 	// data queue is full.
-	DeliverData(body core.EventData)
+	DeliverData(body runtime.EventData)
 	// Closed is closed when the incarnation ends. Later deliveries are dropped,
 	// never block, and never reach the next incarnation.
 	Closed() <-chan struct{}
@@ -51,18 +51,18 @@ type InboxWriter interface {
 // same RequestID, delivered to the InboxWriter and never on the caller's goroutine.
 // Execute MUST NOT block: it hands work to goroutines/queues.
 type Executor interface {
-	Execute(a core.IOCall)
+	Execute(a runtime.IOCall)
 }
 
 // Dependencies is everything nondeterministic a production broker process needs.
 type Dependencies struct {
-	Clock        core.Clock
+	Clock        runtime.Clock
 	Objects      ObjectStore
 	ControlPlane ControlPlane
 	Classifier   ErrorClassifier
-	Env          core.Environment // crypto-seeded Rand, inert FaultInjector, logging Assertions
-	Inbox        *Inbox           // shared with the Executor and readers; Run closes it on return
-	Facts        func(core.Fact)  // optional: receives RecordFact facts (tracing)
-	Shutdown     <-chan struct{}  // optional: closing it asks Run for a graceful stop (see StopOnSignal)
-	StopGrace    core.Duration    // time the machine gets after Shutdown to emit ShutdownDone
+	Env          runtime.Environment // crypto-seeded Rand, inert FaultInjector, logging Assertions
+	Inbox        *Inbox              // shared with the Executor and readers; Run closes it on return
+	Facts        func(runtime.Fact)  // optional: receives RecordFact facts (tracing)
+	Shutdown     <-chan struct{}     // optional: closing it asks Run for a graceful stop (see StopOnSignal)
+	StopGrace    runtime.Duration    // time the machine gets after Shutdown to emit ShutdownDone
 }

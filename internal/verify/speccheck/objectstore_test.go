@@ -7,44 +7,44 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
 
-func put(s *ObjectStore, key, data string) core.ObjectPutDone {
-	return s.Exec(core.ObjectPut{Req: 1, Key: key, Data: []byte(data)}).(core.ObjectPutDone)
+func put(s *ObjectStore, key, data string) runtime.ObjectPutDone {
+	return s.Exec(runtime.ObjectPut{Req: 1, Key: key, Data: []byte(data)}).(runtime.ObjectPutDone)
 }
 
-func get(s *ObjectStore, key string, off, n int64) core.ObjectGetDone {
-	return s.Exec(core.ObjectGet{Req: 2, Ref: core.SegmentRef{Key: key, Off: off, Len: n}}).(core.ObjectGetDone)
+func get(s *ObjectStore, key string, off, n int64) runtime.ObjectGetDone {
+	return s.Exec(runtime.ObjectGet{Req: 2, Ref: runtime.SegmentRef{Key: key, Off: off, Len: n}}).(runtime.ObjectGetDone)
 }
 
 func TestObjectStoreRangeGet(t *testing.T) {
 	s := NewObjectStore()
-	if d := put(s, "k", "abcdef"); d.Err != core.OK || d.Outcome != core.Applied || d.Req != 1 {
+	if d := put(s, "k", "abcdef"); d.Err != runtime.OK || d.Outcome != runtime.Applied || d.Req != 1 {
 		t.Fatalf("put: %+v", d)
 	}
 	for _, c := range []struct {
 		off, n int64
 		want   string
-		err    core.ErrCode
+		err    runtime.ErrCode
 	}{
-		{0, 0, "abcdef", core.OK},
-		{0, -1, "abcdef", core.OK},
-		{2, 0, "cdef", core.OK},
-		{2, 3, "cde", core.OK},
-		{3, 3, "def", core.OK},
-		{6, 0, "", core.OK},
-		{3, 4, "", core.ErrInvalid},
-		{7, 0, "", core.ErrInvalid},
-		{-1, 2, "", core.ErrInvalid},
+		{0, 0, "abcdef", runtime.OK},
+		{0, -1, "abcdef", runtime.OK},
+		{2, 0, "cdef", runtime.OK},
+		{2, 3, "cde", runtime.OK},
+		{3, 3, "def", runtime.OK},
+		{6, 0, "", runtime.OK},
+		{3, 4, "", runtime.ErrInvalid},
+		{7, 0, "", runtime.ErrInvalid},
+		{-1, 2, "", runtime.ErrInvalid},
 	} {
 		d := get(s, "k", c.off, c.n)
 		if d.Err != c.err || string(d.Data) != c.want {
 			t.Errorf("get off=%d len=%d: %q %v, want %q %v", c.off, c.n, d.Data, d.Err, c.want, c.err)
 		}
 	}
-	if d := get(s, "nope", 0, 0); d.Err != core.ErrNotFound {
+	if d := get(s, "nope", 0, 0); d.Err != runtime.ErrNotFound {
 		t.Fatalf("missing: %+v", d)
 	}
 }
@@ -52,7 +52,7 @@ func TestObjectStoreRangeGet(t *testing.T) {
 func TestObjectStorePutCopiesAndOverwrites(t *testing.T) {
 	s := NewObjectStore()
 	buf := []byte("xy")
-	s.Exec(core.ObjectPut{Key: "k", Data: buf})
+	s.Exec(runtime.ObjectPut{Key: "k", Data: buf})
 	buf[0] = 'z'
 	d := get(s, "k", 0, 0)
 	d.Data[1] = 'q'
@@ -63,7 +63,7 @@ func TestObjectStorePutCopiesAndOverwrites(t *testing.T) {
 	if got := string(get(s, "k", 0, 0).Data); got != "new" {
 		t.Fatalf("overwrite: %q", got)
 	}
-	if d := put(s, "", "x"); d.Err != core.ErrInvalid || d.Outcome != core.NotApplied {
+	if d := put(s, "", "x"); d.Err != runtime.ErrInvalid || d.Outcome != runtime.NotApplied {
 		t.Fatalf("empty key: %+v", d)
 	}
 }
@@ -75,13 +75,13 @@ func TestObjectStoreDeleteAndHash(t *testing.T) {
 	if s.StateHash() == empty {
 		t.Fatal("hash unchanged by put")
 	}
-	if d := s.Exec(core.ObjectDelete{Req: 3, Key: "k"}).(core.ObjectDeleteDone); d.Err != core.OK || d.Outcome != core.Applied {
+	if d := s.Exec(runtime.ObjectDelete{Req: 3, Key: "k"}).(runtime.ObjectDeleteDone); d.Err != runtime.OK || d.Outcome != runtime.Applied {
 		t.Fatalf("delete: %+v", d)
 	}
 	if s.StateHash() != empty {
 		t.Fatal("hash not restored by delete")
 	}
-	if d := s.Exec(core.ObjectDelete{Req: 4, Key: "k"}).(core.ObjectDeleteDone); d.Err != core.ErrNotFound || d.Outcome != core.NotApplied {
+	if d := s.Exec(runtime.ObjectDelete{Req: 4, Key: "k"}).(runtime.ObjectDeleteDone); d.Err != runtime.ErrNotFound || d.Outcome != runtime.NotApplied {
 		t.Fatalf("delete missing: %+v", d)
 	}
 	if s.StateHash() != empty {
@@ -104,7 +104,7 @@ func TestObjectStoreListOrdering(t *testing.T) {
 		put(s, k, "")
 	}
 	list := func(p string) []string {
-		return s.Exec(core.ObjectList{Prefix: p}).(core.ObjectListDone).Keys
+		return s.Exec(runtime.ObjectList{Prefix: p}).(runtime.ObjectListDone).Keys
 	}
 	if got, want := list(""), []string{"a", "a/1", "a/10", "a/2", "b", "c/1"}; !slices.Equal(got, want) {
 		t.Fatalf("all: %v", got)
@@ -131,11 +131,11 @@ func (m *sliceStore) find(k string) (int, bool) {
 	return i, i < len(m.keys) && m.keys[i] == k
 }
 
-func (m *sliceStore) Exec(a core.IOCall) core.IOResult {
+func (m *sliceStore) Exec(a runtime.IOCall) runtime.IOResult {
 	switch a := a.(type) {
-	case core.ObjectPut:
+	case runtime.ObjectPut:
 		if a.Key == "" {
-			return core.ObjectPutDone{Req: a.Req, Key: a.Key, Err: core.ErrInvalid}
+			return runtime.ObjectPutDone{Req: a.Req, Key: a.Key, Err: runtime.ErrInvalid}
 		}
 		i, ok := m.find(a.Key)
 		v := append([]byte{}, a.Data...)
@@ -145,11 +145,11 @@ func (m *sliceStore) Exec(a core.IOCall) core.IOResult {
 			m.keys = slices.Insert(m.keys, i, a.Key)
 			m.vals = slices.Insert(m.vals, i, v)
 		}
-		return core.ObjectPutDone{Req: a.Req, Key: a.Key, Outcome: core.Applied}
-	case core.ObjectGet:
+		return runtime.ObjectPutDone{Req: a.Req, Key: a.Key, Outcome: runtime.Applied}
+	case runtime.ObjectGet:
 		i, ok := m.find(a.Ref.Key)
 		if !ok {
-			return core.ObjectGetDone{Req: a.Req, Err: core.ErrNotFound}
+			return runtime.ObjectGetDone{Req: a.Req, Err: runtime.ErrNotFound}
 		}
 		v, off := m.vals[i], a.Ref.Off
 		n := int64(len(v)) - off
@@ -157,29 +157,29 @@ func (m *sliceStore) Exec(a core.IOCall) core.IOResult {
 			n = a.Ref.Len
 		}
 		if off < 0 || n < 0 || off+n > int64(len(v)) {
-			return core.ObjectGetDone{Req: a.Req, Err: core.ErrInvalid}
+			return runtime.ObjectGetDone{Req: a.Req, Err: runtime.ErrInvalid}
 		}
-		return core.ObjectGetDone{Req: a.Req, Data: append([]byte{}, v[off:off+n]...)}
-	case core.ObjectDelete:
+		return runtime.ObjectGetDone{Req: a.Req, Data: append([]byte{}, v[off:off+n]...)}
+	case runtime.ObjectDelete:
 		i, ok := m.find(a.Key)
 		if !ok {
-			return core.ObjectDeleteDone{Req: a.Req, Err: core.ErrNotFound}
+			return runtime.ObjectDeleteDone{Req: a.Req, Err: runtime.ErrNotFound}
 		}
 		m.keys = slices.Delete(m.keys, i, i+1)
 		m.vals = slices.Delete(m.vals, i, i+1)
-		return core.ObjectDeleteDone{Req: a.Req, Outcome: core.Applied}
-	case core.ObjectList:
+		return runtime.ObjectDeleteDone{Req: a.Req, Outcome: runtime.Applied}
+	case runtime.ObjectList:
 		var out []string
 		for i := sort.SearchStrings(m.keys, a.Prefix); i < len(m.keys) && strings.HasPrefix(m.keys[i], a.Prefix); i++ {
 			out = append(out, m.keys[i])
 		}
-		return core.ObjectListDone{Req: a.Req, Keys: out}
+		return runtime.ObjectListDone{Req: a.Req, Keys: out}
 	}
 	panic("sliceStore: unknown action")
 }
 
 type objExec interface {
-	Exec(core.IOCall) core.IOResult
+	Exec(runtime.IOCall) runtime.IOResult
 	Keys() []string
 }
 
@@ -187,29 +187,29 @@ type objPair struct{ impl, model objExec }
 
 func (m *sliceStore) Keys() []string { return slices.Clone(m.keys) }
 
-func objCheck(impl func() objExec) checker.SpecChecker[*objPair, core.IOCall] {
+func objCheck(impl func() objExec) checker.SpecChecker[*objPair, runtime.IOCall] {
 	keys := []string{"", "a", "a/b", "a/c", "b"}
 	prefixes := []string{"", "a", "a/", "b", "z"}
-	return checker.SpecChecker[*objPair, core.IOCall]{
-		Name: "core.IOCall",
+	return checker.SpecChecker[*objPair, runtime.IOCall]{
+		Name: "runtime.IOCall",
 		New:  func() *objPair { return &objPair{impl(), &sliceStore{}} },
-		Gen: func(r *checker.Rand, i int) core.IOCall {
-			request, key := core.RequestID(i+1), keys[r.Intn(len(keys))]
+		Gen: func(r *checker.Rand, i int) runtime.IOCall {
+			request, key := runtime.RequestID(i+1), keys[r.Intn(len(keys))]
 			switch r.Intn(7) {
 			case 0, 1, 2:
 				data := make([]byte, r.Intn(5))
 				for j := range data {
 					data[j] = byte('a' + r.Intn(26))
 				}
-				return core.ObjectPut{Req: request, Key: key, Data: data}
+				return runtime.ObjectPut{Req: request, Key: key, Data: data}
 			case 3, 4:
-				return core.ObjectGet{Req: request, Ref: core.SegmentRef{Key: key, Off: int64(r.Intn(7) - 1), Len: int64(r.Intn(7) - 1)}}
+				return runtime.ObjectGet{Req: request, Ref: runtime.SegmentRef{Key: key, Off: int64(r.Intn(7) - 1), Len: int64(r.Intn(7) - 1)}}
 			case 5:
-				return core.ObjectDelete{Req: request, Key: key}
+				return runtime.ObjectDelete{Req: request, Key: key}
 			}
-			return core.ObjectList{Req: request, Prefix: prefixes[r.Intn(len(prefixes))]}
+			return runtime.ObjectList{Req: request, Prefix: prefixes[r.Intn(len(prefixes))]}
 		},
-		Step: func(p *objPair, operation core.IOCall) error {
+		Step: func(p *objPair, operation runtime.IOCall) error {
 			got, want := fmt.Sprintf("%#v", p.impl.Exec(operation)), fmt.Sprintf("%#v", p.model.Exec(operation))
 			if got != want {
 				return fmt.Errorf("impl %s, model %s", got, want)
@@ -222,15 +222,15 @@ func objCheck(impl func() objExec) checker.SpecChecker[*objPair, core.IOCall] {
 			}
 			return nil
 		},
-		Shrink: func(operation core.IOCall) []core.IOCall {
+		Shrink: func(operation runtime.IOCall) []runtime.IOCall {
 			switch operation := operation.(type) {
-			case core.ObjectPut:
+			case runtime.ObjectPut:
 				if len(operation.Data) > 0 {
 					operation.Data = nil
-					return []core.IOCall{operation}
+					return []runtime.IOCall{operation}
 				}
-			case core.ObjectGet:
-				var out []core.IOCall
+			case runtime.ObjectGet:
+				var out []runtime.IOCall
 				if operation.Ref.Off != 0 {
 					r := operation
 					r.Ref.Off = 0
@@ -245,7 +245,7 @@ func objCheck(impl func() objExec) checker.SpecChecker[*objPair, core.IOCall] {
 			}
 			return nil
 		},
-		Format: func(operation core.IOCall) string { return fmt.Sprintf("%#v", operation) },
+		Format: func(operation runtime.IOCall) string { return fmt.Sprintf("%#v", operation) },
 		Ops:    60,
 	}
 }
@@ -258,8 +258,8 @@ func TestObjectStoreVsSortedSlice(t *testing.T) {
 // brokenStore ignores Off when Len <= 0.
 type brokenStore struct{ *ObjectStore }
 
-func (b brokenStore) Exec(a core.IOCall) core.IOResult {
-	if g, ok := a.(core.ObjectGet); ok && g.Ref.Len <= 0 {
+func (b brokenStore) Exec(a runtime.IOCall) runtime.IOResult {
+	if g, ok := a.(runtime.ObjectGet); ok && g.Ref.Len <= 0 {
 		g.Ref.Off = 0
 		return b.ObjectStore.Exec(g)
 	}
@@ -268,7 +268,7 @@ func (b brokenStore) Exec(a core.IOCall) core.IOResult {
 
 func TestObjectStoreCheckShrinksInjectedBug(t *testing.T) {
 	c := objCheck(func() objExec { return brokenStore{NewObjectStore()} })
-	var f *checker.Failure[core.IOCall]
+	var f *checker.Failure[runtime.IOCall]
 	for seed := uint64(1); f == nil && seed <= 50; seed++ {
 		f = c.RunSeed(seed)
 	}
@@ -278,8 +278,8 @@ func TestObjectStoreCheckShrinksInjectedBug(t *testing.T) {
 	if len(f.Ops) != 2 {
 		t.Fatalf("want put+get, got:\n%s", c.Report(f, ""))
 	}
-	put, ok1 := f.Ops[0].(core.ObjectPut)
-	get, ok2 := f.Ops[1].(core.ObjectGet)
+	put, ok1 := f.Ops[0].(runtime.ObjectPut)
+	get, ok2 := f.Ops[1].(runtime.ObjectGet)
 	// Any put then a to-the-end get at Off > 0 shows it; shrinking empties the
 	// data and zeroes Len.
 	if !ok1 || !ok2 || len(put.Data) != 0 || get.Ref.Off <= 0 || get.Ref.Len != 0 || put.Key != get.Ref.Key {

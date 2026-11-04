@@ -5,36 +5,36 @@ import (
 	"errors"
 	"net"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Classify maps an executor error for a into ErrCode and Outcome.
-func Classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
+func Classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome) {
 	if err == nil {
-		return core.OK, core.Applied
+		return runtime.OK, runtime.Applied
 	}
-	maybe := core.NotApplied
+	maybe := runtime.NotApplied
 	if changesData(a) {
-		maybe = core.MaybeApplied
+		maybe = runtime.MaybeApplied
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return core.ErrTimeout, maybe
+		return runtime.ErrTimeout, maybe
 	}
 	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() {
-		return core.ErrTimeout, maybe
+		return runtime.ErrTimeout, maybe
 	}
 	if errors.Is(err, ErrNotFound) {
-		return core.ErrNotFound, core.NotApplied
+		return runtime.ErrNotFound, runtime.NotApplied
 	}
 	if errors.Is(err, ErrInvalidSlot) {
-		return core.ErrInvalid, core.NotApplied
+		return runtime.ErrInvalid, runtime.NotApplied
 	}
-	return core.ErrIO, maybe
+	return runtime.ErrIO, maybe
 }
 
-func changesData(a core.IOCall) bool {
+func changesData(a runtime.IOCall) bool {
 	switch a.(type) {
-	case core.LogAppend, core.LogDeleteOld, core.LogClaimEpoch, core.ObjectPut, core.ObjectDelete:
+	case runtime.LogAppend, runtime.LogDeleteOld, runtime.LogClaimEpoch, runtime.ObjectPut, runtime.ObjectDelete:
 		return true
 	}
 	return false

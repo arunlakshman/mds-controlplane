@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // phase is the state of a group in memory. It is not logged.
@@ -39,7 +40,7 @@ func (p phase) String() string {
 // slot is one armed timer. disarm moves version on, so a callback that fires
 // late sees an old version and does nothing.
 type slot struct {
-	t       core.Timer
+	t       runtime.Timer
 	version uint64
 }
 
@@ -52,10 +53,10 @@ func (s *slot) disarm() {
 }
 
 // arm sets s to call fire(version) after d. The caller holds the group mutex.
-func arm(clock core.Clock, s *slot, d time.Duration, fire func(version uint64)) {
+func arm(clock runtime.Clock, s *slot, d time.Duration, fire func(version uint64)) {
 	s.disarm()
 	version := s.version
-	s.t = clock.AfterFunc(core.Duration(d), func() { fire(version) })
+	s.t = clock.AfterFunc(runtime.Duration(d), func() { fire(version) })
 }
 
 // group is the memory of one group. Its mutex guards every field.
@@ -69,12 +70,12 @@ type group struct {
 	leader     string
 	members    map[string]*member
 	joinSeq    uint64
-	initial    bool          // the round started from an empty group
-	delayDone  bool          // the initial delay passed
-	roundStart core.NodeTime // start of the round or of the sync wait
-	deadlineAt core.NodeTime // roundStart plus the largest rebalance timeout
-	round      slot          // the deadline of the round or of the sync wait
-	delay      slot          // the initial delay
+	initial    bool             // the round started from an empty group
+	delayDone  bool             // the initial delay passed
+	roundStart runtime.NodeTime // start of the round or of the sync wait
+	deadlineAt runtime.NodeTime // roundStart plus the largest rebalance timeout
+	round      slot             // the deadline of the round or of the sync wait
+	delay      slot             // the initial delay
 }
 
 // member is one known member. Its join and sync calls, if any, are parked here.
@@ -138,13 +139,13 @@ func (g *group) toEmpty() {
 // stored assignment is for the current generation and the leader is still a
 // member. Otherwise every member must rejoin. Each member gets a session
 // timer from now, the grace window of decision Q5.
-func (c *Coordinator) load(t *term, g *group, d core.DescribeGroupResp) {
+func (c *Coordinator) load(t *term, g *group, d contract.DescribeGroupResp) {
 	g.generation = d.Generation
 	g.protoType = d.ProtocolType
 	g.protocol = d.Protocol
 	g.leader = d.Leader
 	infos := slices.Clone(d.Members)
-	slices.SortStableFunc(infos, func(a, b core.GroupMemberInfo) int {
+	slices.SortStableFunc(infos, func(a, b contract.GroupMemberInfo) int {
 		return cmp.Or(cmp.Compare(a.JoinedTimeMs, b.JoinedTimeMs), strings.Compare(a.MemberID, b.MemberID))
 	})
 	for _, info := range infos {
@@ -174,11 +175,11 @@ func (c *Coordinator) joinLocked(t *term, g *group, request JoinReq, id string) 
 	if len(g.members) == 0 {
 		g.protoType = request.ProtocolType
 	} else if request.ProtocolType != g.protoType {
-		return JoinResp{Err: core.ErrInconsistentGroupProtocol}, nil
+		return JoinResp{Err: runtime.ErrInconsistentGroupProtocol}, nil
 	}
 	m, known := g.members[id]
 	if !known && request.MemberID != "" {
-		return JoinResp{Err: core.ErrUnknownMember}, nil
+		return JoinResp{Err: runtime.ErrUnknownMember}, nil
 	}
 	if !known {
 		g.joinSeq++
@@ -197,7 +198,7 @@ func (c *Coordinator) joinLocked(t *term, g *group, request JoinReq, id string) 
 	ch := make(chan JoinResp, 1)
 	if m.joinWait != nil {
 		// A newer join from the same member replaces the older call.
-		m.joinWait <- JoinResp{Err: core.ErrRebalanceInProgress}
+		m.joinWait <- JoinResp{Err: runtime.ErrRebalanceInProgress}
 	}
 	m.joinWait = ch
 	c.armSession(t, g, m)
@@ -225,7 +226,7 @@ func (c *Coordinator) openRound(t *term, g *group, initial bool) {
 	g.initial = initial
 	g.delayDone = false
 	g.roundStart = now
-	g.deadlineAt = now + core.NodeTime(c.maxRebalance(g))
+	g.deadlineAt = now + runtime.NodeTime(c.maxRebalance(g))
 	c.armRound(t, g)
 	if initial {
 		c.armDelay(t, g)
@@ -234,7 +235,7 @@ func (c *Coordinator) openRound(t *term, g *group, initial bool) {
 	}
 	for _, m := range g.members {
 		if m.syncWait != nil {
-			m.syncWait <- SyncResp{Err: core.ErrRebalanceInProgress}
+			m.syncWait <- SyncResp{Err: runtime.ErrRebalanceInProgress}
 			m.syncWait = nil
 		}
 	}
@@ -251,7 +252,7 @@ func (c *Coordinator) maxRebalance(g *group) time.Duration {
 
 // extendRound moves the deadline when a member with a longer rebalance timeout joins.
 func (c *Coordinator) extendRound(t *term, g *group) {
-	until := g.roundStart + core.NodeTime(c.maxRebalance(g))
+	until := g.roundStart + runtime.NodeTime(c.maxRebalance(g))
 	if until > g.deadlineAt {
 		g.deadlineAt = until
 		c.armRound(t, g)
@@ -343,9 +344,9 @@ func (c *Coordinator) completeRound(t *term, g *group) {
 	slices.Sort(gone)
 	if len(gone) > 0 {
 		ctx, cancel := c.writeCtx(t)
-		code, err := c.write(ctx, core.GroupRemove{Group: g.name, Members: gone, TimeMs: c.nowMs(), Reason: "expire"})
+		code, err := c.write(ctx, contract.GroupRemove{Group: g.name, Members: gone, TimeMs: c.nowMs(), Reason: "expire"})
 		cancel()
-		if code = settle(t, code, err); code != core.OK {
+		if code = settle(t, code, err); code != runtime.OK {
 			answerJoins(g, JoinResp{Err: code})
 			return
 		}
@@ -360,17 +361,17 @@ func (c *Coordinator) completeRound(t *term, g *group) {
 	cand := candidate(g)
 	proto, metas, ok := chooseProtocol(g, cand)
 	if !ok {
-		answerJoins(g, JoinResp{Err: core.ErrInconsistentGroupProtocol})
+		answerJoins(g, JoinResp{Err: runtime.ErrInconsistentGroupProtocol})
 		return
 	}
 	ids := slices.Sorted(maps.Keys(g.members))
-	install := core.GroupInstall{
+	install := contract.GroupInstall{
 		Group: g.name, ProtocolType: g.protoType, Protocol: proto,
 		Generation: g.generation + 1, Leader: cand.id, TimeMs: c.nowMs(),
 	}
 	for _, id := range ids {
 		m := g.members[id]
-		install.Members = append(install.Members, core.GroupMember{
+		install.Members = append(install.Members, contract.GroupMember{
 			MemberID: id, ClientID: m.clientID, ClientHost: m.clientHost, GroupInstanceID: m.instanceID,
 			SessionTimeoutMs: m.sessionMs, RebalanceTimeoutMs: m.rebalanceMs, Metadata: metas[id],
 		})
@@ -378,7 +379,7 @@ func (c *Coordinator) completeRound(t *term, g *group) {
 	ctx, cancel := c.writeCtx(t)
 	code, err := c.write(ctx, install)
 	cancel()
-	if code = settle(t, code, err); code != core.OK {
+	if code = settle(t, code, err); code != runtime.OK {
 		answerJoins(g, JoinResp{Err: code})
 		return
 	}
@@ -396,7 +397,7 @@ func (c *Coordinator) applyInstall(t *term, g *group, generation int32, proto, l
 	g.delayDone = false
 	g.delay.disarm()
 	g.roundStart = c.config.Clock.Mono()
-	g.deadlineAt = g.roundStart + core.NodeTime(c.maxRebalance(g))
+	g.deadlineAt = g.roundStart + runtime.NodeTime(c.maxRebalance(g))
 	c.armRound(t, g)
 	list := make([]Member, 0, len(ids))
 	for _, id := range ids {
@@ -438,11 +439,11 @@ func (c *Coordinator) dropMember(g *group, id string) {
 	m.sess.disarm()
 	delete(g.members, id)
 	if m.joinWait != nil {
-		m.joinWait <- JoinResp{Err: core.ErrUnknownMember}
+		m.joinWait <- JoinResp{Err: runtime.ErrUnknownMember}
 		m.joinWait = nil
 	}
 	if m.syncWait != nil {
-		m.syncWait <- SyncResp{Err: core.ErrUnknownMember}
+		m.syncWait <- SyncResp{Err: runtime.ErrUnknownMember}
 		m.syncWait = nil
 	}
 }
@@ -467,25 +468,25 @@ func (c *Coordinator) afterLeave(t *term, g *group) {
 // members first, so the log does not have to refuse it.
 func (c *Coordinator) leaderSync(t *term, g *group, m *member, assigns []Assignment) SyncResp {
 	seen := make(map[string]bool, len(assigns))
-	list := make([]core.GroupAssignment, 0, len(assigns))
+	list := make([]contract.GroupAssignment, 0, len(assigns))
 	for _, a := range assigns {
 		if g.members[a.Member] == nil {
 			g.mu.Unlock()
-			return SyncResp{Err: core.ErrUnknownMember}
+			return SyncResp{Err: runtime.ErrUnknownMember}
 		}
 		if seen[a.Member] {
 			g.mu.Unlock()
-			return SyncResp{Err: core.ErrInvalid}
+			return SyncResp{Err: runtime.ErrInvalid}
 		}
 		seen[a.Member] = true
-		list = append(list, core.GroupAssignment{Member: a.Member, Bytes: a.Bytes})
+		list = append(list, contract.GroupAssignment{Member: a.Member, Bytes: a.Bytes})
 	}
 	ctx, cancel := c.writeCtx(t)
-	code, err := c.write(ctx, core.GroupAssign{
+	code, err := c.write(ctx, contract.GroupAssign{
 		Group: g.name, Generation: g.generation, Leader: m.id, TimeMs: c.nowMs(), Assignments: list,
 	})
 	cancel()
-	if code = settle(t, code, err); code != core.OK {
+	if code = settle(t, code, err); code != runtime.OK {
 		g.mu.Unlock()
 		return SyncResp{Err: code}
 	}
@@ -564,9 +565,9 @@ func (c *Coordinator) onSession(t *term, g *group, m *member, version uint64) {
 		return
 	}
 	ctx, cancel := c.writeCtx(t)
-	code, err := c.write(ctx, core.GroupRemove{Group: g.name, Members: []string{m.id}, TimeMs: c.nowMs(), Reason: "expire"})
+	code, err := c.write(ctx, contract.GroupRemove{Group: g.name, Members: []string{m.id}, TimeMs: c.nowMs(), Reason: "expire"})
 	cancel()
-	if code = settle(t, code, err); code != core.OK {
+	if code = settle(t, code, err); code != runtime.OK {
 		c.armSessionFor(t, g, m, retryAfter)
 		return
 	}

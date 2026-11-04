@@ -1,4 +1,4 @@
-package core
+package runtime
 
 // Action is output of Step: a request for the outside world to do something.
 // Every I/O action carries a RequestID; its result returns as a completion event.
@@ -61,7 +61,7 @@ type ObjectList struct {
 // is controlplane/api/v1 (decision 57). Op is the in-process vocabulary brokers
 // and simulator use today; controlplane/wireboundary maps Op to generated request
 // messages. Typed *Request fields stay off this struct until the gRPC cutover:
-// importing the generated package would pull grpc into core's dep closure and
+// importing the generated package would pull grpc into runtime's dep closure and
 // fail the determinism audit.
 type ControlPlaneCall struct {
 	Req RequestID

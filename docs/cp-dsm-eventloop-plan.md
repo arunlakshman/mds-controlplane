@@ -2,7 +2,7 @@
 
 *Superseded in part by decision 63: roles are an epoch claim with a fence entry, and failback is removed. The text below is kept as it was written.*
 
-Move the log control plane onto the broker's `core.Machine` shape so one `Step` runs under the sim kernel and a control-plane-owned run loop. Brokers keep speaking `CPCall` whose payloads are generated gRPC API types. The wire protocol is gRPC plus protobuf (hard cut off JSON HTTP). The shared Dynamo log becomes an engine. Veritas stays the independent oracle but shares the generated schema types. The `internal/controlplane/` tree is an autonomous extractable unit. PR ids run CP-DSM-1 through CP-DSM-8.
+Move the log control plane onto the broker's `runtime.Machine` shape so one `Step` runs under the sim kernel and a control-plane-owned run loop. Brokers keep speaking `CPCall` whose payloads are generated gRPC API types. The wire protocol is gRPC plus protobuf (hard cut off JSON HTTP). The shared Dynamo log becomes an engine. Veritas stays the independent oracle but shares the generated schema types. The `internal/controlplane/` tree is an autonomous extractable unit. PR ids run CP-DSM-1 through CP-DSM-8.
 
 ## How to read this
 
@@ -85,9 +85,9 @@ Each live lane runs on its own cloud VM at the PR head. Drive through `control-c
 - [ ] Create `internal/controlplane/api/v1/*.proto` (`package controlplane.v1`).
 - [ ] Create local-only `internal/controlplane/api/buf.yaml` / `buf.gen.yaml` and a `make proto` target. No Buf Schema Registry.
 - [ ] Generate Go on build via `make proto` (mise-pinned `buf`); gitignore `internal/controlplane/api/v1/*.pb.go`. Do not commit generated files.
-- [ ] Edit `internal/core/action.go` for `Log*` IOActions and for `CPCall`/`CPDone` to carry `internal/controlplane/api/v1` messages (replace hand-written `CPOp` as the wire contract).
-- [ ] Edit `internal/core/event.go` and `internal/core/inbox.go` (`ClassOf`) for new bodies.
-- [ ] Create `internal/core/logio_test.go` and API round-trip tests.
+- [ ] Edit `internal/runtime/action.go` for `Log*` IOActions and for `CPCall`/`CPDone` to carry `internal/controlplane/api/v1` messages (replace hand-written `CPOp` as the wire contract).
+- [ ] Edit `internal/runtime/event.go` and `internal/runtime/inbox.go` (`ClassOf`) for new bodies.
+- [ ] Create `internal/runtime/logio_test.go` and API round-trip tests.
 - [ ] Edit `refactoring_backlog.md` Next-up line to point at this program.
 
 **Build.**
@@ -144,7 +144,7 @@ Each live lane runs on its own cloud VM at the PR head. Drive through `control-c
 **Files.**
 
 - [ ] Create `internal/controlplane/replica/` (preferred name under the extractable `internal/controlplane/` root; do not place it under `internal/verify/simulator/` or `internal/broker/`).
-- [ ] Create `Step`, `StateHash`, `New` Factory mirroring the broker's `core.MachineFactory` shape.
+- [ ] Create `Step`, `StateHash`, `New` Factory mirroring the broker's `runtime.MachineFactory` shape.
 - [ ] Create boot handling for `Started` and `Stop` only.
 - [ ] Edit `ops/scripts/ci-determinism.sh` and `ops/tools/determinismcheck` allow lists so `internal/controlplane/replica` is scanned.
 - [ ] Create package tests for hash stability on no-op completions.
@@ -538,7 +538,7 @@ Prototype path. `.scratch/cp-dsm-proto/DECISION.md`.
 
 Variants compared.
 
-- A. CP replica is `core.Machine`, log is engine. Chosen.
+- A. CP replica is `runtime.Machine`, log is engine. Chosen.
 - B. Keep logengine for swarm, share helpers only. Rejected. Misses the broker twin goal.
 - C. Single-thread logcp outside detcheck. Rejected. Still not kernel DST.
 
@@ -597,7 +597,7 @@ Read before editing.
 - `docs/sim-log-engine.md`
 - `docs/log-cp-service.md`
 - `docs/decisions.md` rows 1, 9, 11, 14-23, 48-54, and the new CP-DSM plus autonomy decisions from CP-DSM-1
-- `internal/core/machine.go`, `internal/system/run.go` (broker reference only), `internal/broker/broker.go`, `internal/verify/simulator/kernel.go`
+- `internal/runtime/machine.go`, `internal/system/run.go` (broker reference only), `internal/broker/broker.go`, `internal/verify/simulator/kernel.go`
 - `.scratch/cp-dsm-proto/DECISION.md`
 - Autonomy allow-list in this plan's Spawn owners section
 
@@ -625,7 +625,7 @@ Decision trail per `pstack/skills/show-me-your-work/SKILL.md` for the program ro
 
 Settled in the design grill. Bind every wire-facing PR to these rules.
 
-- Vocabulary stays (`CommitSegment`, `Lookup`, `DescribeTopics`, `CreateTopic`). The protocol is the gRPC API. Hand-written `core.CPOp` is no longer the wire contract.
+- Vocabulary stays (`CommitSegment`, `Lookup`, `DescribeTopics`, `CreateTopic`). The protocol is the gRPC API. Hand-written `runtime.CPOp` is no longer the wire contract.
 - `.proto` is the source of truth. Go is generated. Local-only **buf** (Apache-2.0). No Buf Schema Registry.
 - Layout is `internal/controlplane/` and `internal/controlplane/api/v1` with `package controlplane.v1`. Binary name stays `mdscontrolplane` this wave.
 - Errors are gRPC status plus typed `ErrorDetail` carrying `ErrCode` and `Outcome`. No OK response with an err field.

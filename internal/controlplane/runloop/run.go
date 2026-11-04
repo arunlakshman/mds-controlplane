@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 var (
@@ -20,55 +20,55 @@ var (
 // Executor runs I/O only. Exactly one IOResult per IOCall, delivered to
 // the InboxWriter and never on the caller's goroutine. Execute MUST NOT block.
 type Executor interface {
-	Execute(a core.IOCall)
+	Execute(a runtime.IOCall)
 }
 
 // InjectFunc runs on the loop goroutine and returns actions to dispatch
 // (Offer, TakeAnswers bookkeeping). Optional on Dependencies.Inject.
-type InjectFunc func() []core.Action
+type InjectFunc func() []runtime.Action
 
 // Dependencies is everything nondeterministic a control-plane process needs.
 type Dependencies struct {
-	Clock     core.Clock
-	Env       core.Environment
+	Clock     runtime.Clock
+	Env       runtime.Environment
 	Inbox     *Inbox
-	Facts     func(core.Fact)
+	Facts     func(runtime.Fact)
 	Shutdown  <-chan struct{}
-	StopGrace core.Duration
+	StopGrace runtime.Duration
 	// Inject, if non-nil, carries work that must run on the loop goroutine
 	// (gRPC adapter Offer/reads). Checked every turn and while waiting.
 	Inject <-chan InjectFunc
 	// AfterStep runs on the loop goroutine after each Step or inject
 	// dispatch. Used to drain TakeAnswers to waiting RPCs.
-	AfterStep func(m core.Machine)
+	AfterStep func(m runtime.Machine)
 }
 
 // Run delivers Started, then loops: ControlFirst picks, At/Wall stamped at
 // dequeue, Step, actions dispatched in slice order. Returns ErrStoppedForRestart
 // (wrapped) on Trip, nil on Exit, ErrStopped on ctx done, ErrKilledByRuntime when
 // StopGrace expires after Shutdown. Closes b.Inbox on return.
-func Run(ctx context.Context, b Dependencies, exec Executor, f core.MachineFactory, self core.NodeInstance) error {
+func Run(ctx context.Context, b Dependencies, exec Executor, f runtime.MachineFactory, self runtime.NodeInstance) error {
 	in := b.Inbox
 	if in == nil {
 		return errors.New("controlplane/runloop: Bundle.Inbox is nil")
 	}
 	defer in.Close()
 	m := f(b.Env, self)
-	r := &eventLoop{b: b, in: in, exec: exec, m: m, timers: map[core.TimerID]core.Timer{}}
+	r := &eventLoop{b: b, in: in, exec: exec, m: m, timers: map[runtime.TimerID]runtime.Timer{}}
 	defer func() {
 		for _, t := range r.timers {
 			t.Stop()
 		}
 	}()
 
-	step := func(body core.EventData) (bool, error) {
-		acts := m.Step(core.Event{At: b.Clock.Mono(), Wall: b.Clock.Wall(), Body: body})
+	step := func(body runtime.EventData) (bool, error) {
+		acts := m.Step(runtime.Event{At: b.Clock.Mono(), Wall: b.Clock.Wall(), Body: body})
 		return r.dispatch(acts)
 	}
-	if done, err := step(core.NodeStarted{Self: self}); done {
+	if done, err := step(runtime.NodeStarted{Self: self}); done {
 		return err
 	}
-	var policy core.InboxPicker = core.ControlFirstPicker{}
+	var policy runtime.InboxPicker = runtime.ControlFirstPicker{}
 	ctrl, data := in.Control(), in.Data()
 	shutdown := b.Shutdown
 	var kill <-chan struct{}
@@ -79,9 +79,9 @@ func Run(ctx context.Context, b Dependencies, exec Executor, f core.MachineFacto
 		select {
 		case <-shutdown:
 			shutdown = nil
-			in.DeliverControl(core.StopRequest{Deadline: b.Clock.Mono() + core.NodeTime(b.StopGrace)})
+			in.DeliverControl(runtime.StopRequest{Deadline: b.Clock.Mono() + runtime.NodeTime(b.StopGrace)})
 			killed := make(chan struct{})
-			t := b.Clock.AfterFunc(core.Duration(b.StopGrace), func() { close(killed) })
+			t := b.Clock.AfterFunc(runtime.Duration(b.StopGrace), func() { close(killed) })
 			defer t.Stop()
 			kill = killed
 		default:
@@ -129,8 +129,8 @@ type eventLoop struct {
 	b      Dependencies
 	in     *Inbox
 	exec   Executor
-	m      core.Machine
-	timers map[core.TimerID]core.Timer
+	m      runtime.Machine
+	timers map[runtime.TimerID]runtime.Timer
 }
 
 func (r *eventLoop) after() {
@@ -162,23 +162,23 @@ func (r *eventLoop) runInject(fn InjectFunc) (bool, error) {
 	return r.dispatch(fn())
 }
 
-func (r *eventLoop) dispatch(acts []core.Action) (bool, error) {
+func (r *eventLoop) dispatch(acts []runtime.Action) (bool, error) {
 	for _, a := range acts {
 		switch a := a.(type) {
-		case core.IOCall:
+		case runtime.IOCall:
 			r.exec.Execute(a)
-		case core.RecordFact:
+		case runtime.RecordFact:
 			if r.b.Facts != nil {
 				r.b.Facts(a.Fact)
 			}
-		case core.SetTimer:
+		case runtime.SetTimer:
 			r.setTimer(a)
-		case core.CancelTimer:
+		case runtime.CancelTimer:
 			r.cancelTimer(a.ID)
-		case core.StopForRestart:
+		case runtime.StopForRestart:
 			r.after()
 			return true, fmt.Errorf("%w: %s", ErrStoppedForRestart, a.Cause)
-		case core.ShutdownDone:
+		case runtime.ShutdownDone:
 			r.after()
 			return true, nil
 		default:
@@ -190,17 +190,17 @@ func (r *eventLoop) dispatch(acts []core.Action) (bool, error) {
 	return false, nil
 }
 
-func (r *eventLoop) setTimer(a core.SetTimer) {
+func (r *eventLoop) setTimer(a runtime.SetTimer) {
 	if old := r.timers[a.ID]; old != nil {
 		old.Stop()
 	}
 	id, gen := a.ID, a.Gen
 	r.timers[id] = r.b.Clock.AfterFunc(a.After, func() {
-		r.in.DeliverControl(core.TimerFired{ID: id, Gen: gen})
+		r.in.DeliverControl(runtime.TimerFired{ID: id, Gen: gen})
 	})
 }
 
-func (r *eventLoop) cancelTimer(id core.TimerID) {
+func (r *eventLoop) cancelTimer(id runtime.TimerID) {
 	if t := r.timers[id]; t != nil {
 		t.Stop()
 		delete(r.timers, id)

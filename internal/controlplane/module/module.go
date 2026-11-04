@@ -6,7 +6,7 @@ package module
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Mode says how a module treats an operation.
@@ -34,22 +34,22 @@ type Kind uint8
 // kinds, and the bytes of its own entries.
 type Module interface {
 	// Mode reports how the module treats operation.
-	Mode(operation core.ControlPlaneOperation) Mode
+	Mode(operation runtime.ControlPlaneOperation) Mode
 	// Write applies a Logged operation at log slot slot. The answer depends only
 	// on the state before the command and on the command, so every replica
 	// gets the same answer.
-	Write(transaction kv.Transaction, slot int64, operation core.ControlPlaneOperation) core.ControlPlaneDone
+	Write(transaction kv.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 	// Read answers a ReadOnly operation.
-	Read(transaction kv.Transaction, operation core.ControlPlaneOperation) core.ControlPlaneDone
+	Read(transaction kv.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 
 	// Kinds lists the log entry kinds the module owns.
 	Kinds() []Kind
 	// KindOf is the kind of a Logged operation. It is false for any other.
-	KindOf(operation core.ControlPlaneOperation) (Kind, bool)
+	KindOf(operation runtime.ControlPlaneOperation) (Kind, bool)
 	// Encode writes the payload of a Logged operation, the bytes after the kind
 	// and the id. The kernel writes those two.
-	Encode(w *kv.Writer, kind Kind, operation core.ControlPlaneOperation)
+	Encode(w *kv.Writer, kind Kind, operation runtime.ControlPlaneOperation)
 	// Decode reads the payload of an entry of kind. A damaged payload fails the
 	// reader (r.OK() is false) and the kernel reports a corrupt entry.
-	Decode(r *kv.Reader, kind Kind) core.ControlPlaneOperation
+	Decode(r *kv.Reader, kind Kind) runtime.ControlPlaneOperation
 }

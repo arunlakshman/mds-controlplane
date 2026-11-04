@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func newTestStore(t *testing.T, prefix string) (*Store, *fakeS3) {
@@ -24,7 +24,7 @@ func newTestStore(t *testing.T, prefix string) (*Store, *fakeS3) {
 	return s, f
 }
 
-func wantCode(t *testing.T, err error, code core.ErrCode) {
+func wantCode(t *testing.T, err error, code runtime.ErrCode) {
 	t.Helper()
 	se, ok := errors.AsType[*Error](err)
 	if !ok || se.Code != code {
@@ -43,13 +43,13 @@ func TestStorePutGetDeleteList(t *testing.T) {
 	if _, ok := f.objs["b/p/a"]; !ok {
 		t.Fatalf("prefix not applied: %v", f.objs)
 	}
-	wantCode(t, s.Put(ctx, "", nil), core.ErrInvalid)
+	wantCode(t, s.Put(ctx, "", nil), runtime.ErrInvalid)
 	if err := s.EnsureBucket(ctx); err != nil { // already owned
 		t.Fatal(err)
 	}
 
 	get := func(key string, off, n int64) ([]byte, error) {
-		return s.Get(ctx, core.SegmentRef{Key: key, Off: off, Len: n})
+		return s.Get(ctx, runtime.SegmentRef{Key: key, Off: off, Len: n})
 	}
 	ok := []struct {
 		off, n int64
@@ -68,19 +68,19 @@ func TestStorePutGetDeleteList(t *testing.T) {
 		t.Errorf("empty object should be non-nil: %v %v", got, err)
 	}
 	_, err := get("", 0, 0)
-	wantCode(t, err, core.ErrNotFound)
+	wantCode(t, err, runtime.ErrNotFound)
 	_, err = get("missing", 0, 0)
-	wantCode(t, err, core.ErrNotFound)
+	wantCode(t, err, runtime.ErrNotFound)
 	_, err = get("missing", 2, 3)
-	wantCode(t, err, core.ErrNotFound)
+	wantCode(t, err, runtime.ErrNotFound)
 	_, err = get("a", 20, 0)
-	wantCode(t, err, core.ErrInvalid)
+	wantCode(t, err, runtime.ErrInvalid)
 	_, err = get("a", 8, 5) // runs past the end: server clips, store notices
-	wantCode(t, err, core.ErrInvalid)
+	wantCode(t, err, runtime.ErrInvalid)
 	_, err = get("a", -1, 0)
-	wantCode(t, err, core.ErrInvalid)
+	wantCode(t, err, runtime.ErrInvalid)
 	_, err = get("missing", -1, 0)
-	wantCode(t, err, core.ErrNotFound)
+	wantCode(t, err, runtime.ErrNotFound)
 
 	keys, err := s.List(ctx, "b/")
 	if err != nil || len(keys) != 2 || keys[0] != "b/c" || keys[1] != "b/d" {
@@ -89,8 +89,8 @@ func TestStorePutGetDeleteList(t *testing.T) {
 	if err := s.Delete(ctx, "a"); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, s.Delete(ctx, "a"), core.ErrNotFound)
-	wantCode(t, s.Delete(ctx, ""), core.ErrNotFound)
+	wantCode(t, s.Delete(ctx, "a"), runtime.ErrNotFound)
+	wantCode(t, s.Delete(ctx, ""), runtime.ErrNotFound)
 }
 
 func TestStoreServerErrors(t *testing.T) {
@@ -99,13 +99,13 @@ func TestStoreServerErrors(t *testing.T) {
 		name   string
 		status int
 		code   string
-		want   core.ErrCode
-		out    core.Outcome
+		want   runtime.ErrCode
+		out    runtime.Outcome
 	}{
-		{"slowdown", 503, "SlowDown", core.ErrUnavailable, core.NotApplied},
-		{"throttled", 429, "Throttling", core.ErrUnavailable, core.NotApplied},
-		{"forbidden", 403, "AccessDenied", core.ErrIO, core.NotApplied},
-		{"internal", 500, "InternalError", core.ErrIO, core.MaybeApplied},
+		{"slowdown", 503, "SlowDown", runtime.ErrUnavailable, runtime.NotApplied},
+		{"throttled", 429, "Throttling", runtime.ErrUnavailable, runtime.NotApplied},
+		{"forbidden", 403, "AccessDenied", runtime.ErrIO, runtime.NotApplied},
+		{"internal", 500, "InternalError", runtime.ErrIO, runtime.MaybeApplied},
 	}
 	for _, c := range cases {
 		s, f := newTestStore(t, "")
@@ -115,32 +115,32 @@ func TestStoreServerErrors(t *testing.T) {
 		f.inject = func(*http.Request) (int, string) { return c.status, c.code }
 		before := f.calls
 		ops := map[string]struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
 		}{}
-		_, gerr := s.Get(ctx, core.SegmentRef{Key: "k"})
-		_, gerr2 := s.Get(ctx, core.SegmentRef{Key: "k", Off: 1, Len: 1})
+		_, gerr := s.Get(ctx, runtime.SegmentRef{Key: "k"})
+		_, gerr2 := s.Get(ctx, runtime.SegmentRef{Key: "k", Off: 1, Len: 1})
 		ops["put"] = struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
-		}{core.ObjectPut{}, s.Put(ctx, "k", []byte("v"))}
+		}{runtime.ObjectPut{}, s.Put(ctx, "k", []byte("v"))}
 		ops["get"] = struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
-		}{core.ObjectGet{}, gerr}
+		}{runtime.ObjectGet{}, gerr}
 		ops["get-range"] = struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
-		}{core.ObjectGet{}, gerr2}
+		}{runtime.ObjectGet{}, gerr2}
 		ops["delete"] = struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
-		}{core.ObjectDelete{}, s.Delete(ctx, "k")}
+		}{runtime.ObjectDelete{}, s.Delete(ctx, "k")}
 		_, lerr := s.List(ctx, "")
 		ops["list"] = struct {
-			act core.IOCall
+			act runtime.IOCall
 			err error
-		}{core.ObjectList{}, lerr}
+		}{runtime.ObjectList{}, lerr}
 		if f.calls-before != 5 {
 			t.Errorf("%s: %d requests for 5 calls, the store must not retry", c.name, f.calls-before)
 		}
@@ -152,7 +152,7 @@ func TestStoreServerErrors(t *testing.T) {
 			code, out := Classifier{}.Classify(operation.act, operation.err)
 			wantOut := c.out
 			if name == "get" || name == "get-range" || name == "list" {
-				wantOut = core.NotApplied
+				wantOut = runtime.NotApplied
 			}
 			if code != c.want || out != wantOut {
 				t.Errorf("%s/%s: %v %v, want %v %v (%v)", c.name, name, code, out, c.want, wantOut, operation.err)
@@ -176,8 +176,8 @@ func TestStoreTimeout(t *testing.T) {
 	// A deadline hit mid-request surfaces as an SDK ResponseError with status
 	// 0; the classifier treats it as ErrIO/MaybeApplied (the executor's own
 	// timeout, not this path, yields ErrTimeout).
-	code, out := Classifier{}.Classify(core.ObjectPut{}, err)
-	if code != core.ErrIO || out != core.MaybeApplied || !errors.Is(err, context.DeadlineExceeded) {
+	code, out := Classifier{}.Classify(runtime.ObjectPut{}, err)
+	if code != runtime.ErrIO || out != runtime.MaybeApplied || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("timeout: %v %v (%v)", code, out, err)
 	}
 }
@@ -191,8 +191,8 @@ func TestStoreDialAndHTTPClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = s.Put(t.Context(), "k", nil)
-	code, out := Classifier{}.Classify(core.ObjectPut{}, err)
-	if code != core.ErrUnavailable || out != core.NotApplied {
+	code, out := Classifier{}.Classify(runtime.ObjectPut{}, err)
+	if code != runtime.ErrUnavailable || out != runtime.NotApplied {
 		t.Errorf("dial: %v %v (%v)", code, out, err)
 	}
 	if err := s.EnsureBucket(t.Context()); err == nil {

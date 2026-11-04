@@ -7,25 +7,25 @@ import (
 	"context"
 	"sync"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 )
 
 // Error is a spec failure as a Go error; Code is what a Classifier maps it to.
-type Error struct{ Code core.ErrCode }
+type Error struct{ Code runtime.ErrCode }
 
 func (e *Error) Error() string { return "speccheck: " + e.Code.String() }
 
-func fail(code core.ErrCode) error {
-	if code == core.OK {
+func fail(code runtime.ErrCode) error {
+	if code == runtime.OK {
 		return nil
 	}
 	return &Error{code}
 }
 
 // locked runs fn while holding mu, after ctx is checked. fn's code becomes the error.
-func locked[T any](ctx context.Context, mu *sync.Mutex, fn func() (T, core.ErrCode)) (T, error) {
+func locked[T any](ctx context.Context, mu *sync.Mutex, fn func() (T, runtime.ErrCode)) (T, error) {
 	var zero T
 	if err := ctx.Err(); err != nil {
 		return zero, err
@@ -52,18 +52,18 @@ func (s *ObjectStore) Put(ctx context.Context, key string, data []byte) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return fail(s.spec.Exec(core.ObjectPut{Key: key, Data: data}).(core.ObjectPutDone).Err)
+	return fail(s.spec.Exec(runtime.ObjectPut{Key: key, Data: data}).(runtime.ObjectPutDone).Err)
 }
 
 // Get returns the bytes referenced by ref.
-func (s *ObjectStore) Get(ctx context.Context, ref core.SegmentRef) ([]byte, error) {
-	return locked(ctx, &s.mu, func() ([]byte, core.ErrCode) {
-		return s.objectBytes(core.ObjectGet{Ref: ref})
+func (s *ObjectStore) Get(ctx context.Context, ref runtime.SegmentRef) ([]byte, error) {
+	return locked(ctx, &s.mu, func() ([]byte, runtime.ErrCode) {
+		return s.objectBytes(runtime.ObjectGet{Ref: ref})
 	})
 }
 
-func (s *ObjectStore) objectBytes(a core.ObjectGet) ([]byte, core.ErrCode) {
-	d := s.spec.Exec(a).(core.ObjectGetDone)
+func (s *ObjectStore) objectBytes(a runtime.ObjectGet) ([]byte, runtime.ErrCode) {
+	d := s.spec.Exec(a).(runtime.ObjectGetDone)
 	return d.Data, d.Err
 }
 
@@ -74,18 +74,18 @@ func (s *ObjectStore) Delete(ctx context.Context, key string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return fail(s.spec.Exec(core.ObjectDelete{Key: key}).(core.ObjectDeleteDone).Err)
+	return fail(s.spec.Exec(runtime.ObjectDelete{Key: key}).(runtime.ObjectDeleteDone).Err)
 }
 
 // List returns the keys that start with prefix.
 func (s *ObjectStore) List(ctx context.Context, prefix string) ([]string, error) {
-	return locked(ctx, &s.mu, func() ([]string, core.ErrCode) {
-		return s.objectKeys(core.ObjectList{Prefix: prefix})
+	return locked(ctx, &s.mu, func() ([]string, runtime.ErrCode) {
+		return s.objectKeys(runtime.ObjectList{Prefix: prefix})
 	})
 }
 
-func (s *ObjectStore) objectKeys(a core.ObjectList) ([]string, core.ErrCode) {
-	d := s.spec.Exec(a).(core.ObjectListDone)
+func (s *ObjectStore) objectKeys(a runtime.ObjectList) ([]string, runtime.ErrCode) {
+	d := s.spec.Exec(a).(runtime.ObjectListDone)
 	return d.Keys, d.Err
 }
 
@@ -106,14 +106,14 @@ func (c *ControlPlane) CreateTopic(name string, partitions int32) error {
 }
 
 // Call executes op against the control-plane spec.
-func (c *ControlPlane) Call(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneResponse, error) {
-	return locked(ctx, &c.mu, func() (core.ControlPlaneResponse, core.ErrCode) {
-		return c.callResp(core.ControlPlaneCall{Op: operation})
+func (c *ControlPlane) Call(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error) {
+	return locked(ctx, &c.mu, func() (runtime.ControlPlaneResponse, runtime.ErrCode) {
+		return c.callResp(runtime.ControlPlaneCall{Op: operation})
 	})
 }
 
-func (c *ControlPlane) callResp(a core.ControlPlaneCall) (core.ControlPlaneResponse, core.ErrCode) {
-	d := c.spec.Exec(a).(core.ControlPlaneDone)
+func (c *ControlPlane) callResp(a runtime.ControlPlaneCall) (runtime.ControlPlaneResponse, runtime.ErrCode) {
+	d := c.spec.Exec(a).(runtime.ControlPlaneDone)
 	return d.Resp, d.Err
 }
 

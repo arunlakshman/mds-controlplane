@@ -1,9 +1,6 @@
-package core
+package runtime
 
-import (
-	"fmt"
-	"strconv"
-)
+import "strconv"
 
 // NodeTime is a node-local monotonic instant in nanoseconds. In simulation it
 // includes the node's clock skew. Used for deadlines, leases and batch windows.
@@ -40,8 +37,6 @@ type (
 	TimerID uint64
 	// TimerVersion is a timer generation.
 	TimerVersion uint64 // generation: a TimerFired whose Gen is stale is ignored
-	// Offset is a partition log offset.
-	Offset int64
 	// LogPosition is a position in the replicated command log (loglet).
 	LogPosition int64
 )
@@ -50,21 +45,6 @@ type (
 type NodeInstance struct {
 	Node NodeID
 	Inc  BootNumber
-}
-
-// TopicPartition names one partition of a topic.
-type TopicPartition struct {
-	Topic     string
-	Partition int32
-}
-
-// NewTopicPartition builds a TopicPartition.
-func NewTopicPartition(topic string, partition int32) TopicPartition {
-	return TopicPartition{Topic: topic, Partition: partition}
-}
-
-func (topicPartition TopicPartition) String() string {
-	return fmt.Sprintf("%s-%d", topicPartition.Topic, topicPartition.Partition)
 }
 
 // SegmentRef is a byte range inside an object in the object store.
@@ -79,7 +59,7 @@ type SegmentRef struct {
 //
 // ErrNotFound and ErrConflict are always truthful; engines inject
 // only ErrTimeout, ErrUnavailable, ErrIO and ErrConnClosed. ErrCorrupt comes
-// only from the core's decoder, never from system.ErrorClassifier.
+// only from a module's decoder, never from system.ErrorClassifier.
 type ErrCode uint16
 
 // ErrCode values.

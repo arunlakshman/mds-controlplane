@@ -5,13 +5,13 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 type alwaysHit struct {
 	cond    bool
-	prop    core.PropertyID
-	details []core.ContextPair
+	prop    runtime.PropertyID
+	details []runtime.ContextPair
 }
 
 type testEnv struct {
@@ -29,24 +29,24 @@ func (e *testEnv) Intn(n int) int {
 	}
 	return int(e.Uint64() % uint64(n))
 }
-func (e *testEnv) NewID() core.ID {
-	var id core.ID
+func (e *testEnv) NewID() runtime.ID {
+	var id runtime.ID
 	u := e.Uint64()
 	for i := range id {
 		id[i] = byte(u >> (8 * (i % 8)))
 	}
 	return id
 }
-func (e *testEnv) Maybe(core.FaultPointID) bool           { return false }
-func (e *testEnv) MaybeP(core.FaultPointID, float64) bool { return false }
-func (e *testEnv) Fault(core.FaultPointID, float64) bool  { return false }
-func (e *testEnv) Always(cond bool, p core.PropertyID, details ...core.ContextPair) {
+func (e *testEnv) Maybe(runtime.FaultPointID) bool           { return false }
+func (e *testEnv) MaybeP(runtime.FaultPointID, float64) bool { return false }
+func (e *testEnv) Fault(runtime.FaultPointID, float64) bool  { return false }
+func (e *testEnv) Always(cond bool, p runtime.PropertyID, details ...runtime.ContextPair) {
 	e.always = append(e.always, alwaysHit{cond: cond, prop: p, details: details})
 }
-func (e *testEnv) AlwaysOrUnreachable(bool, core.PropertyID, ...core.ContextPair) {}
-func (e *testEnv) Sometimes(bool, core.PropertyID)                                {}
-func (e *testEnv) Reachable(core.PropertyID)                                      {}
-func (e *testEnv) Unreachable(core.PropertyID, ...core.ContextPair)               {}
+func (e *testEnv) AlwaysOrUnreachable(bool, runtime.PropertyID, ...runtime.ContextPair) {}
+func (e *testEnv) Sometimes(bool, runtime.PropertyID)                                   {}
+func (e *testEnv) Reachable(runtime.PropertyID)                                         {}
+func (e *testEnv) Unreachable(runtime.PropertyID, ...runtime.ContextPair)               {}
 
 func newMachine(t *testing.T, config replica.Config) *replica.Replica {
 	t.Helper()
@@ -57,7 +57,7 @@ func newMachine(t *testing.T, config replica.Config) *replica.Replica {
 func newMachineEnv(t *testing.T, config replica.Config) (*replica.Replica, *testEnv) {
 	t.Helper()
 	env := &testEnv{}
-	m := replica.New(config)(env, core.NodeInstance{Node: "cp-0"})
+	m := replica.New(config)(env, runtime.NodeInstance{Node: "cp-0"})
 	sm, ok := m.(*replica.Replica)
 	if !ok {
 		t.Fatalf("New returned %T, want *replica.Replica", m)
@@ -65,8 +65,8 @@ func newMachineEnv(t *testing.T, config replica.Config) (*replica.Replica, *test
 	return sm, env
 }
 
-func step(m *replica.Replica, body core.EventData) []core.Action {
-	return m.Step(core.Event{Body: body})
+func step(m *replica.Replica, body runtime.EventData) []runtime.Action {
+	return m.Step(runtime.Event{Body: body})
 }
 
 func noop(id string) []byte {
@@ -75,22 +75,22 @@ func noop(id string) []byte {
 
 func TestStartedAndStop(t *testing.T) {
 	m := newMachine(t, replica.Config{})
-	if acts := step(m, core.NodeStarted{Self: core.NodeInstance{Node: "cp-0"}}); acts != nil {
+	if acts := step(m, runtime.NodeStarted{Self: runtime.NodeInstance{Node: "cp-0"}}); acts != nil {
 		t.Fatalf("Started returned actions %v", acts)
 	}
 	beforeStop := m.StateHash()
-	acts := step(m, core.StopRequest{})
+	acts := step(m, runtime.StopRequest{})
 	if len(acts) != 1 {
 		t.Fatalf("Stop actions = %v, want [Exit]", acts)
 	}
-	if _, ok := acts[0].(core.ShutdownDone); !ok {
-		t.Fatalf("Stop action = %T, want core.ShutdownDone", acts[0])
+	if _, ok := acts[0].(runtime.ShutdownDone); !ok {
+		t.Fatalf("Stop action = %T, want runtime.ShutdownDone", acts[0])
 	}
 	if m.StateHash() == beforeStop {
 		t.Fatal("Stop left StateHash unchanged")
 	}
 	after := m.StateHash()
-	if acts := step(m, core.StopRequest{}); acts != nil {
+	if acts := step(m, runtime.StopRequest{}); acts != nil {
 		t.Fatalf("second Stop after Exit returned %v", acts)
 	}
 	if m.StateHash() != after {
@@ -100,17 +100,17 @@ func TestStartedAndStop(t *testing.T) {
 
 func TestStateHashStableAcrossNoopIOResults(t *testing.T) {
 	m := newMachine(t, replica.Config{})
-	step(m, core.NodeStarted{})
+	step(m, runtime.NodeStarted{})
 	before := m.StateHash()
-	noops := []core.EventData{
-		core.ControlPlaneDone{Req: 999},
-		core.ObjectPutDone{Req: 999},
-		core.ObjectGetDone{Req: 999},
-		core.LogAppendDone{Req: 999},
-		core.LogReadDone{Req: 999},
-		core.LogGetEndDone{Req: 999},
-		core.LogDeleteOldDone{Req: 999},
-		core.TimerFired{ID: 77, Gen: 3},
+	noops := []runtime.EventData{
+		runtime.ControlPlaneDone{Req: 999},
+		runtime.ObjectPutDone{Req: 999},
+		runtime.ObjectGetDone{Req: 999},
+		runtime.LogAppendDone{Req: 999},
+		runtime.LogReadDone{Req: 999},
+		runtime.LogGetEndDone{Req: 999},
+		runtime.LogDeleteOldDone{Req: 999},
+		runtime.TimerFired{ID: 77, Gen: 3},
 	}
 	for _, body := range noops {
 		if acts := step(m, body); acts != nil {
@@ -120,7 +120,7 @@ func TestStateHashStableAcrossNoopIOResults(t *testing.T) {
 			t.Fatalf("%T changed StateHash", body)
 		}
 	}
-	step(m, core.NodeStarted{})
+	step(m, runtime.NodeStarted{})
 	if m.StateHash() != before {
 		t.Fatal("repeat Started changed StateHash")
 	}
@@ -129,7 +129,7 @@ func TestStateHashStableAcrossNoopIOResults(t *testing.T) {
 func TestStateHashDeterministicAcrossBoots(t *testing.T) {
 	hash := func() uint64 {
 		m := newMachine(t, replica.Config{})
-		step(m, core.NodeStarted{})
+		step(m, runtime.NodeStarted{})
 		return m.StateHash()
 	}
 	if a, b := hash(), hash(); a != b {
@@ -139,44 +139,44 @@ func TestStateHashDeterministicAcrossBoots(t *testing.T) {
 
 func TestNewImplementsFactory(t *testing.T) {
 	f := replica.New(replica.Config{})
-	if f(&testEnv{}, core.NodeInstance{Node: "cp-1"}) == nil {
+	if f(&testEnv{}, runtime.NodeInstance{Node: "cp-1"}) == nil {
 		t.Fatal("MachineFactory returned nil")
 	}
 }
 
 func TestCatchUpAppliesContiguousReads(t *testing.T) {
-	m := newMachine(t, replica.Config{CatchUpEvery: core.Millisecond, ReadLimit: 8})
+	m := newMachine(t, replica.Config{CatchUpEvery: runtime.Millisecond, ReadLimit: 8})
 
-	acts := step(m, core.NodeStarted{})
+	acts := step(m, runtime.NodeStarted{})
 	if len(acts) != 1 {
 		t.Fatalf("Started actions = %v, want [SetTimer]", acts)
 	}
-	timer, ok := acts[0].(core.SetTimer)
+	timer, ok := acts[0].(runtime.SetTimer)
 	if !ok || timer.ID == 0 {
 		t.Fatalf("Started action = %T %#v, want SetTimer", acts[0], acts[0])
 	}
 
-	acts = step(m, core.TimerFired{ID: timer.ID, Gen: timer.Gen})
+	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	if len(acts) != 1 {
 		t.Fatalf("TimerFired actions = %v, want [LogCheckTail]", acts)
 	}
-	tail, ok := acts[0].(core.LogGetEnd)
+	tail, ok := acts[0].(runtime.LogGetEnd)
 	if !ok || tail.Req == 0 {
 		t.Fatalf("TimerFired action = %T %#v, want LogCheckTail", acts[0], acts[0])
 	}
 
-	acts = step(m, core.LogGetEndDone{Req: tail.Req, Tail: 2, Err: core.OK, Outcome: core.Applied})
+	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})
 	if len(acts) != 1 {
 		t.Fatalf("CheckTailDone actions = %v, want [LogRead]", acts)
 	}
-	read, ok := acts[0].(core.LogRead)
+	read, ok := acts[0].(runtime.LogRead)
 	if !ok || read.From != 0 || read.Limit != 8 {
 		t.Fatalf("CheckTailDone action = %#v, want LogRead From=0 Limit=8", acts[0])
 	}
 
-	acts = step(m, core.LogReadDone{
-		Req: read.Req, Err: core.OK, Outcome: core.Applied,
-		Entries: []core.LogEntry{
+	acts = step(m, runtime.LogReadDone{
+		Req: read.Req, Err: runtime.OK, Outcome: runtime.Applied,
+		Entries: []runtime.LogEntry{
 			{Slot: 0, Data: noop("a")},
 			{Slot: 1, Data: noop("b")},
 		},
@@ -184,7 +184,7 @@ func TestCatchUpAppliesContiguousReads(t *testing.T) {
 	if len(acts) != 1 {
 		t.Fatalf("ReadDone actions = %v, want [SetTimer]", acts)
 	}
-	if _, ok := acts[0].(core.SetTimer); !ok {
+	if _, ok := acts[0].(runtime.SetTimer); !ok {
 		t.Fatalf("ReadDone action = %T, want SetTimer", acts[0])
 	}
 	if m.Applied() != 2 {
@@ -192,7 +192,7 @@ func TestCatchUpAppliesContiguousReads(t *testing.T) {
 	}
 
 	before := m.StateHash()
-	if acts := step(m, core.LogGetEndDone{Req: 999, Tail: 99, Err: core.OK, Outcome: core.Applied}); acts != nil {
+	if acts := step(m, runtime.LogGetEndDone{Req: 999, Tail: 99, Err: runtime.OK, Outcome: runtime.Applied}); acts != nil {
 		t.Fatalf("foreign CheckTailDone returned %v", acts)
 	}
 	if m.StateHash() != before {
@@ -202,7 +202,7 @@ func TestCatchUpAppliesContiguousReads(t *testing.T) {
 
 func TestCatchUpDisabledByDefault(t *testing.T) {
 	m := newMachine(t, replica.Config{})
-	if acts := step(m, core.NodeStarted{}); acts != nil {
+	if acts := step(m, runtime.NodeStarted{}); acts != nil {
 		t.Fatalf("default Started returned %v", acts)
 	}
 }

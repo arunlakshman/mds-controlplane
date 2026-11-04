@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/injectedbug"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
@@ -87,7 +87,7 @@ type noHashObject struct{ suites.ObjectSubject }
 
 func (noHashObject) StateHash() (uint64, bool) { return 0, false }
 
-func (n noHashObject) Do(operation core.IOCall) (observation.ObjectResult, error) {
+func (n noHashObject) Do(operation runtime.IOCall) (observation.ObjectResult, error) {
 	return n.ObjectSubject.Do(operation)
 }
 

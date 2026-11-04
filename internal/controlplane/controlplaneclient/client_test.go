@@ -13,21 +13,22 @@ import (
 	"google.golang.org/grpc/status"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func realClient(t *testing.T) *Client {
 	t.Helper()
 	n := server.New(server.Config{
 		Machine: replica.Config{
-			CatchUpEvery: core.Duration(time.Millisecond),
-			Rank:         0, Heartbeat: core.Duration(time.Second),
+			CatchUpEvery: runtime.Duration(time.Millisecond),
+			Rank:         0, Heartbeat: runtime.Duration(time.Second),
 		},
 		Log: executor.NewMemoryLog(), Objects: executor.NewMemoryObjects(),
-		Self: core.NodeInstance{Node: "cp-0"},
+		Self: runtime.NodeInstance{Node: "cp-0"},
 	})
 	if err := n.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -55,36 +56,36 @@ func TestClientAgainstMachine(t *testing.T) {
 	if err := c.CreateTopic(ctx, "t", 2); err != nil {
 		t.Fatal(err)
 	}
-	topicPartition := core.NewTopicPartition("t", 0)
-	cs, err := c.Call(ctx, core.CommitSegment{SegmentKey: "s1", Batches: []core.PendingBatch{
-		{TopicPartition: topicPartition, Records: 4, Loc: core.SegmentRef{Key: "s1", Off: 0, Len: 40}},
+	topicPartition := contract.NewTopicPartition("t", 0)
+	cs, err := c.Call(ctx, contract.CommitSegment{SegmentKey: "s1", Batches: []contract.PendingBatch{
+		{TopicPartition: topicPartition, Records: 4, Loc: runtime.SegmentRef{Key: "s1", Off: 0, Len: 40}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if as := cs.(core.CommitSegmentResp).Assigned; len(as) != 1 || as[0].Count != 4 {
+	if as := cs.(contract.CommitSegmentResp).Assigned; len(as) != 1 || as[0].Count != 4 {
 		t.Fatalf("assigned %+v", as)
 	}
-	lk, err := c.Call(ctx, core.FindSegments{TopicPartition: topicPartition, From: 0, MaxBytes: 1000})
+	lk, err := c.Call(ctx, contract.FindSegments{TopicPartition: topicPartition, From: 0, MaxBytes: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if l := lk.(core.FindSegmentsResp); len(l.Ranges) != 1 || l.End != 4 {
+	if l := lk.(contract.FindSegmentsResp); len(l.Ranges) != 1 || l.End != 4 {
 		t.Fatalf("lookup %+v", l)
 	}
-	ds, err := c.Call(ctx, core.DescribeTopics{Topics: []string{"t"}})
-	if err != nil || len(ds.(core.DescribeTopicsResp).Topics) != 1 {
+	ds, err := c.Call(ctx, contract.DescribeTopics{Topics: []string{"t"}})
+	if err != nil || len(ds.(contract.DescribeTopicsResp).Topics) != 1 {
 		t.Fatalf("describe %v %v", ds, err)
 	}
 	if len(ops) != 4 {
 		t.Errorf("observer saw %v", ops)
 	}
 
-	_, err = c.Call(ctx, core.CommitSegment{SegmentKey: "s1", Batches: []core.PendingBatch{
-		{TopicPartition: topicPartition, Records: 1, Loc: core.SegmentRef{Key: "s1", Len: 1}},
+	_, err = c.Call(ctx, contract.CommitSegment{SegmentKey: "s1", Batches: []contract.PendingBatch{
+		{TopicPartition: topicPartition, Records: 1, Loc: runtime.SegmentRef{Key: "s1", Len: 1}},
 	}})
 	be, ok := errors.AsType[*Error](err)
-	if !ok || be.Code != core.ErrConflict {
+	if !ok || be.Code != runtime.ErrConflict {
 		t.Fatalf("want conflict, got %v", err)
 	}
 }
@@ -93,12 +94,12 @@ func TestCallCtxAndUnknownOp(t *testing.T) {
 	c := realClient(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := c.Call(ctx, core.CommitSegment{}); !errors.Is(err, context.Canceled) {
+	if _, err := c.Call(ctx, contract.CommitSegment{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled ctx: %v", err)
 	}
 	_, err := c.Call(t.Context(), nil)
 	be, ok := errors.AsType[*Error](err)
-	if !ok || be.Code != core.ErrInvalid {
+	if !ok || be.Code != runtime.ErrInvalid {
 		t.Fatalf("unknown op: %v", err)
 	}
 }
@@ -110,36 +111,36 @@ func TestCallDialError(t *testing.T) {
 	}
 	addr := ln.Addr().String()
 	_ = ln.Close()
-	_, err = New(addr, nil).Call(t.Context(), core.CommitSegment{
-		SegmentKey: "k", Batches: []core.PendingBatch{{TopicPartition: core.NewTopicPartition("t", 0), Records: 1}},
+	_, err = New(addr, nil).Call(t.Context(), contract.CommitSegment{
+		SegmentKey: "k", Batches: []contract.PendingBatch{{TopicPartition: contract.NewTopicPartition("t", 0), Records: 1}},
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	code, out := Classifier{}.Classify(core.ControlPlaneCall{Op: core.CommitSegment{}}, err)
-	if code != core.ErrUnavailable && code != core.ErrIO {
+	code, out := Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.CommitSegment{}}, err)
+	if code != runtime.ErrUnavailable && code != runtime.ErrIO {
 		t.Errorf("dial: %v %v (%v)", code, out, err)
 	}
 }
 
 func TestClassifyBusinessAndTimeout(t *testing.T) {
-	be := &Error{Code: core.ErrConflict}
-	code, out := Classifier{}.Classify(core.ControlPlaneCall{Op: core.CommitSegment{}}, be)
-	if code != core.ErrConflict || out != core.NotApplied {
+	be := &Error{Code: runtime.ErrConflict}
+	code, out := Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.CommitSegment{}}, be)
+	if code != runtime.ErrConflict || out != runtime.NotApplied {
 		t.Fatalf("business: %v %v", code, out)
 	}
 	ce := &CallError{Op: "CommitSegment", Sent: true, Code: codes.DeadlineExceeded, Err: context.DeadlineExceeded}
-	code, out = Classifier{}.Classify(core.ControlPlaneCall{Op: core.CommitSegment{}}, ce)
-	if code != core.ErrTimeout || out != core.MaybeApplied {
+	code, out = Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.CommitSegment{}}, ce)
+	if code != runtime.ErrTimeout || out != runtime.MaybeApplied {
 		t.Fatalf("timeout: %v %v", code, out)
 	}
-	_, out = Classifier{}.Classify(core.ControlPlaneCall{Op: core.FindSegments{}}, ce)
-	if out != core.NotApplied {
+	_, out = Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.FindSegments{}}, ce)
+	if out != runtime.NotApplied {
 		t.Fatalf("read timeout outcome %v", out)
 	}
 	ce = &CallError{Op: "x", Sent: false, Err: syscall.ECONNREFUSED}
-	code, out = Classifier{}.Classify(core.ControlPlaneCall{Op: core.CommitSegment{}}, ce)
-	if code != core.ErrUnavailable || out != core.NotApplied {
+	code, out = Classifier{}.Classify(runtime.ControlPlaneCall{Op: contract.CommitSegment{}}, ce)
+	if code != runtime.ErrUnavailable || out != runtime.NotApplied {
 		t.Fatalf("unsent: %v %v", code, out)
 	}
 }
@@ -162,18 +163,18 @@ func TestFailoverSkipsUnavailable(t *testing.T) {
 func TestClientCallCreateTopic(t *testing.T) {
 	c := realClient(t)
 	ctx := t.Context()
-	if _, err := c.Call(ctx, core.CreateTopic{Name: "made", Partitions: 3}); err != nil {
+	if _, err := c.Call(ctx, contract.CreateTopic{Name: "made", Partitions: 3}); err != nil {
 		t.Fatal(err)
 	}
-	response, err := c.Call(ctx, core.DescribeTopics{Topics: []string{"made"}})
+	response, err := c.Call(ctx, contract.DescribeTopics{Topics: []string{"made"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := response.(core.DescribeTopicsResp).Topics; len(got) != 1 || got[0].Partitions != 3 {
+	if got := response.(contract.DescribeTopicsResp).Topics; len(got) != 1 || got[0].Partitions != 3 {
 		t.Fatalf("topics %+v", got)
 	}
-	_, err = c.Call(ctx, core.CreateTopic{Name: "", Partitions: 1})
-	if be, ok := errors.AsType[*Error](err); !ok || be.Code != core.ErrInvalid {
+	_, err = c.Call(ctx, contract.CreateTopic{Name: "", Partitions: 1})
+	if be, ok := errors.AsType[*Error](err); !ok || be.Code != runtime.ErrInvalid {
 		t.Fatalf("empty name: %v", err)
 	}
 }
@@ -188,7 +189,7 @@ func TestMapRPCErrDetail(t *testing.T) {
 	}
 	got := convertRPCError("CommitSegment", st.Err())
 	be, ok := errors.AsType[*Error](got)
-	if !ok || be.Code != core.ErrConflict {
+	if !ok || be.Code != runtime.ErrConflict {
 		t.Fatalf("got %v", got)
 	}
 	if ce, ok := errors.AsType[*CallError](convertRPCError("x", errors.New("plain"))); !ok || !ce.Sent {
@@ -196,12 +197,12 @@ func TestMapRPCErrDetail(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		code codes.Code
-		want core.ErrCode
+		want runtime.ErrCode
 	}{
-		{codes.Unavailable, core.ErrUnavailable},
-		{codes.InvalidArgument, core.ErrInvalid},
-		{codes.NotFound, core.ErrNotFound},
-		{codes.AlreadyExists, core.ErrConflict},
+		{codes.Unavailable, runtime.ErrUnavailable},
+		{codes.InvalidArgument, runtime.ErrInvalid},
+		{codes.NotFound, runtime.ErrNotFound},
+		{codes.AlreadyExists, runtime.ErrConflict},
 	} {
 		got := convertRPCError("op", status.Error(tc.code, "x"))
 		be, ok := errors.AsType[*Error](got)

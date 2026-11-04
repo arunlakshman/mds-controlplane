@@ -1,7 +1,7 @@
-package core
+package runtime
 
 // Environment is injected into every StateMachine at construction. It is the only way
-// nondeterminism enters the core. Time is NOT here: it arrives on each Event.
+// nondeterminism enters the runtime. Time is NOT here: it arrives on each Event.
 type Environment interface {
 	Rand
 	FaultInjector

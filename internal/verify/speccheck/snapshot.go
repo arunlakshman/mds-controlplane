@@ -3,13 +3,13 @@ package speccheck
 import (
 	"slices"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 )
 
 // PartitionEnd is one partition's next offset.
 type PartitionEnd struct {
-	TopicPartition core.TopicPartition
-	Offset         core.Offset
+	TopicPartition contract.TopicPartition
+	Offset         contract.Offset
 }
 
 // Ends lists every partition that has a run with its end offset, ordered by
@@ -24,7 +24,7 @@ func (c *ControlPlane) Ends() []PartitionEnd {
 		}
 		slices.Sort(ps)
 		for _, p := range ps {
-			topicPartition := core.NewTopicPartition(t, p)
+			topicPartition := contract.NewTopicPartition(t, p)
 			out = append(out, PartitionEnd{TopicPartition: topicPartition, Offset: c.End(topicPartition)})
 		}
 	}

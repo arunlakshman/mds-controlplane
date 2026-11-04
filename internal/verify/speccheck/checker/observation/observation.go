@@ -7,14 +7,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // ObjectResult is what an object store call answered. Only the fields that
 // the call can set are used; the others stay at their zero value.
 type ObjectResult struct {
-	Code    core.ErrCode
-	Outcome core.Outcome
+	Code    runtime.ErrCode
+	Outcome runtime.Outcome
 	Data    []byte
 	Keys    []string
 }
@@ -22,12 +23,12 @@ type ObjectResult struct {
 // ControlPlaneResult is what a control-plane call answered. Only the fields
 // that the call can set are used; the others stay at their zero value.
 type ControlPlaneResult struct {
-	Code     core.ErrCode
-	Outcome  core.Outcome
-	Assigned []core.BatchRange
-	Ranges   []core.BatchRange
-	End      core.Offset
-	Topics   []core.TopicInfo
+	Code     runtime.ErrCode
+	Outcome  runtime.Outcome
+	Assigned []contract.BatchRange
+	Ranges   []contract.BatchRange
+	End      contract.Offset
+	Topics   []contract.TopicInfo
 }
 
 // Normalize returns a copy where an empty slice is nil. A store may return
@@ -58,7 +59,7 @@ func (r ControlPlaneResult) Normalize() ControlPlaneResult {
 	return out
 }
 
-func copyRanges(in []core.BatchRange) []core.BatchRange {
+func copyRanges(in []contract.BatchRange) []contract.BatchRange {
 	if len(in) == 0 {
 		return nil
 	}
@@ -141,15 +142,15 @@ func diffSentence(field, expected, actual string) string {
 
 // FromObjectCompletion converts an object store completion into a result. It
 // panics on any other completion type, because that is a mistake in the test.
-func FromObjectCompletion(c core.IOResult) ObjectResult {
+func FromObjectCompletion(c runtime.IOResult) ObjectResult {
 	switch d := c.(type) {
-	case core.ObjectPutDone:
+	case runtime.ObjectPutDone:
 		return ObjectResult{Code: d.Err, Outcome: d.Outcome}
-	case core.ObjectGetDone:
+	case runtime.ObjectGetDone:
 		return ObjectResult{Code: d.Err, Data: d.Data}
-	case core.ObjectDeleteDone:
+	case runtime.ObjectDeleteDone:
 		return ObjectResult{Code: d.Err, Outcome: d.Outcome}
-	case core.ObjectListDone:
+	case runtime.ObjectListDone:
 		return ObjectResult{Code: d.Err, Keys: d.Keys}
 	}
 	panic("observation: FromObjectCompletion needs an object store completion, but got " +
@@ -159,16 +160,16 @@ func FromObjectCompletion(c core.IOResult) ObjectResult {
 // FromControlPlaneDone converts a control-plane completion into a result. A
 // nil Resp is allowed, because a failed call has no response. It panics on an
 // unknown response type, because that is a mistake in the test.
-func FromControlPlaneDone(d core.ControlPlaneDone) ControlPlaneResult {
+func FromControlPlaneDone(d runtime.ControlPlaneDone) ControlPlaneResult {
 	out := ControlPlaneResult{Code: d.Err, Outcome: d.Outcome}
 	switch r := d.Resp.(type) {
 	case nil:
-	case core.CommitSegmentResp:
+	case contract.CommitSegmentResp:
 		out.Assigned = r.Assigned
-	case core.FindSegmentsResp:
+	case contract.FindSegmentsResp:
 		out.Ranges = r.Ranges
 		out.End = r.End
-	case core.DescribeTopicsResp:
+	case contract.DescribeTopicsResp:
 		out.Topics = r.Topics
 	default:
 		panic("observation: FromControlPlaneDone does not know the response type " +
@@ -177,13 +178,13 @@ func FromControlPlaneDone(d core.ControlPlaneDone) ControlPlaneResult {
 	return out
 }
 
-func outcomeText(o core.Outcome) string {
+func outcomeText(o runtime.Outcome) string {
 	switch o {
-	case core.NotApplied:
+	case runtime.NotApplied:
 		return "NotApplied"
-	case core.MaybeApplied:
+	case runtime.MaybeApplied:
 		return "MaybeApplied"
-	case core.Applied:
+	case runtime.Applied:
 		return "Applied"
 	}
 	return "Outcome(" + strconv.FormatUint(uint64(o), 10) + ")"
@@ -201,7 +202,7 @@ func keysText(keys []string) string {
 	return "(len " + strconv.Itoa(len(keys)) + ") [" + strings.Join(parts, ", ") + "]"
 }
 
-func rangesText(ranges []core.BatchRange) string {
+func rangesText(ranges []contract.BatchRange) string {
 	parts := make([]string, len(ranges))
 	for i, r := range ranges {
 		parts[i] = "{topic " + strconv.Quote(r.TopicPartition.Topic) +
@@ -215,7 +216,7 @@ func rangesText(ranges []core.BatchRange) string {
 	return "(len " + strconv.Itoa(len(ranges)) + ") [" + strings.Join(parts, ", ") + "]"
 }
 
-func topicsText(topics []core.TopicInfo) string {
+func topicsText(topics []contract.TopicInfo) string {
 	parts := make([]string, len(topics))
 	for i, t := range topics {
 		parts[i] = "{name " + strconv.Quote(t.Name) +

@@ -3,9 +3,9 @@
 // leader or standby, catch-up, checkpoint and restore. Each log entry is applied
 // to the metadata package.
 //
-// It implements core.Machine so one Step runs under the sim kernel and a
+// It implements runtime.Machine so one Step runs under the sim kernel and a
 // control-plane-owned run loop. This package is an extractable unit under
-// controlplane/ autonomy (decision 56): it may import github.com/manifesterio/mds-controlplane/internal/core and
+// controlplane/ autonomy (decision 56): it may import github.com/manifesterio/mds-controlplane/internal/runtime and
 // other controlplane packages, but not broker, simulator, system, cmd, speccheck, kafkawire,
 // format, net/http, Pebble, or the Dynamo SDK.
 //

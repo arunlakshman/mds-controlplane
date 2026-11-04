@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/realclock"
 )
 
@@ -34,7 +34,7 @@ type Client interface {
 type Options struct {
 	TTL time.Duration
 	// Clock is the time source for the row TTL (default: the real clock).
-	Clock core.Clock
+	Clock runtime.Clock
 }
 
 // Log stores opaque machine payloads in one DynamoDB partition
@@ -65,7 +65,7 @@ func New(db Client, table string, o Options) *Log {
 	return &Log{db: db, table: table, o: o}
 }
 
-func slotKey(n core.LogPosition) string { return fmt.Sprintf("%020d", n) }
+func slotKey(n runtime.LogPosition) string { return fmt.Sprintf("%020d", n) }
 func stringValue(v string) types.AttributeValue {
 	return &types.AttributeValueMemberS{Value: v}
 }
@@ -83,7 +83,7 @@ func metaKey(sortKey string) map[string]types.AttributeValue {
 
 // Append implements Log with a conditional PutItem. After a put that succeeds
 // it reads the floor. A slot at or below the floor is not a commit (see Log).
-func (l *Log) Append(ctx context.Context, slot core.LogPosition, data []byte) ([]byte, bool, error) {
+func (l *Log) Append(ctx context.Context, slot runtime.LogPosition, data []byte) ([]byte, bool, error) {
 	it := map[string]types.AttributeValue{
 		"pk": stringValue(logPartitionKey), "sk": stringValue(slotKey(slot)),
 		"d": &types.AttributeValueMemberB{Value: data},
@@ -133,7 +133,7 @@ func (l *Log) Append(ctx context.Context, slot core.LogPosition, data []byte) ([
 
 // atOrBelowFloor reports whether slot is at or below the floor. It reads the
 // floor with one consistent GetItem.
-func (l *Log) atOrBelowFloor(ctx context.Context, slot core.LogPosition) (bool, error) {
+func (l *Log) atOrBelowFloor(ctx context.Context, slot runtime.LogPosition) (bool, error) {
 	floor, ok, err := l.floor(ctx)
 	return ok && int64(slot) <= floor, err
 }
@@ -167,7 +167,7 @@ func (l *Log) floor(ctx context.Context) (int64, bool, error) {
 
 // raiseFloor moves META/FLOOR up to through. It never moves it down: a
 // ConditionalCheckFailed means a higher floor is already stored, which is fine.
-func (l *Log) raiseFloor(ctx context.Context, through core.LogPosition) error {
+func (l *Log) raiseFloor(ctx context.Context, through runtime.LogPosition) error {
 	_, err := l.db.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 &l.table,
 		Key:                       metaKey(floorSortKey),
@@ -256,21 +256,21 @@ func itemData(it map[string]types.AttributeValue) []byte {
 	return b.Value
 }
 
-func itemSlot(it map[string]types.AttributeValue) (core.LogPosition, error) {
+func itemSlot(it map[string]types.AttributeValue) (runtime.LogPosition, error) {
 	sortKey, ok := it["sk"].(*types.AttributeValueMemberS)
 	if !ok {
 		return 0, executor.ErrInvalidSlot
 	}
 	n, err := strconv.ParseInt(sortKey.Value, 10, 64)
-	return core.LogPosition(n), err
+	return runtime.LogPosition(n), err
 }
 
 // Read implements Log with consistent Queries. It runs the Query first and
 // reads the floor after it. Then it drops every row at or below the floor. A
 // stray row (see Append) can be in the Query result, and a trim that raises the
 // floor during the Query is still caught, because the floor is read last.
-func (l *Log) Read(ctx context.Context, from core.LogPosition, limit int) ([]core.LogEntry, error) {
-	var out []core.LogEntry
+func (l *Log) Read(ctx context.Context, from runtime.LogPosition, limit int) ([]runtime.LogEntry, error) {
+	var out []runtime.LogEntry
 	var start map[string]types.AttributeValue
 	for len(out) < limit {
 		q := l.between(slotKey(max(from, 0)), slotMax)
@@ -287,7 +287,7 @@ func (l *Log) Read(ctx context.Context, from core.LogPosition, limit int) ([]cor
 			if err != nil {
 				return out, err
 			}
-			out = append(out, core.LogEntry{Slot: n, Data: bytes.Clone(itemData(it))})
+			out = append(out, runtime.LogEntry{Slot: n, Data: bytes.Clone(itemData(it))})
 		}
 		if start = page.LastEvaluatedKey; start == nil {
 			break
@@ -303,11 +303,11 @@ func (l *Log) Read(ctx context.Context, from core.LogPosition, limit int) ([]cor
 	if !ok {
 		return out, nil
 	}
-	return slices.DeleteFunc(out, func(e core.LogEntry) bool { return int64(e.Slot) <= floor }), nil
+	return slices.DeleteFunc(out, func(e runtime.LogEntry) bool { return int64(e.Slot) <= floor }), nil
 }
 
 // CheckTail implements Log.
-func (l *Log) CheckTail(ctx context.Context) (core.LogPosition, error) {
+func (l *Log) CheckTail(ctx context.Context) (runtime.LogPosition, error) {
 	q := l.between(slotKey(0), slotMax)
 	q.ConsistentRead = aws.Bool(true)
 	q.ScanIndexForward = aws.Bool(false)
@@ -323,7 +323,7 @@ func (l *Log) CheckTail(ctx context.Context) (core.LogPosition, error) {
 // TrimThrough raises the floor to through, and only after that deletes every
 // slot at or below through. A slot must be covered by the floor before it is
 // deleted.
-func (l *Log) TrimThrough(ctx context.Context, through core.LogPosition) error {
+func (l *Log) TrimThrough(ctx context.Context, through runtime.LogPosition) error {
 	if through < 0 {
 		return executor.ErrInvalidSlot
 	}

@@ -14,7 +14,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Log is a Log in a SQL database. Today the SQL is for PostgreSQL. A store
@@ -125,7 +125,7 @@ func (l *Log) inTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 }
 
 // Append implements Log. See the Log contract for the three outcomes.
-func (l *Log) Append(ctx context.Context, slot core.LogPosition, data []byte) ([]byte, bool, error) {
+func (l *Log) Append(ctx context.Context, slot runtime.LogPosition, data []byte) ([]byte, bool, error) {
 	if slot < 0 {
 		return nil, false, executor.ErrInvalidSlot
 	}
@@ -180,7 +180,7 @@ func (l *Log) slotBytes(ctx context.Context, tx *sql.Tx, slot int64) ([]byte, er
 
 // Read implements Log. It is one statement, so the floor and the rows come from
 // the same snapshot.
-func (l *Log) Read(ctx context.Context, from core.LogPosition, limit int) ([]core.LogEntry, error) {
+func (l *Log) Read(ctx context.Context, from runtime.LogPosition, limit int) ([]runtime.LogEntry, error) {
 	if from < 0 || limit < 0 {
 		return nil, executor.ErrInvalidSlot
 	}
@@ -192,31 +192,31 @@ func (l *Log) Read(ctx context.Context, from core.LogPosition, limit int) ([]cor
 	return scanEntries(rows)
 }
 
-func scanEntries(rows *sql.Rows) ([]core.LogEntry, error) {
-	var out []core.LogEntry
+func scanEntries(rows *sql.Rows) ([]runtime.LogEntry, error) {
+	var out []runtime.LogEntry
 	for rows.Next() {
 		var slot int64
 		var data []byte
 		if err := rows.Scan(&slot, &data); err != nil {
 			return nil, err
 		}
-		out = append(out, core.LogEntry{Slot: core.LogPosition(slot), Data: data})
+		out = append(out, runtime.LogEntry{Slot: runtime.LogPosition(slot), Data: data})
 	}
 	return out, rows.Err()
 }
 
 // CheckTail implements Log. It is never below floor + 1.
-func (l *Log) CheckTail(ctx context.Context) (core.LogPosition, error) {
+func (l *Log) CheckTail(ctx context.Context) (runtime.LogPosition, error) {
 	var tail int64
 	if err := l.db.QueryRowContext(ctx, l.stmts.tail).Scan(&tail); err != nil {
 		return 0, err
 	}
-	return core.LogPosition(tail), nil
+	return runtime.LogPosition(tail), nil
 }
 
 // TrimThrough implements Log. The floor is raised and committed first. Then the
 // slots are deleted in batches, so a long trim never holds a long lock.
-func (l *Log) TrimThrough(ctx context.Context, through core.LogPosition) error {
+func (l *Log) TrimThrough(ctx context.Context, through runtime.LogPosition) error {
 	if through < 0 {
 		return executor.ErrInvalidSlot
 	}

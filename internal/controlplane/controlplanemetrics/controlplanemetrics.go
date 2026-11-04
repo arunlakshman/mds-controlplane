@@ -1,6 +1,6 @@
 // Package controlplanemetrics is the control-plane service's Prometheus instrumentation:
 // HTTP handler time, DynamoDB call time, in-flight requests and request sizes. It lives at the
-// non-deterministic edge (wall clocks, atomics, no core import) and every
+// non-deterministic edge (wall clocks, atomics, no runtime import) and every
 // method is safe on a nil *Metrics, so stores and handlers run uninstrumented.
 package controlplanemetrics
 

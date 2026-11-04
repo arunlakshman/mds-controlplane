@@ -15,7 +15,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/dynamolog"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/logtest"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
 )
 
@@ -92,7 +92,7 @@ func TestTrimRaisesFloorBeforeDelete(t *testing.T) {
 	rec := &recDB{Client: db}
 	l := dynamolog.New(rec, "cp", dynamolog.Options{})
 	for slot := range 3 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("x")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -121,7 +121,7 @@ func TestTrimKeepsRowsWhenFloorFails(t *testing.T) {
 	db := newDynFake(t)
 	l := dynamolog.New(db, "cp", dynamolog.Options{})
 	for slot := range 3 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("x")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestAppendFloorReadFails(t *testing.T) {
 		t.Fatalf("append err = %v, want boom", err)
 	}
 	// The put landed before the floor read failed, so the answer is unknown.
-	if code, out := executor.Classify(core.LogAppend{}, err); code != core.ErrIO || out != core.MaybeApplied {
+	if code, out := executor.Classify(runtime.LogAppend{}, err); code != runtime.ErrIO || out != runtime.MaybeApplied {
 		t.Fatalf("classify = %v %v, want ErrIO MaybeApplied", code, out)
 	}
 }
@@ -170,7 +170,7 @@ func TestReadFloorAfterQuery(t *testing.T) {
 	db := newDynFake(t)
 	l := dynamolog.New(db, "cp", dynamolog.Options{})
 	for slot := range 3 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("x")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -206,7 +206,7 @@ func TestAppendFloorReadOnlyAfterPut(t *testing.T) {
 	rec := &recDB{Client: db}
 	l := dynamolog.New(rec, "cp", dynamolog.Options{})
 	for slot := range 2 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("a")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("a")); err != nil {
 			t.Fatal(err)
 		}
 	}

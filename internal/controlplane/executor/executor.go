@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Config bounds each kind of I/O. Zero fields take the defaults.
@@ -44,7 +44,7 @@ func New(ctx context.Context, config Config, log Log, objs ObjectStore, sink run
 	return &Executor{ctx: ctx, config: config.withDefaults(), log: log, objs: objs, sink: sink}
 }
 
-func (e *Executor) deliver(c core.IOResult) {
+func (e *Executor) deliver(c runtime.IOResult) {
 	select {
 	case <-e.sink.Closed():
 		return
@@ -54,113 +54,113 @@ func (e *Executor) deliver(c core.IOResult) {
 }
 
 // Execute never blocks: it starts a goroutine per action.
-func (e *Executor) Execute(a core.IOCall) {
+func (e *Executor) Execute(a runtime.IOCall) {
 	go func() { e.deliver(e.run(a)) }()
 }
 
-func (e *Executor) run(a core.IOCall) core.IOResult {
+func (e *Executor) run(a runtime.IOCall) runtime.IOResult {
 	switch a := a.(type) {
-	case core.LogAppend, core.LogRead, core.LogGetEnd, core.LogDeleteOld, core.LogClaimEpoch:
+	case runtime.LogAppend, runtime.LogRead, runtime.LogGetEnd, runtime.LogDeleteOld, runtime.LogClaimEpoch:
 		return e.logIO(a)
-	case core.ObjectPut, core.ObjectGet, core.ObjectDelete, core.ObjectList:
+	case runtime.ObjectPut, runtime.ObjectGet, runtime.ObjectDelete, runtime.ObjectList:
 		return e.objIO(a)
 	default:
-		return core.LogAppendDone{Req: a.RequestID(), Err: core.ErrInvalid, Outcome: core.NotApplied}
+		return runtime.LogAppendDone{Req: a.RequestID(), Err: runtime.ErrInvalid, Outcome: runtime.NotApplied}
 	}
 }
 
-func (e *Executor) logIO(a core.IOCall) core.IOResult {
+func (e *Executor) logIO(a runtime.IOCall) runtime.IOResult {
 	ctx, cancel := context.WithTimeout(e.ctx, e.config.LogTimeout)
 	defer cancel()
 	switch a := a.(type) {
-	case core.LogAppend:
+	case runtime.LogAppend:
 		existing, taken, err := e.log.Append(ctx, a.Slot, a.Data)
 		if err != nil {
 			c, o := Classify(a, err)
-			return core.LogAppendDone{Req: a.Req, Slot: a.Slot, Err: c, Outcome: o}
+			return runtime.LogAppendDone{Req: a.Req, Slot: a.Slot, Err: c, Outcome: o}
 		}
 		if taken && len(existing) == 0 {
 			// At or below the floor: the put is not a commit. There is no
 			// existing entry to report.
-			return core.LogAppendDone{Req: a.Req, Slot: a.Slot, Taken: true, Err: core.ErrConflict, Outcome: core.NotApplied}
+			return runtime.LogAppendDone{Req: a.Req, Slot: a.Slot, Taken: true, Err: runtime.ErrConflict, Outcome: runtime.NotApplied}
 		}
 		if taken {
-			return core.LogAppendDone{
+			return runtime.LogAppendDone{
 				Req: a.Req, Slot: a.Slot, Taken: true, Existing: existing,
-				Err: core.OK, Outcome: core.Applied,
+				Err: runtime.OK, Outcome: runtime.Applied,
 			}
 		}
-		return core.LogAppendDone{Req: a.Req, Slot: a.Slot, Err: core.OK, Outcome: core.Applied}
-	case core.LogRead:
+		return runtime.LogAppendDone{Req: a.Req, Slot: a.Slot, Err: runtime.OK, Outcome: runtime.Applied}
+	case runtime.LogRead:
 		ents, err := e.log.Read(ctx, a.From, int(a.Limit))
 		if err != nil {
 			c, o := Classify(a, err)
-			return core.LogReadDone{Req: a.Req, Err: c, Outcome: o}
+			return runtime.LogReadDone{Req: a.Req, Err: c, Outcome: o}
 		}
-		return core.LogReadDone{Req: a.Req, Entries: ents, Err: core.OK, Outcome: core.Applied}
-	case core.LogGetEnd:
+		return runtime.LogReadDone{Req: a.Req, Entries: ents, Err: runtime.OK, Outcome: runtime.Applied}
+	case runtime.LogGetEnd:
 		tail, err := e.log.CheckTail(ctx)
 		if err != nil {
 			c, o := Classify(a, err)
-			return core.LogGetEndDone{Req: a.Req, Err: c, Outcome: o}
+			return runtime.LogGetEndDone{Req: a.Req, Err: c, Outcome: o}
 		}
-		return core.LogGetEndDone{Req: a.Req, Tail: tail, Err: core.OK, Outcome: core.Applied}
-	case core.LogDeleteOld:
+		return runtime.LogGetEndDone{Req: a.Req, Tail: tail, Err: runtime.OK, Outcome: runtime.Applied}
+	case runtime.LogDeleteOld:
 		err := e.log.TrimThrough(ctx, a.Through)
 		if err != nil {
 			c, o := Classify(a, err)
-			return core.LogDeleteOldDone{Req: a.Req, Err: c, Outcome: o}
+			return runtime.LogDeleteOldDone{Req: a.Req, Err: c, Outcome: o}
 		}
-		return core.LogDeleteOldDone{Req: a.Req, Err: core.OK, Outcome: core.Applied}
-	case core.LogClaimEpoch:
+		return runtime.LogDeleteOldDone{Req: a.Req, Err: runtime.OK, Outcome: runtime.Applied}
+	case runtime.LogClaimEpoch:
 		epoch, owner, won, err := e.log.ClaimEpoch(ctx, a.Expect, a.Owner)
 		if err != nil {
 			c, o := Classify(a, err)
-			return core.LogClaimEpochDone{Req: a.Req, Err: c, Outcome: o}
+			return runtime.LogClaimEpochDone{Req: a.Req, Err: c, Outcome: o}
 		}
-		return core.LogClaimEpochDone{Req: a.Req, Epoch: epoch, Owner: owner, Won: won, Err: core.OK, Outcome: core.Applied}
+		return runtime.LogClaimEpochDone{Req: a.Req, Epoch: epoch, Owner: owner, Won: won, Err: runtime.OK, Outcome: runtime.Applied}
 	default:
-		return core.LogAppendDone{Req: a.RequestID(), Err: core.ErrInvalid, Outcome: core.NotApplied}
+		return runtime.LogAppendDone{Req: a.RequestID(), Err: runtime.ErrInvalid, Outcome: runtime.NotApplied}
 	}
 }
 
-func (e *Executor) objIO(a core.IOCall) core.IOResult {
+func (e *Executor) objIO(a runtime.IOCall) runtime.IOResult {
 	ctx, cancel := context.WithTimeout(e.ctx, e.config.ObjTimeout)
 	defer cancel()
 	switch a := a.(type) {
-	case core.ObjectPut:
+	case runtime.ObjectPut:
 		err := e.objs.Put(ctx, a.Key, a.Data)
 		c, o := Classify(a, err)
-		return core.ObjectPutDone{Req: a.Req, Key: a.Key, Err: c, Outcome: o}
-	case core.ObjectGet:
+		return runtime.ObjectPutDone{Req: a.Req, Key: a.Key, Err: c, Outcome: o}
+	case runtime.ObjectGet:
 		return e.objGet(ctx, a)
-	case core.ObjectDelete:
+	case runtime.ObjectDelete:
 		err := e.objs.Delete(ctx, a.Key)
 		c, o := Classify(a, err)
-		return core.ObjectDeleteDone{Req: a.Req, Err: c, Outcome: o}
-	case core.ObjectList:
+		return runtime.ObjectDeleteDone{Req: a.Req, Err: c, Outcome: o}
+	case runtime.ObjectList:
 		return e.objList(ctx, a)
 	default:
-		return core.ObjectGetDone{Req: a.RequestID(), Err: core.ErrInvalid}
+		return runtime.ObjectGetDone{Req: a.RequestID(), Err: runtime.ErrInvalid}
 	}
 }
 
 //nolint:dupl // ObjectGet/ObjectList share err-or-value shape with different fields
-func (e *Executor) objGet(ctx context.Context, a core.ObjectGet) core.IOResult {
+func (e *Executor) objGet(ctx context.Context, a runtime.ObjectGet) runtime.IOResult {
 	data, err := e.objs.Get(ctx, a.Ref)
 	if err != nil {
 		c, _ := Classify(a, err)
-		return core.ObjectGetDone{Req: a.Req, Err: c}
+		return runtime.ObjectGetDone{Req: a.Req, Err: c}
 	}
-	return core.ObjectGetDone{Req: a.Req, Data: data}
+	return runtime.ObjectGetDone{Req: a.Req, Data: data}
 }
 
 //nolint:dupl // ObjectGet/ObjectList share err-or-value shape with different fields
-func (e *Executor) objList(ctx context.Context, a core.ObjectList) core.IOResult {
+func (e *Executor) objList(ctx context.Context, a runtime.ObjectList) runtime.IOResult {
 	keys, err := e.objs.List(ctx, a.Prefix)
 	if err != nil {
 		c, _ := Classify(a, err)
-		return core.ObjectListDone{Req: a.Req, Err: c}
+		return runtime.ObjectListDone{Req: a.Req, Err: c}
 	}
-	return core.ObjectListDone{Req: a.Req, Keys: keys}
+	return runtime.ObjectListDone{Req: a.Req, Keys: keys}
 }

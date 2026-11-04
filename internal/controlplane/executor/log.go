@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Log is a byte-oriented shared loglet. Slots hold opaque machine payloads.
@@ -22,15 +22,15 @@ type Log interface {
 	//   - taken with empty existing: (nil, true, nil). The slot is at or below
 	//     the floor, so it may have been trimmed. The put is not a commit. A
 	//     stray row may stay in the slot. Read never returns it.
-	Append(ctx context.Context, slot core.LogPosition, data []byte) (existing []byte, taken bool, err error)
+	Append(ctx context.Context, slot runtime.LogPosition, data []byte) (existing []byte, taken bool, err error)
 	// Read returns up to limit entries at or after from, in slot order. Rows at
 	// or below the floor are never returned.
-	Read(ctx context.Context, from core.LogPosition, limit int) ([]core.LogEntry, error)
+	Read(ctx context.Context, from runtime.LogPosition, limit int) ([]runtime.LogEntry, error)
 	// CheckTail returns the highest written slot plus one.
-	CheckTail(ctx context.Context) (core.LogPosition, error)
+	CheckTail(ctx context.Context) (runtime.LogPosition, error)
 	// TrimThrough raises the floor to through, and then deletes the slots at or
 	// below through. The floor never moves down.
-	TrimThrough(ctx context.Context, through core.LogPosition) error
+	TrimThrough(ctx context.Context, through runtime.LogPosition) error
 	// ClaimEpoch is a compare-and-swap on the writer epoch. It wins only if the
 	// stored epoch equals expect (no stored epoch counts as 0). On a win the
 	// stored epoch becomes expect+1 and the owner becomes owner, and it returns
@@ -65,7 +65,7 @@ type slotRecord struct {
 // NewMemoryLog returns an empty in-memory log.
 func NewMemoryLog() *MemoryLog { return &MemoryLog{floor: -1} }
 
-func (m *MemoryLog) ensure(slot core.LogPosition) {
+func (m *MemoryLog) ensure(slot runtime.LogPosition) {
 	n := int(slot) + 1
 	if n > len(m.slots) {
 		m.slots = append(m.slots, make([]slotRecord, n-len(m.slots))...)
@@ -73,12 +73,12 @@ func (m *MemoryLog) ensure(slot core.LogPosition) {
 }
 
 // belowFloor reports whether slot is at or below the floor. The lock is held by the caller.
-func (m *MemoryLog) belowFloor(slot core.LogPosition) bool {
+func (m *MemoryLog) belowFloor(slot runtime.LogPosition) bool {
 	return int64(slot) <= m.floor
 }
 
 // Append implements Log.
-func (m *MemoryLog) Append(_ context.Context, slot core.LogPosition, data []byte) ([]byte, bool, error) {
+func (m *MemoryLog) Append(_ context.Context, slot runtime.LogPosition, data []byte) ([]byte, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if slot < 0 {
@@ -100,30 +100,30 @@ func (m *MemoryLog) Append(_ context.Context, slot core.LogPosition, data []byte
 
 // Read implements Log. It scans first and reads the floor under the same lock,
 // the same order as DynamoLog.Read.
-func (m *MemoryLog) Read(_ context.Context, from core.LogPosition, limit int) ([]core.LogEntry, error) {
+func (m *MemoryLog) Read(_ context.Context, from runtime.LogPosition, limit int) ([]runtime.LogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if from < 0 || limit < 0 {
 		return nil, ErrInvalidSlot
 	}
-	var out []core.LogEntry
+	var out []runtime.LogEntry
 	for i := int(from); i < len(m.slots) && len(out) < limit; i++ {
 		if m.slots[i].kind != slotEntry {
 			continue
 		}
-		out = append(out, core.LogEntry{Slot: core.LogPosition(i), Data: slices.Clone(m.slots[i].data)})
+		out = append(out, runtime.LogEntry{Slot: runtime.LogPosition(i), Data: slices.Clone(m.slots[i].data)})
 	}
 	// Rows at or below the floor are stray rows left by a rejected put.
-	return slices.DeleteFunc(out, func(e core.LogEntry) bool { return m.belowFloor(e.Slot) }), nil
+	return slices.DeleteFunc(out, func(e runtime.LogEntry) bool { return m.belowFloor(e.Slot) }), nil
 }
 
 // CheckTail implements Log.
-func (m *MemoryLog) CheckTail(context.Context) (core.LogPosition, error) {
+func (m *MemoryLog) CheckTail(context.Context) (runtime.LogPosition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range slices.Backward(m.slots) {
 		if m.slots[i].kind != slotEmpty {
-			return core.LogPosition(i) + 1, nil
+			return runtime.LogPosition(i) + 1, nil
 		}
 	}
 	return 0, nil
@@ -131,7 +131,7 @@ func (m *MemoryLog) CheckTail(context.Context) (core.LogPosition, error) {
 
 // TrimThrough implements Log. The floor goes up first, then the slots are
 // cleared.
-func (m *MemoryLog) TrimThrough(_ context.Context, through core.LogPosition) error {
+func (m *MemoryLog) TrimThrough(_ context.Context, through runtime.LogPosition) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if through < 0 {

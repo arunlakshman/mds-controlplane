@@ -21,7 +21,7 @@ type Reporter interface {
 // operation on both sides.
 type SpecChecker[S, Op any] struct {
 	// Name is the Go type of Op as written in a regression test, for
-	// example "core.IOCall". It is the first line of the printed sequence.
+	// example "runtime.IOCall". It is the first line of the printed sequence.
 	Name string
 	// New returns a fresh implementation and a fresh spec, both empty.
 	New func() S

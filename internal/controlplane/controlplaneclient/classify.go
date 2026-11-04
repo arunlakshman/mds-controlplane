@@ -9,7 +9,8 @@ import (
 
 	"google.golang.org/grpc/codes"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 )
 
@@ -23,34 +24,34 @@ type Classifier struct{}
 
 var _ system.ErrorClassifier = Classifier{}
 
-func changesData(a core.IOCall) bool {
-	call, ok := a.(core.ControlPlaneCall)
+func changesData(a runtime.IOCall) bool {
+	call, ok := a.(runtime.ControlPlaneCall)
 	if !ok {
 		return true
 	}
 	switch call.Op.(type) {
-	case core.FindSegments, core.DescribeTopics, core.OffsetFetch, core.DescribeGroups, core.ListGroups:
+	case contract.FindSegments, contract.DescribeTopics, contract.OffsetFetch, contract.DescribeGroups, contract.ListGroups:
 		return false
 	}
 	return true
 }
 
 // Classify maps a failed cp call to its error code and outcome.
-func (Classifier) Classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
+func (Classifier) Classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome) {
 	code, out := classify(a, err)
 	slog.Debug("cp call failed", "action", a, "err", err, "code", code, "outcome", out)
 	return code, out
 }
 
-func classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
-	maybe := core.NotApplied
+func classify(a runtime.IOCall, err error) (runtime.ErrCode, runtime.Outcome) {
+	maybe := runtime.NotApplied
 	if changesData(a) {
-		maybe = core.MaybeApplied
+		maybe = runtime.MaybeApplied
 	}
 	if be, ok := errors.AsType[*Error](err); ok {
 		out := be.Outcome
-		if out == 0 && be.Code != core.OK {
-			out = core.NotApplied
+		if out == 0 && be.Code != runtime.OK {
+			out = runtime.NotApplied
 		}
 		return be.Code, out
 	}
@@ -58,38 +59,38 @@ func classify(a core.IOCall, err error) (core.ErrCode, core.Outcome) {
 		return classifyCall(ce, maybe)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return core.ErrTimeout, maybe
+		return runtime.ErrTimeout, maybe
 	}
 	return isTimeoutOrIOError(err), maybe
 }
 
-func classifyCall(ce *CallError, maybe core.Outcome) (core.ErrCode, core.Outcome) {
+func classifyCall(ce *CallError, maybe runtime.Outcome) (runtime.ErrCode, runtime.Outcome) {
 	switch {
 	case ce.Code == codes.Unavailable:
-		return core.ErrUnavailable, core.NotApplied
+		return runtime.ErrUnavailable, runtime.NotApplied
 	case ce.Code == codes.InvalidArgument:
-		return core.ErrInvalid, core.NotApplied
+		return runtime.ErrInvalid, runtime.NotApplied
 	case ce.Code == codes.Canceled || ce.Code == codes.DeadlineExceeded:
-		return core.ErrTimeout, maybe
+		return runtime.ErrTimeout, maybe
 	case !ce.Sent:
-		return classifyBeforeSend(ce.Err), core.NotApplied
+		return classifyBeforeSend(ce.Err), runtime.NotApplied
 	}
 	return isTimeoutOrIOError(ce.Err), maybe
 }
 
-func classifyBeforeSend(err error) core.ErrCode {
+func classifyBeforeSend(err error) runtime.ErrCode {
 	if isDial(err) {
-		return core.ErrUnavailable
+		return runtime.ErrUnavailable
 	}
 	return isTimeoutOrIOError(err)
 }
 
-func isTimeoutOrIOError(err error) core.ErrCode {
+func isTimeoutOrIOError(err error) runtime.ErrCode {
 	ne, isNetErr := errors.AsType[net.Error](err)
 	if errors.Is(err, context.DeadlineExceeded) || (isNetErr && ne.Timeout()) {
-		return core.ErrTimeout
+		return runtime.ErrTimeout
 	}
-	return core.ErrIO
+	return runtime.ErrIO
 }
 
 func isDial(err error) bool {

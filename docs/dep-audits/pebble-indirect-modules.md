@@ -2,7 +2,7 @@
 
 Date: 2026-10-21. Auditor: stage-4 agent. Scope: the 16 modules that appeared in `go.mod` as `// indirect` when
 `github.com/cockroachdb/pebble v1.1.5` (decision 49) was added. They are EDGE dependencies: only
-`internal/controlplane/kv/pebblestore` (and so `cmd/mdscontrolplane`) imports Pebble. `internal/core/`, `internal/verify/simulator/` and every other deterministic package do not
+`internal/controlplane/kv/pebblestore` (and so `cmd/mdscontrolplane`) imports Pebble. `internal/runtime/`, `internal/verify/simulator/` and every other deterministic package do not
 reach them (`ops/scripts/ci-determinism.sh` is green), so none needs a per-module determinism record under
 `docs/dep-audits/<module>@<version>.md`; this page is the summary the open item asked for. The Pebble record itself is
 `github.com/cockroachdb/pebble@v1.1.5.md`.
@@ -81,7 +81,7 @@ bbolt alternative recorded in `docs/applier-bakeoff.md`; neither is worth it now
 ## Recommendation
 
 Accept all 16 as edge dependencies, record no per-module determinism audits (they are outside the closure), and keep
-`determinismcheck`'s allow-list unchanged. Do not import any of them from `internal/core/` or `internal/verify/simulator/`. Re-run this page's commands when
+`determinismcheck`'s allow-list unchanged. Do not import any of them from `internal/runtime/` or `internal/verify/simulator/`. Re-run this page's commands when
 Pebble is bumped.
 
 ## Evidence

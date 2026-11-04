@@ -7,7 +7,7 @@
 // state. After a restart or a failover it starts empty and fills again within one
 // heartbeat interval. It has no lock: the caller uses it only on the run loop.
 //
-// Time comes from the caller, as core.NodeTime, so the rules are the same with
+// Time comes from the caller, as runtime.NodeTime, so the rules are the same with
 // the real clock and the fake one.
 package membership
 
@@ -16,7 +16,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // DefaultTTL is the lease length when the configuration leaves it zero. Brokers
@@ -25,7 +26,7 @@ const DefaultTTL = 5 * time.Second
 
 // Valid reports whether b is an address a broker may register: a positive node
 // id, a host and a positive port.
-func Valid(b core.BrokerAddr) bool {
+func Valid(b contract.BrokerAddr) bool {
 	return b.NodeID > 0 && b.Host != "" && b.Port > 0
 }
 
@@ -36,8 +37,8 @@ type Leases struct {
 }
 
 type lease struct {
-	addr core.BrokerAddr
-	seen core.NodeTime // time of the last heartbeat
+	addr contract.BrokerAddr
+	seen runtime.NodeTime // time of the last heartbeat
 }
 
 // New returns an empty set. A lease lives for ttl after its last heartbeat.
@@ -47,14 +48,14 @@ func New(ttl time.Duration) *Leases {
 
 // Renew records a heartbeat from b at now. A new address for a known node id
 // replaces the old one.
-func (s *Leases) Renew(b core.BrokerAddr, now core.NodeTime) {
+func (s *Leases) Renew(b contract.BrokerAddr, now runtime.NodeTime) {
 	s.leases[b.NodeID] = lease{addr: b, seen: now}
 }
 
 // Live drops the leases that expired by now and returns the rest, sorted by
 // node id.
-func (s *Leases) Live(now core.NodeTime) []core.BrokerAddr {
-	var out []core.BrokerAddr
+func (s *Leases) Live(now runtime.NodeTime) []contract.BrokerAddr {
+	var out []contract.BrokerAddr
 	for id, l := range s.leases {
 		if time.Duration(now-l.seen) >= s.ttl {
 			delete(s.leases, id)
@@ -62,7 +63,7 @@ func (s *Leases) Live(now core.NodeTime) []core.BrokerAddr {
 		}
 		out = append(out, l.addr)
 	}
-	slices.SortFunc(out, func(a, b core.BrokerAddr) int {
+	slices.SortFunc(out, func(a, b contract.BrokerAddr) int {
 		return cmp.Compare(a.NodeID, b.NodeID)
 	})
 	return out

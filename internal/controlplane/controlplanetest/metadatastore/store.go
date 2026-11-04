@@ -9,7 +9,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Store drives a metadata.Store with a local slot counter. It is a
@@ -24,9 +24,9 @@ type Store struct {
 
 // Exec runs one operation. A business error is the Err of the answer. The error
 // result is for the context and the store. A command gets the next local slot.
-func (s *Store) Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error) {
+func (s *Store) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	if err := ctx.Err(); err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
 	switch s.A.Mode(operation) {
 	case module.Logged:
@@ -38,5 +38,5 @@ func (s *Store) Exec(ctx context.Context, operation core.ControlPlaneOperation) 
 	case module.ReadOnly:
 		return s.A.Read(operation)
 	}
-	return core.ControlPlaneDone{Err: core.ErrInvalid}, nil
+	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
 }

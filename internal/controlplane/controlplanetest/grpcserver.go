@@ -13,7 +13,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Node is a started gRPC control-plane node.
@@ -28,8 +28,8 @@ type Node struct {
 func StartMem(t testing.TB) *Node {
 	t.Helper()
 	return Start(t, replica.Config{
-		CatchUpEvery: core.Duration(time.Millisecond),
-		Rank:         0, Heartbeat: core.Duration(time.Second),
+		CatchUpEvery: runtime.Duration(time.Millisecond),
+		Rank:         0, Heartbeat: runtime.Duration(time.Second),
 	}, executor.NewMemoryLog(), executor.NewMemoryObjects())
 }
 
@@ -38,7 +38,7 @@ func Start(t testing.TB, config replica.Config, log executor.Log, objs executor.
 	t.Helper()
 	n := server.New(server.Config{
 		Machine: config, Log: log, Objects: objs,
-		Self: core.NodeInstance{Node: "cp-0"},
+		Self: runtime.NodeInstance{Node: "cp-0"},
 	})
 	if err := n.Start(t.Context()); err != nil {
 		t.Fatal(err)

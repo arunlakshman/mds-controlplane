@@ -3,7 +3,8 @@ package suites
 import (
 	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
@@ -17,10 +18,10 @@ type ControlPlanePair struct {
 	specSubject ControlPlaneSubject
 	subject     ControlPlaneSubject
 	model       *controlPlaneModel
-	extra       core.RequestID
+	extra       runtime.RequestID
 }
 
-func (p *ControlPlanePair) nextReq() core.RequestID {
+func (p *ControlPlanePair) nextReq() runtime.RequestID {
 	p.extra++
 	return extraReqBase + p.extra
 }
@@ -144,7 +145,7 @@ func (p *ControlPlanePair) modelApply(operation generator.ControlPlaneTestStep) 
 	case operation.Call != nil:
 		return p.model.apply(operation.Call.Op)
 	}
-	return observation.ControlPlaneResult{Code: core.ErrInvalid}, false
+	return observation.ControlPlaneResult{Code: runtime.ErrInvalid}, false
 }
 
 func controlPlaneInvariant(p *ControlPlanePair) error {
@@ -166,22 +167,22 @@ func controlPlaneInvariant(p *ControlPlanePair) error {
 
 // checkRuns looks up a whole partition and checks that its runs have no gap
 // and no overlap and that the end offset equals the committed record count.
-func (p *ControlPlanePair) checkRuns(who string, subject ControlPlaneSubject, topicPartition core.TopicPartition) error {
-	result, err := subject.Do(generator.NewCall(core.ControlPlaneCall{Req: p.nextReq(), Op: core.FindSegments{TopicPartition: topicPartition}}))
+func (p *ControlPlanePair) checkRuns(who string, subject ControlPlaneSubject, topicPartition contract.TopicPartition) error {
+	result, err := subject.Do(generator.NewCall(runtime.ControlPlaneCall{Req: p.nextReq(), Op: contract.FindSegments{TopicPartition: topicPartition}}))
 	if err != nil {
 		return fmt.Errorf("the %s could not look up %v: %w", who, topicPartition, err)
 	}
-	if result.Code != core.OK {
+	if result.Code != runtime.OK {
 		return fmt.Errorf("the %s returned the code %v for a lookup of %v from offset 0, but it must return OK", who, result.Code, topicPartition)
 	}
 	committed := p.model.end(topicPartition)
-	next, sum := core.Offset(0), int64(0)
+	next, sum := contract.Offset(0), int64(0)
 	for i, r := range result.Ranges {
 		if r.Base != next {
 			return fmt.Errorf("the %s returned run %d of %v at offset %d, but the previous run ends at %d, so offsets are not contiguous",
 				who, i, topicPartition, r.Base, next)
 		}
-		next, sum = r.Base+core.Offset(r.Count), sum+r.Count
+		next, sum = r.Base+contract.Offset(r.Count), sum+r.Count
 	}
 	if result.End != next || int64(result.End) != committed || sum != committed {
 		return fmt.Errorf("the %s returned for %v the end offset %d, the end of the last run %d and %d records in the runs, but %d records were committed",
@@ -191,7 +192,7 @@ func (p *ControlPlanePair) checkRuns(who string, subject ControlPlaneSubject, to
 }
 
 func (p *ControlPlanePair) checkTopics(who string, subject ControlPlaneSubject) error {
-	result, err := subject.Do(generator.NewCall(core.ControlPlaneCall{Req: p.nextReq(), Op: core.DescribeTopics{}}))
+	result, err := subject.Do(generator.NewCall(runtime.ControlPlaneCall{Req: p.nextReq(), Op: contract.DescribeTopics{}}))
 	if err != nil {
 		return fmt.Errorf("the %s could not describe the topics: %w", who, err)
 	}

@@ -5,12 +5,13 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/kvtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestSnapshotRestoreAndReplay(t *testing.T) {
@@ -35,7 +36,7 @@ func TestSnapshotRestoreAndReplay(t *testing.T) {
 			if got := mustCommit(t, b, 9, commit("k0", pb("a", 0, 3), pb("a", 0, 2), pb("b", 7, 1))); !reflect.DeepEqual(got, first) {
 				t.Fatalf("replay after restore %+v, want %+v", got, first)
 			}
-			if got := mustCommit(t, b, 9, commit("k0", pb("a", 0, 9))); got.Err != core.ErrConflict {
+			if got := mustCommit(t, b, 9, commit("k0", pb("a", 0, 9))); got.Err != runtime.ErrConflict {
 				t.Fatalf("conflict after restore: %+v", got)
 			}
 			// Continue both identically.
@@ -66,21 +67,21 @@ func TestRestoreRejectsDamage(t *testing.T) {
 func TestStoreAdapter(t *testing.T) {
 	ctx := t.Context()
 	s := &metadatastore.Store{A: metadata.New(kv.NewMemory())}
-	if c, err := storecall.Code(ctx, s, core.CreateTopic{Name: "t", Partitions: 3}); c != core.OK || err != nil {
+	if c, err := storecall.Code(ctx, s, contract.CreateTopic{Name: "t", Partitions: 3}); c != runtime.OK || err != nil {
 		t.Fatal(c, err)
 	}
-	response, c, err := storecall.Call[core.CommitSegmentResp](ctx, s, commit("k", pb("t", 2, 4)))
-	if err != nil || c != core.OK || response.Assigned[0].Base != 0 {
+	response, c, err := storecall.Call[contract.CommitSegmentResp](ctx, s, commit("k", pb("t", 2, 4)))
+	if err != nil || c != runtime.OK || response.Assigned[0].Base != 0 {
 		t.Fatalf("%+v %v %v", response, c, err)
 	}
-	lk, c, _ := storecall.Call[core.FindSegmentsResp](ctx, s, core.FindSegments{TopicPartition: core.NewTopicPartition("t", 2)})
-	if c != core.OK || lk.End != 4 || len(lk.Ranges) != 1 {
+	lk, c, _ := storecall.Call[contract.FindSegmentsResp](ctx, s, contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 2)})
+	if c != runtime.OK || lk.End != 4 || len(lk.Ranges) != 1 {
 		t.Fatalf("%+v %v", lk, c)
 	}
-	if _, c, _ = storecall.Call[core.FindSegmentsResp](ctx, s, core.FindSegments{From: -1}); c != core.ErrInvalid {
+	if _, c, _ = storecall.Call[contract.FindSegmentsResp](ctx, s, contract.FindSegments{From: -1}); c != runtime.ErrInvalid {
 		t.Fatal(c)
 	}
-	d, err := storecall.Read[core.DescribeTopicsResp](ctx, s, core.DescribeTopics{})
+	d, err := storecall.Read[contract.DescribeTopicsResp](ctx, s, contract.DescribeTopics{})
 	if err != nil || len(d.Topics) != 1 || d.Topics[0].Partitions != 3 {
 		t.Fatalf("%+v %v", d, err)
 	}
@@ -138,11 +139,11 @@ func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
 // before the entry.
 func TestCreateEntryReplay(t *testing.T) {
 	entries := []metadata.Entry{
-		metadata.CreateEntry(core.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadata.CreateEntry(core.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadata.CreateEntry(core.CreateTopic{Name: "t", Partitions: 2}),
+		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2}),
 	}
-	want := []core.ErrCode{core.OK, core.ErrTopicExists, core.OK}
+	want := []runtime.ErrCode{runtime.OK, runtime.ErrTopicExists, runtime.OK}
 	for run := range 2 {
 		a := metadata.NewMem()
 		t.Cleanup(func() { _ = a.Close() })
@@ -172,16 +173,16 @@ func TestSnapshotAtTagsTheViewsSlot(t *testing.T) {
 	}
 }
 
-func commit(key string, bs ...core.PendingBatch) core.CommitSegment {
-	return core.CommitSegment{SegmentKey: key, Batches: bs}
+func commit(key string, bs ...contract.PendingBatch) contract.CommitSegment {
+	return contract.CommitSegment{SegmentKey: key, Batches: bs}
 }
 
-func pb(topic string, p int32, n int64) core.PendingBatch {
-	return core.PendingBatch{TopicPartition: core.NewTopicPartition(topic, p), Records: n,
-		Loc: core.SegmentRef{Key: topic, Off: n * 10, Len: n}}
+func pb(topic string, p int32, n int64) contract.PendingBatch {
+	return contract.PendingBatch{TopicPartition: contract.NewTopicPartition(topic, p), Records: n,
+		Loc: runtime.SegmentRef{Key: topic, Off: n * 10, Len: n}}
 }
 
-func mustCommit(t *testing.T, a *metadata.Store, slot int64, operation core.CommitSegment) core.ControlPlaneDone {
+func mustCommit(t *testing.T, a *metadata.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
 	d, err := a.Commit(slot, operation)
 	if err != nil {

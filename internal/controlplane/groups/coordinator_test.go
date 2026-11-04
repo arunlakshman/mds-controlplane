@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
 )
 
@@ -182,25 +183,25 @@ func (h *harness) stableTwo(group string) (string, string) {
 	a, chA := h.join(group)
 	h.clock.Advance(defaultInitialRebalanceDelay)
 	ra := h.recvJoin(chA)
-	if ra.err != nil || ra.response.Err != core.OK || ra.response.Generation != 1 {
+	if ra.err != nil || ra.response.Err != runtime.OK || ra.response.Generation != 1 {
 		h.t.Fatalf("first join: %+v %v", ra.response, ra.err)
 	}
-	if s := h.sync(group, a, 1, Assignment{Member: a, Bytes: []byte("a1")}); s.Err != core.OK {
+	if s := h.sync(group, a, 1, Assignment{Member: a, Bytes: []byte("a1")}); s.Err != runtime.OK {
 		h.t.Fatalf("first sync: %v", s.Err)
 	}
 	b, chB := h.join(group)
 	chA2 := h.rejoin(group, a)
 	rb := h.recvJoin(chB)
 	ra2 := h.recvJoin(chA2)
-	if rb.response.Err != core.OK || ra2.response.Err != core.OK || rb.response.Generation != 2 || ra2.response.Generation != 2 {
+	if rb.response.Err != runtime.OK || ra2.response.Err != runtime.OK || rb.response.Generation != 2 || ra2.response.Generation != 2 {
 		h.t.Fatalf("second round: %+v / %+v", rb.response, ra2.response)
 	}
 	chS := h.syncAsync(group, b, 2)
 	waitUntil(h.t, func() bool { return peek(h.c, group).synced[b] })
-	if s := h.sync(group, a, 2, Assignment{Member: a, Bytes: []byte("a2")}, Assignment{Member: b, Bytes: []byte("b2")}); s.Err != core.OK {
+	if s := h.sync(group, a, 2, Assignment{Member: a, Bytes: []byte("a2")}, Assignment{Member: b, Bytes: []byte("b2")}); s.Err != runtime.OK {
 		h.t.Fatalf("leader sync: %v", s.Err)
 	}
-	if s := h.recvSync(chS); s.err != nil || s.response.Err != core.OK || string(s.response.Assignment) != "b2" {
+	if s := h.recvSync(chS); s.err != nil || s.response.Err != runtime.OK || string(s.response.Assignment) != "b2" {
 		h.t.Fatalf("follower sync: %+v %v", s.response, s.err)
 	}
 	return a, b
@@ -219,7 +220,7 @@ func waitUntil(t *testing.T, cond func() bool) {
 
 func storedMembers(t *testing.T, h *harness, group string) []string {
 	t.Helper()
-	d, err := storecall.Read[core.DescribeGroupResp](t.Context(), h.store, core.DescribeGroup{Group: group})
+	d, err := storecall.Read[contract.DescribeGroupResp](t.Context(), h.store, contract.DescribeGroup{Group: group})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestOneMemberJoinsAndSyncs(t *testing.T) {
 	id, ch := h.join("g")
 	h.clock.Advance(defaultInitialRebalanceDelay)
 	r := h.recvJoin(ch)
-	if r.err != nil || r.response.Err != core.OK || r.response.Generation != 1 || r.response.MemberID != id {
+	if r.err != nil || r.response.Err != runtime.OK || r.response.Generation != 1 || r.response.MemberID != id {
 		t.Fatalf("join: %+v %v", r.response, r.err)
 	}
 	if r.response.Leader != id || r.response.Protocol != "range" || len(r.response.Members) != 1 || r.response.Members[0].ID != id {
@@ -246,10 +247,10 @@ func TestOneMemberJoinsAndSyncs(t *testing.T) {
 		t.Fatalf("metadata: %q", r.response.Members[0].Metadata)
 	}
 	s := h.sync("g", id, 1, Assignment{Member: id, Bytes: []byte("all")})
-	if s.Err != core.OK || string(s.Assignment) != "all" {
+	if s.Err != runtime.OK || string(s.Assignment) != "all" {
 		t.Fatalf("sync: %+v", s)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: id, Generation: 1}); c != core.OK {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: id, Generation: 1}); c != runtime.OK {
 		t.Fatalf("heartbeat: %v", c)
 	}
 	d, _ := h.c.DescribeGroup(t.Context(), "g")
@@ -264,19 +265,19 @@ func TestSecondMemberRebalancesStableGroup(t *testing.T) {
 	if v := peek(h.c, "g"); v.phase != "Stable" || v.generation != 2 || v.leader != a {
 		t.Fatalf("after two members: %+v", v)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != core.OK {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != runtime.OK {
 		t.Fatalf("stable heartbeat: %v", c)
 	}
 	// A third member joins a Stable group: the first member must rejoin.
 	c3, ch3 := h.join("g")
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != core.ErrRebalanceInProgress {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != runtime.ErrRebalanceInProgress {
 		t.Fatalf("heartbeat during rebalance: %v", c)
 	}
 	chA := h.rejoin("g", a)
 	chB := h.rejoin("g", b)
 	ra, rb, rc := h.recvJoin(chA), h.recvJoin(chB), h.recvJoin(ch3)
 	for _, r := range []joinResult{ra, rb, rc} {
-		if r.err != nil || r.response.Err != core.OK || r.response.Generation != 3 || r.response.Leader != a {
+		if r.err != nil || r.response.Err != runtime.OK || r.response.Generation != 3 || r.response.Leader != a {
 			t.Fatalf("round three: %+v %v", r.response, r.err)
 		}
 	}
@@ -288,13 +289,13 @@ func TestSecondMemberRebalancesStableGroup(t *testing.T) {
 	}
 	chS := h.syncAsync("g", b, 3)
 	waitUntil(t, func() bool { return peek(h.c, "g").synced[b] })
-	if s := h.sync("g", a, 3, Assignment{Member: a, Bytes: []byte("a3")}, Assignment{Member: b, Bytes: []byte("b3")}, Assignment{Member: c3, Bytes: []byte("c3")}); s.Err != core.OK {
+	if s := h.sync("g", a, 3, Assignment{Member: a, Bytes: []byte("a3")}, Assignment{Member: b, Bytes: []byte("b3")}, Assignment{Member: c3, Bytes: []byte("c3")}); s.Err != runtime.OK {
 		t.Fatalf("leader sync: %+v", s)
 	}
-	if s := h.recvSync(chS); s.response.Err != core.OK || string(s.response.Assignment) != "b3" {
+	if s := h.recvSync(chS); s.response.Err != runtime.OK || string(s.response.Assignment) != "b3" {
 		t.Fatalf("follower sync: %+v", s)
 	}
-	if s := h.sync("g", c3, 3); s.Err != core.OK || string(s.Assignment) != "c3" {
+	if s := h.sync("g", c3, 3); s.Err != runtime.OK || string(s.Assignment) != "c3" {
 		t.Fatalf("third member sync: %+v", s)
 	}
 }
@@ -303,15 +304,15 @@ func TestLeaveRebalances(t *testing.T) {
 	h := newHarness(t, Config{})
 	a, b := h.stableTwo("g")
 	errs := h.c.LeaveGroup(t.Context(), LeaveReq{Group: "g", Members: []string{b, "nobody"}})
-	if !slices.Equal(errs, []core.ErrCode{core.OK, core.ErrUnknownMember}) {
+	if !slices.Equal(errs, []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}) {
 		t.Fatalf("leave errs: %v", errs)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != core.ErrRebalanceInProgress {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != runtime.ErrRebalanceInProgress {
 		t.Fatalf("heartbeat after leave: %v", c)
 	}
 	ch := h.rejoin("g", a)
 	r := h.recvJoin(ch)
-	if r.response.Err != core.OK || r.response.Generation != 3 || len(r.response.Members) != 1 {
+	if r.response.Err != runtime.OK || r.response.Generation != 3 || len(r.response.Members) != 1 {
 		t.Fatalf("rejoin: %+v", r.response)
 	}
 	if got := storedMembers(t, h, "g"); !slices.Equal(got, []string{a}) {
@@ -332,7 +333,7 @@ func TestSessionExpiryRemovesSilentMember(t *testing.T) {
 	// B stays silent and expires at the fifth second.
 	for range 4 {
 		h.clock.Advance(time.Second)
-		if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != core.OK {
+		if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 2}); c != runtime.OK {
 			t.Fatalf("heartbeat: %v", c)
 		}
 	}
@@ -343,11 +344,11 @@ func TestSessionExpiryRemovesSilentMember(t *testing.T) {
 	if got := storedMembers(t, h, "g"); !slices.Equal(got, []string{a}) {
 		t.Fatalf("stored after expiry: %v", got)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: b, Generation: 2}); c != core.ErrUnknownMember {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: b, Generation: 2}); c != runtime.ErrUnknownMember {
 		t.Fatalf("expired member heartbeat: %v", c)
 	}
 	ch := h.rejoin("g", a)
-	if r := h.recvJoin(ch); r.response.Err != core.OK || r.response.Generation != 3 {
+	if r := h.recvJoin(ch); r.response.Err != runtime.OK || r.response.Generation != 3 {
 		t.Fatalf("rejoin after expiry: %+v", r.response)
 	}
 }
@@ -362,12 +363,12 @@ func TestHeartbeatTable(t *testing.T) {
 		group string
 		id    string
 		gen   int32
-		want  core.ErrCode
+		want  runtime.ErrCode
 	}{
-		{"unknown group", "nope", a, 1, core.ErrUnknownMember},
-		{"unknown member", "g", "zz", 1, core.ErrUnknownMember},
-		{"wrong generation", "g", a, 0, core.ErrIllegalGeneration},
-		{"stable and right", "g", a, 1, core.ErrRebalanceInProgress},
+		{"unknown group", "nope", a, 1, runtime.ErrUnknownMember},
+		{"unknown member", "g", "zz", 1, runtime.ErrUnknownMember},
+		{"wrong generation", "g", a, 0, runtime.ErrIllegalGeneration},
+		{"stable and right", "g", a, 1, runtime.ErrRebalanceInProgress},
 	}
 	for _, tc := range cases {
 		got := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: tc.group, MemberID: tc.id, Generation: tc.gen})
@@ -379,10 +380,10 @@ func TestHeartbeatTable(t *testing.T) {
 	if v := peek(h.c, "g"); v.phase != "CompletingRebalance" {
 		t.Fatalf("phase %s", v.phase)
 	}
-	if s := h.sync("g", a, 1, Assignment{Member: a, Bytes: []byte("x")}); s.Err != core.OK {
+	if s := h.sync("g", a, 1, Assignment{Member: a, Bytes: []byte("x")}); s.Err != runtime.OK {
 		t.Fatalf("sync: %v", s.Err)
 	}
-	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 1}); c != core.OK {
+	if c := h.c.Heartbeat(t.Context(), HeartbeatReq{Group: "g", MemberID: a, Generation: 1}); c != runtime.OK {
 		t.Fatalf("stable: %v", c)
 	}
 }

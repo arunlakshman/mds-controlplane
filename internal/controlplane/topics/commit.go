@@ -32,31 +32,32 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Known answers operation from the idempotency window when its key is already
 // present. ok is false when the key is unknown (the caller must append).
-func Known(transaction kv.Transaction, operation core.CommitSegment) (core.ControlPlaneDone, bool) {
+func Known(transaction kv.Transaction, operation contract.CommitSegment) (runtime.ControlPlaneDone, bool) {
 	rec := transaction.Get(duplicateCheckKey(operation.SegmentKey))
 	if rec == nil {
-		return core.ControlPlaneDone{}, false
+		return runtime.ControlPlaneDone{}, false
 	}
 	return replay(rec, checksum(operation.Batches), operation), true
 }
 
 // Lookup answers a Lookup from the stored runs.
-func Lookup(transaction kv.Transaction, operation core.FindSegments) core.ControlPlaneDone {
+func Lookup(transaction kv.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
 	if operation.From < 0 {
-		return core.ControlPlaneDone{Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 	}
 	return lookupTransaction(transaction, operation)
 }
 
 // Describe answers a DescribeTopics.
-func Describe(transaction kv.Transaction, operation core.DescribeTopics) core.ControlPlaneDone {
+func Describe(transaction kv.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
 	return describeTransaction(transaction, operation)
 }
 
@@ -65,20 +66,20 @@ func Describe(transaction kv.Transaction, operation core.DescribeTopics) core.Co
 // existing topic gives ErrTopicExists and nothing changes. The check and the
 // write are in one transaction, so the answer depends only on the state before
 // this command.
-func Create(transaction kv.Transaction, name string, partitions int32, failIfExists bool) core.ErrCode {
+func Create(transaction kv.Transaction, name string, partitions int32, failIfExists bool) runtime.ErrCode {
 	if name == "" || partitions <= 0 {
-		return core.ErrInvalid
+		return runtime.ErrInvalid
 	}
 	if failIfExists && transaction.Get(topicKey(name)) != nil {
-		return core.ErrTopicExists
+		return runtime.ErrTopicExists
 	}
 	addPartitions(transaction, map[string]int32{}, name, partitions)
-	return core.OK
+	return runtime.OK
 }
 
 // End is the next offset of topicPartition (0 if unknown).
-func End(transaction kv.Transaction, topicPartition core.TopicPartition) core.Offset {
-	return core.Offset(readVarint(transaction.Get(endKey(topicPartition))))
+func End(transaction kv.Transaction, topicPartition contract.TopicPartition) contract.Offset {
+	return contract.Offset(readVarint(transaction.Get(endKey(topicPartition))))
 }
 
 // PartitionCount is how many partitions topic has (0 when it does not exist).
@@ -88,13 +89,13 @@ func PartitionCount(transaction kv.Transaction, topic string) int64 {
 
 // CommitWithBases is the BugWriterOffsets apply path: the bases come from the
 // writer instead of from the partition ends.
-func CommitWithBases(transaction kv.Transaction, slot int64, operation core.CommitSegment, bases []core.Offset) core.ControlPlaneDone {
+func CommitWithBases(transaction kv.Transaction, slot int64, operation contract.CommitSegment, bases []contract.Offset) runtime.ControlPlaneDone {
 	dig := checksum(operation.Batches)
 	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
 		return replay(rec, dig, operation)
 	}
 	if !validCommit(operation) || len(bases) != len(operation.Batches) {
-		return core.ControlPlaneDone{Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 	}
 	return storeCommit(transaction, slot, operation, dig, assignAt(transaction, operation.Batches, bases))
 }
@@ -131,17 +132,17 @@ func Window(transaction kv.Transaction) int {
 // Assigned reports the ranges operation was given if it is the first commit of its
 // key at slot, rebuilt from the key's record. An indexer uses it to write the
 // run rows of a slot after the fact.
-func Assigned(transaction kv.Transaction, slot int64, operation core.CommitSegment) ([]core.BatchRange, AssignState) {
+func Assigned(transaction kv.Transaction, slot int64, operation contract.CommitSegment) ([]contract.BatchRange, AssignState) {
 	rec := transaction.Get(duplicateCheckKey(operation.SegmentKey))
 	if rec == nil {
 		return nil, OffsetOwnerUnknown
 	}
 	first, _ := binary.Uvarint(rec)
 	d := replay(rec, checksum(operation.Batches), operation)
-	if int64(first) != slot || d.Err != core.OK {
+	if int64(first) != slot || d.Err != runtime.OK {
 		return nil, OffsetOwnedElsewhere
 	}
-	return d.Resp.(core.CommitSegmentResp).Assigned, OffsetOwnedHere
+	return d.Resp.(contract.CommitSegmentResp).Assigned, OffsetOwnedHere
 }
 
 // AssignState says what Assigned knows about a command.
@@ -166,107 +167,107 @@ type Module struct{}
 var _ module.Module = Module{}
 
 // Mode reports how the module treats operation.
-func (Module) Mode(operation core.ControlPlaneOperation) module.Mode {
+func (Module) Mode(operation runtime.ControlPlaneOperation) module.Mode {
 	switch operation.(type) {
-	case core.CommitSegment, core.CreateTopic:
+	case contract.CommitSegment, contract.CreateTopic:
 		return module.Logged
-	case core.FindSegments, core.DescribeTopics:
+	case contract.FindSegments, contract.DescribeTopics:
 		return module.ReadOnly
 	}
 	return module.NotMine
 }
 
 // Write applies a CommitSegment or a CreateTopic at slot.
-func (Module) Write(transaction kv.Transaction, slot int64, operation core.ControlPlaneOperation) core.ControlPlaneDone {
+func (Module) Write(transaction kv.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
-	case core.CommitSegment:
+	case contract.CommitSegment:
 		return Commit(transaction, slot, x)
-	case core.CreateTopic:
-		return core.ControlPlaneDone{Err: Create(transaction, x.Name, x.Partitions, x.FailIfExists)}
+	case contract.CreateTopic:
+		return runtime.ControlPlaneDone{Err: Create(transaction, x.Name, x.Partitions, x.FailIfExists)}
 	}
-	return core.ControlPlaneDone{Err: core.ErrInvalid}
+	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 }
 
 // Read answers a FindSegments or a DescribeTopics.
-func (Module) Read(transaction kv.Transaction, operation core.ControlPlaneOperation) core.ControlPlaneDone {
+func (Module) Read(transaction kv.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
-	case core.FindSegments:
+	case contract.FindSegments:
 		return Lookup(transaction, x)
-	case core.DescribeTopics:
+	case contract.DescribeTopics:
 		return Describe(transaction, x)
 	}
-	return core.ControlPlaneDone{Err: core.ErrInvalid}
+	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 }
 
-func validBatch(b core.PendingBatch) bool {
+func validBatch(b contract.PendingBatch) bool {
 	return b.Records > 0 && b.TopicPartition.Topic != "" && b.TopicPartition.Partition >= 0
 }
 
-func validCommit(operation core.CommitSegment) bool {
-	return operation.SegmentKey != "" && len(operation.Batches) > 0 && slices.IndexFunc(operation.Batches, func(b core.PendingBatch) bool { return !validBatch(b) }) < 0
+func validCommit(operation contract.CommitSegment) bool {
+	return operation.SegmentKey != "" && len(operation.Batches) > 0 && slices.IndexFunc(operation.Batches, func(b contract.PendingBatch) bool { return !validBatch(b) }) < 0
 }
 
 // Commit applies a CommitSegment that sits at log slot slot. A key that is
 // already known gets its original answer, or ErrConflict if the request differs.
-func Commit(transaction kv.Transaction, slot int64, operation core.CommitSegment) core.ControlPlaneDone {
+func Commit(transaction kv.Transaction, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	dig := checksum(operation.Batches)
 	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
 		return replay(rec, dig, operation)
 	}
 	if !validCommit(operation) {
-		return core.ControlPlaneDone{Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 	}
 	return storeCommit(transaction, slot, operation, dig, assign(transaction, operation.Batches))
 }
 
 // replay answers a commit whose key is known: the original ranges, or
 // ErrConflict if the request differs.
-func replay(rec []byte, dig [checksumLength]byte, operation core.CommitSegment) core.ControlPlaneDone {
+func replay(rec []byte, dig [checksumLength]byte, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	was, bases, err := parseDuplicateCheck(rec)
 	if err != nil {
 		panic(fmt.Errorf("topics: key %q: %w", operation.SegmentKey, err))
 	}
 	if was != dig {
-		return core.ControlPlaneDone{Err: core.ErrConflict}
+		return runtime.ControlPlaneDone{Err: runtime.ErrConflict}
 	}
 	if len(bases) != len(operation.Batches) {
 		panic(fmt.Errorf("topics: key %q: %w", operation.SegmentKey, errCorrupt))
 	}
-	rs := make([]core.BatchRange, len(operation.Batches))
+	rs := make([]contract.BatchRange, len(operation.Batches))
 	for i, b := range operation.Batches {
-		rs[i] = core.BatchRange{TopicPartition: b.TopicPartition, Base: core.Offset(bases[i]), Count: b.Records, Loc: b.Loc}
+		rs[i] = contract.BatchRange{TopicPartition: b.TopicPartition, Base: contract.Offset(bases[i]), Count: b.Records, Loc: b.Loc}
 	}
-	return core.ControlPlaneDone{Resp: core.CommitSegmentResp{Assigned: rs}, Outcome: core.Applied}
+	return runtime.ControlPlaneDone{Resp: contract.CommitSegmentResp{Assigned: rs}, Outcome: runtime.Applied}
 }
 
-func storeCommit(transaction kv.Transaction, slot int64, operation core.CommitSegment, dig [checksumLength]byte, assigned []core.BatchRange) core.ControlPlaneDone {
+func storeCommit(transaction kv.Transaction, slot int64, operation contract.CommitSegment, dig [checksumLength]byte, assigned []contract.BatchRange) runtime.ControlPlaneDone {
 	transaction.Set(duplicateCheckKey(operation.SegmentKey), duplicateCheckRecord(slot, dig, assigned))
 	transaction.Set(slotKey(slot, operation.SegmentKey), []byte{1})
-	return core.ControlPlaneDone{Resp: core.CommitSegmentResp{Assigned: assigned}, Outcome: core.Applied}
+	return runtime.ControlPlaneDone{Resp: contract.CommitSegmentResp{Assigned: assigned}, Outcome: runtime.Applied}
 }
 
 // offsetPlan is the per-partition end and run built while handing out offsets.
 type offsetPlan struct {
-	order []core.TopicPartition
-	ends  map[core.TopicPartition]int64
-	runs  map[core.TopicPartition][]core.BatchRange
-	seen  map[core.TopicPartition]bool
+	order []contract.TopicPartition
+	ends  map[contract.TopicPartition]int64
+	runs  map[contract.TopicPartition][]contract.BatchRange
+	seen  map[contract.TopicPartition]bool
 }
 
 func newOffsetPlan() *offsetPlan {
 	return &offsetPlan{
-		ends: map[core.TopicPartition]int64{},
-		runs: map[core.TopicPartition][]core.BatchRange{},
-		seen: map[core.TopicPartition]bool{},
+		ends: map[contract.TopicPartition]int64{},
+		runs: map[contract.TopicPartition][]contract.BatchRange{},
+		seen: map[contract.TopicPartition]bool{},
 	}
 }
 
-func (p *offsetPlan) add(b core.PendingBatch, base int64) core.BatchRange {
+func (p *offsetPlan) add(b contract.PendingBatch, base int64) contract.BatchRange {
 	if !p.seen[b.TopicPartition] {
 		p.order = append(p.order, b.TopicPartition)
 		p.seen[b.TopicPartition] = true
 	}
-	r := core.BatchRange{TopicPartition: b.TopicPartition, Base: core.Offset(base), Count: b.Records, Loc: b.Loc}
+	r := contract.BatchRange{TopicPartition: b.TopicPartition, Base: contract.Offset(base), Count: b.Records, Loc: b.Loc}
 	if end := base + b.Records; end > p.ends[b.TopicPartition] {
 		p.ends[b.TopicPartition] = end
 	}
@@ -281,9 +282,9 @@ func (p *offsetPlan) write(transaction kv.Transaction) {
 // assign hands out offsets: each batch's Base is its partition's end, in
 // request order, the end then growing by Records. It writes the new ends, one
 // packed run per partition and grown topics, and returns the ranges.
-func assign(transaction kv.Transaction, bs []core.PendingBatch) []core.BatchRange {
+func assign(transaction kv.Transaction, bs []contract.PendingBatch) []contract.BatchRange {
 	p := newOffsetPlan()
-	out := make([]core.BatchRange, 0, len(bs))
+	out := make([]contract.BatchRange, 0, len(bs))
 	for _, b := range bs {
 		base := p.ends[b.TopicPartition]
 		if !p.seen[b.TopicPartition] {
@@ -296,9 +297,9 @@ func assign(transaction kv.Transaction, bs []core.PendingBatch) []core.BatchRang
 }
 
 // assignAt is assign with writer-chosen bases (BugWriterOffsets).
-func assignAt(transaction kv.Transaction, bs []core.PendingBatch, bases []core.Offset) []core.BatchRange {
+func assignAt(transaction kv.Transaction, bs []contract.PendingBatch, bases []contract.Offset) []contract.BatchRange {
 	p := newOffsetPlan()
-	out := make([]core.BatchRange, 0, len(bs))
+	out := make([]contract.BatchRange, 0, len(bs))
 	for i, b := range bs {
 		out = append(out, p.add(b, int64(bases[i])))
 	}
@@ -306,7 +307,7 @@ func assignAt(transaction kv.Transaction, bs []core.PendingBatch, bases []core.O
 	return out
 }
 
-func writeAssign(transaction kv.Transaction, order []core.TopicPartition, ends map[core.TopicPartition]int64, runs map[core.TopicPartition][]core.BatchRange) {
+func writeAssign(transaction kv.Transaction, order []contract.TopicPartition, ends map[contract.TopicPartition]int64, runs map[contract.TopicPartition][]contract.BatchRange) {
 	topics := map[string]int32{}
 	for _, topicPartition := range order {
 		transaction.Set(endKey(topicPartition), writeVarint(ends[topicPartition]))
@@ -329,8 +330,8 @@ func addPartitions(transaction kv.Transaction, seen map[string]int32, topic stri
 	seen[topic] = cur
 }
 
-func lookupTransaction(transaction kv.Transaction, operation core.FindSegments) core.ControlPlaneDone {
-	response := core.FindSegmentsResp{End: core.Offset(readVarint(transaction.Get(endKey(operation.TopicPartition))))}
+func lookupTransaction(transaction kv.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
+	response := contract.FindSegmentsResp{End: contract.Offset(readVarint(transaction.Get(endKey(operation.TopicPartition))))}
 	lo := batchRunKey(operation.TopicPartition, 0)
 	hi := kv.PrefixEnd(topicPartitionPrefix(prefixRun, operation.TopicPartition))
 	if k, _ := transaction.Floor(lo, append(batchRunKey(operation.TopicPartition, int64(operation.From)), 0)); k != nil {
@@ -345,7 +346,7 @@ func lookupTransaction(transaction kv.Transaction, operation core.FindSegments) 
 			return false
 		}
 		for _, r := range rs {
-			if r.Base+core.Offset(r.Count) <= operation.From {
+			if r.Base+contract.Offset(r.Count) <= operation.From {
 				continue
 			}
 			response.Ranges = append(response.Ranges, r)
@@ -359,18 +360,18 @@ func lookupTransaction(transaction kv.Transaction, operation core.FindSegments) 
 	if bad != nil {
 		panic(fmt.Errorf("topics: %v: %w", operation.TopicPartition, bad))
 	}
-	return core.ControlPlaneDone{Resp: response}
+	return runtime.ControlPlaneDone{Resp: response}
 }
 
-func describeTransaction(transaction kv.Transaction, operation core.DescribeTopics) core.ControlPlaneDone {
-	var response core.DescribeTopicsResp
+func describeTransaction(transaction kv.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
+	var response contract.DescribeTopicsResp
 	lo := []byte{prefixTopic}
 	transaction.Ascend(lo, kv.PrefixEnd(lo), func(k, v []byte) bool {
 		name := string(bytes.Clone(k[1:]))
 		if len(operation.Topics) == 0 || slices.Contains(operation.Topics, name) {
-			response.Topics = append(response.Topics, core.TopicInfo{Name: name, Partitions: int32(readVarint(v))})
+			response.Topics = append(response.Topics, contract.TopicInfo{Name: name, Partitions: int32(readVarint(v))})
 		}
 		return true
 	})
-	return core.ControlPlaneDone{Resp: response}
+	return runtime.ControlPlaneDone{Resp: response}
 }

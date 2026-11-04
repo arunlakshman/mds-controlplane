@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/realclock"
 )
 
@@ -23,13 +23,13 @@ func TestMonoGoesForwardAndWallIsNow(t *testing.T) {
 func TestAfterFuncFiresAndStops(t *testing.T) {
 	c := realclock.New()
 	fired := make(chan struct{})
-	c.AfterFunc(core.Duration(1), func() { close(fired) })
+	c.AfterFunc(runtime.Duration(1), func() { close(fired) })
 	select {
 	case <-fired:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timer did not fire")
 	}
-	never := c.AfterFunc(core.Duration(time.Hour), func() { t.Error("a stopped timer fired") })
+	never := c.AfterFunc(runtime.Duration(time.Hour), func() { t.Error("a stopped timer fired") })
 	if !never.Stop() {
 		t.Fatal("Stop of a pending timer must report true")
 	}

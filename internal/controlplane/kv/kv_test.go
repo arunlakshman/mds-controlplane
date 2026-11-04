@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
 )
 
 func TestPrefixEnd(t *testing.T) {
@@ -115,7 +115,7 @@ func TestReader(t *testing.T) {
 }
 
 func TestTopicPartitionKeyRoundTrip(t *testing.T) {
-	want := core.NewTopicPartition("orders", 7)
+	want := contract.NewTopicPartition("orders", 7)
 	got, ok := kv.SplitTopicPartition(kv.AppendTopicPartition(nil, want))
 	if !ok || got != want {
 		t.Fatalf("%+v %v", got, ok)

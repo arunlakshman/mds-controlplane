@@ -3,13 +3,13 @@ package runloop
 import (
 	"sync"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // InboxWriter is the completion target for executors and timer callbacks.
 type InboxWriter interface {
-	DeliverControl(body core.EventData)
-	DeliverData(body core.EventData)
+	DeliverControl(body runtime.EventData)
+	DeliverData(body runtime.EventData)
 	Closed() <-chan struct{}
 }
 
@@ -17,8 +17,8 @@ type InboxWriter interface {
 // dataCap. Both drop after Close.
 type Inbox struct {
 	mu      sync.Mutex
-	control []core.EventData
-	data    []core.EventData
+	control []runtime.EventData
+	data    []runtime.EventData
 	slots   chan struct{}
 	wake    chan struct{}
 	done    chan struct{}
@@ -56,7 +56,7 @@ func (i *Inbox) notify() {
 }
 
 // DeliverControl enqueues a control event; control events are never dropped.
-func (i *Inbox) DeliverControl(b core.EventData) {
+func (i *Inbox) DeliverControl(b runtime.EventData) {
 	i.mu.Lock()
 	if i.closed() {
 		i.mu.Unlock()
@@ -68,7 +68,7 @@ func (i *Inbox) DeliverControl(b core.EventData) {
 }
 
 // DeliverData enqueues a data event, blocking when the data capacity is full.
-func (i *Inbox) DeliverData(b core.EventData) {
+func (i *Inbox) DeliverData(b runtime.EventData) {
 	if i.closed() {
 		return
 	}
@@ -100,11 +100,11 @@ func (i *Inbox) Close() {
 	})
 }
 
-// Control and Data are the two queues as core.Inbox views for the policy.
-func (i *Inbox) Control() core.Inbox { return controlQueue{i} }
+// Control and Data are the two queues as runtime.Inbox views for the policy.
+func (i *Inbox) Control() runtime.Inbox { return controlQueue{i} }
 
 // Data returns the data queue view of the inbox.
-func (i *Inbox) Data() core.Inbox { return dataQueue{i} }
+func (i *Inbox) Data() runtime.Inbox { return dataQueue{i} }
 
 type controlQueue struct{ i *Inbox }
 
@@ -114,7 +114,7 @@ func (q controlQueue) Len() int {
 	return len(q.i.control)
 }
 
-func (q controlQueue) Pop() (core.EventData, bool) {
+func (q controlQueue) Pop() (runtime.EventData, bool) {
 	q.i.mu.Lock()
 	defer q.i.mu.Unlock()
 	if len(q.i.control) == 0 {
@@ -134,7 +134,7 @@ func (q dataQueue) Len() int {
 	return len(q.i.data)
 }
 
-func (q dataQueue) Pop() (core.EventData, bool) {
+func (q dataQueue) Pop() (runtime.EventData, bool) {
 	q.i.mu.Lock()
 	if len(q.i.data) == 0 {
 		q.i.mu.Unlock()

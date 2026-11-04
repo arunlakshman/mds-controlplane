@@ -10,7 +10,7 @@ package server
 //   - this file: the handler
 //   - client call: controlplaneclient/brokers.go
 //   - broker side: system/production/lease.go sends the heartbeat and turns the
-//     answer into a core.LiveBrokers event
+//     answer into a runtime.LiveBrokers event
 //
 // The set is not logged and not stored. After a restart or a failover it starts
 // empty and fills again within one heartbeat interval.
@@ -19,10 +19,11 @@ import (
 	"context"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // BrokerHeartbeat implements ControlPlane. It renews the caller's lease and
@@ -31,14 +32,14 @@ import (
 func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbeatRequest) (*cpv1.BrokerHeartbeatResponse, error) {
 	b := wireboundary.BrokerHeartbeatToCore(request)
 	if !membership.Valid(b) {
-		return nil, toRPCError(core.ErrInvalid, core.NotApplied)
+		return nil, toRPCError(runtime.ErrInvalid, runtime.NotApplied)
 	}
 	type result struct {
-		live []core.BrokerAddr
+		live []contract.BrokerAddr
 		ok   bool
 	}
 	ch := make(chan result, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []core.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
 		if !m.IsActive() || !m.Ready() {
 			ch <- result{}
 			return nil
@@ -49,11 +50,11 @@ func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbea
 		return nil
 	})
 	if err != nil {
-		return nil, toRPCError(core.ErrIO, core.NotApplied)
+		return nil, toRPCError(runtime.ErrIO, runtime.NotApplied)
 	}
 	r := <-ch
 	if !r.ok {
-		return nil, toRPCError(core.ErrUnavailable, core.NotApplied)
+		return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 	}
 	return wireboundary.BrokerHeartbeatRespFromCore(r.live), nil
 }

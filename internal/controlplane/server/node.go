@@ -18,20 +18,20 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/realclock"
 )
 
 // Config wires a Node.
 type Config struct {
 	Machine replica.Config
-	Self    core.NodeInstance
-	Env     core.Environment
-	Clock   core.Clock
+	Self    runtime.NodeInstance
+	Env     runtime.Environment
+	Clock   runtime.Clock
 	Log     executor.Log
 	Objects executor.ObjectStore
 	// StopGrace is how long the machine gets after Shutdown to ShutdownDone.
-	StopGrace core.Duration
+	StopGrace runtime.Duration
 	// BrokerLeaseTTL is how long a broker stays live after its last heartbeat
 	// (default 5s). Brokers send one every interval, so keep it 3x the interval.
 	BrokerLeaseTTL time.Duration
@@ -53,8 +53,8 @@ type Node struct {
 	groups *groups.Coordinator // serves group calls while this node is active
 
 	mu        sync.Mutex
-	waiters   map[core.RequestID]chan core.ControlPlaneDone
-	nextReq   core.RequestID
+	waiters   map[runtime.RequestID]chan runtime.ControlPlaneDone
+	nextReq   runtime.RequestID
 	shutdown  chan struct{}
 	loopDone  chan error
 	cancel    context.CancelFunc
@@ -70,7 +70,7 @@ type Node struct {
 // New builds a Node. Call Start then serve gRPC with Register.
 func New(config Config) *Node {
 	if config.Self.Node == "" {
-		config.Self = core.NodeInstance{Node: "cp"}
+		config.Self = runtime.NodeInstance{Node: "cp"}
 	}
 	if config.Clock == nil {
 		config.Clock = realclock.New()
@@ -82,7 +82,7 @@ func New(config Config) *Node {
 		config.Log = executor.NewMemoryLog()
 	}
 	if config.StopGrace <= 0 {
-		config.StopGrace = core.Duration(15e9) // 15s
+		config.StopGrace = runtime.Duration(15e9) // 15s
 	}
 	if config.BrokerLeaseTTL <= 0 {
 		config.BrokerLeaseTTL = membership.DefaultTTL
@@ -93,7 +93,7 @@ func New(config Config) *Node {
 		inject:   make(chan runloop.InjectFunc, 64),
 		health:   health.NewServer(),
 		leases:   membership.New(config.BrokerLeaseTTL),
-		waiters:  map[core.RequestID]chan core.ControlPlaneDone{},
+		waiters:  map[runtime.RequestID]chan runtime.ControlPlaneDone{},
 		shutdown: make(chan struct{}),
 		loopDone: make(chan error, 1),
 	}
@@ -116,7 +116,7 @@ func (n *Node) Start(ctx context.Context) error {
 	b := runloop.Dependencies{
 		Clock: n.config.Clock, Env: n.config.Env, Inbox: n.inbox,
 		Shutdown: n.shutdown, StopGrace: n.config.StopGrace, Inject: n.inject,
-		AfterStep: func(cm core.Machine) {
+		AfterStep: func(cm runtime.Machine) {
 			if m, ok := cm.(*replica.Replica); ok {
 				n.flushAnswers(m)
 				n.epoch.Store(m.Epoch())
@@ -127,7 +127,7 @@ func (n *Node) Start(ctx context.Context) error {
 	f := replica.New(n.config.Machine)
 	go n.watchGroups(runCtx)
 	go func() {
-		err := runloop.Run(runCtx, b, ex, func(env core.Environment, self core.NodeInstance) core.Machine {
+		err := runloop.Run(runCtx, b, ex, func(env runtime.Environment, self runtime.NodeInstance) runtime.Machine {
 			m := f(env, self).(*replica.Replica)
 			n.m.Store(m)
 			return m
@@ -157,12 +157,12 @@ func (n *Node) waitReady(ctx context.Context, cancel context.CancelFunc) error {
 		return loopErr
 	}
 	timedOut := make(chan struct{})
-	deadline := n.config.Clock.AfterFunc(core.Duration(2*time.Minute), func() { close(timedOut) })
+	deadline := n.config.Clock.AfterFunc(runtime.Duration(2*time.Minute), func() { close(timedOut) })
 	defer deadline.Stop()
 	for {
 		done := make(chan struct{})
 		var ready bool
-		n.inject <- func() []core.Action {
+		n.inject <- func() []runtime.Action {
 			defer close(done)
 			m := n.m.Load()
 			ready = m != nil && m.Ready()
@@ -204,18 +204,18 @@ func (n *Node) Close() error {
 	return n.closeErr
 }
 
-func (n *Node) allocReq() core.RequestID {
+func (n *Node) allocReq() runtime.RequestID {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.nextReq++
 	return n.nextReq
 }
 
-func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []core.Action) error {
+func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []runtime.Action) error {
 	done := make(chan struct{})
 	var runErr error
 	select {
-	case n.inject <- func() []core.Action {
+	case n.inject <- func() []runtime.Action {
 		defer close(done)
 		m := n.m.Load()
 		if m == nil {
@@ -249,9 +249,9 @@ func (n *Node) flushAnswers(m *replica.Replica) {
 	}
 }
 
-func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (core.ControlPlaneDone, error) {
+func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (runtime.ControlPlaneDone, error) {
 	request := n.allocReq()
-	ch := make(chan core.ControlPlaneDone, 1)
+	ch := make(chan runtime.ControlPlaneDone, 1)
 	n.mu.Lock()
 	n.waiters[request] = ch
 	n.mu.Unlock()
@@ -261,11 +261,11 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (core.ControlPlane
 		n.mu.Unlock()
 	}()
 
-	err := n.onLoop(ctx, func(m *replica.Replica) []core.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
 		return m.Offer(replica.ClientOperation{Req: request, Cmd: cmd})
 	})
 	if err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
 	// Offer may have answered synchronously (standby / queue full).
 	select {
@@ -278,8 +278,8 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (core.ControlPlane
 		case d := <-ch:
 			return d, nil
 		case <-ctx.Done():
-			return core.ControlPlaneDone{Req: request, Err: core.ErrTimeout, Outcome: core.MaybeApplied}, ctx.Err()
-		case n.inject <- func() []core.Action {
+			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}, ctx.Err()
+		case n.inject <- func() []runtime.Action {
 			m := n.m.Load()
 			if m != nil {
 				n.flushAnswers(m)
@@ -290,15 +290,15 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (core.ControlPlane
 	}
 }
 
-func (n *Node) read(ctx context.Context, fn func(m *replica.Replica) (core.ControlPlaneDone, error)) (core.ControlPlaneDone, error) {
+func (n *Node) read(ctx context.Context, fn func(m *replica.Replica) (runtime.ControlPlaneDone, error)) (runtime.ControlPlaneDone, error) {
 	type result struct {
-		d   core.ControlPlaneDone
+		d   runtime.ControlPlaneDone
 		err error
 	}
 	ch := make(chan result, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []core.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
 		if !m.Ready() {
-			ch <- result{d: core.ControlPlaneDone{Err: core.ErrUnavailable}}
+			ch <- result{d: runtime.ControlPlaneDone{Err: runtime.ErrUnavailable}}
 			return nil
 		}
 		d, e := fn(m)
@@ -306,13 +306,13 @@ func (n *Node) read(ctx context.Context, fn func(m *replica.Replica) (core.Contr
 		return nil
 	})
 	if err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
 	select {
 	case r := <-ch:
 		return r.d, r.err
 	case <-ctx.Done():
-		return core.ControlPlaneDone{Err: core.ErrTimeout, Outcome: core.NotApplied}, ctx.Err()
+		return runtime.ControlPlaneDone{Err: runtime.ErrTimeout, Outcome: runtime.NotApplied}, ctx.Err()
 	}
 }
 

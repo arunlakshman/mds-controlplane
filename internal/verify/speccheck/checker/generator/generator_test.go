@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
@@ -106,39 +107,39 @@ func objectCoverage(p InputProfile) map[string]int {
 }
 
 // classifyObject runs op on the spec and names the cases that it reached.
-func classifyObject(spec *speccheck.ObjectStore, operation core.IOCall) []string {
+func classifyObject(spec *speccheck.ObjectStore, operation runtime.IOCall) []string {
 	done := spec.Exec(operation)
 	switch operation := operation.(type) {
-	case core.ObjectPut:
-		if done.(core.ObjectPutDone).Err == core.ErrInvalid {
+	case runtime.ObjectPut:
+		if done.(runtime.ObjectPutDone).Err == runtime.ErrInvalid {
 			return []string{"put empty key"}
 		}
 		if len(operation.Data) == 0 {
 			return []string{"put accepted", "put empty data"}
 		}
 		return []string{"put accepted"}
-	case core.ObjectGet:
-		return classifyGet(operation, done.(core.ObjectGetDone))
-	case core.ObjectDelete:
-		if done.(core.ObjectDeleteDone).Err == core.ErrNotFound {
+	case runtime.ObjectGet:
+		return classifyGet(operation, done.(runtime.ObjectGetDone))
+	case runtime.ObjectDelete:
+		if done.(runtime.ObjectDeleteDone).Err == runtime.ErrNotFound {
 			return []string{"delete missing key"}
 		}
 		return []string{"delete accepted"}
-	case core.ObjectList:
-		return classifyList(operation, done.(core.ObjectListDone))
+	case runtime.ObjectList:
+		return classifyList(operation, done.(runtime.ObjectListDone))
 	}
 	return nil
 }
 
-func classifyGet(operation core.ObjectGet, done core.ObjectGetDone) []string {
+func classifyGet(operation runtime.ObjectGet, done runtime.ObjectGetDone) []string {
 	var out []string
 	if operation.Ref.Key == "" {
 		out = append(out, "get empty key")
 	}
 	switch done.Err {
-	case core.ErrNotFound:
+	case runtime.ErrNotFound:
 		return append(out, "get missing key")
-	case core.ErrInvalid:
+	case runtime.ErrInvalid:
 		return append(out, "get out of range")
 	}
 	out = append(out, "get accepted")
@@ -148,7 +149,7 @@ func classifyGet(operation core.ObjectGet, done core.ObjectGetDone) []string {
 	return out
 }
 
-func classifyList(operation core.ObjectList, done core.ObjectListDone) []string {
+func classifyList(operation runtime.ObjectList, done runtime.ObjectListDone) []string {
 	var out []string
 	switch {
 	case operation.Prefix == "":
@@ -183,28 +184,28 @@ func controlPlaneCoverage(p InputProfile) map[string]int {
 // reached. The committed map holds the segment keys the spec has accepted.
 func classifyControlPlane(spec *speccheck.ControlPlane, committed map[string]bool, operation ControlPlaneTestStep) []string {
 	if operation.CreateTopic != nil {
-		if spec.CreateTopic(operation.CreateTopic.Name, operation.CreateTopic.Partitions) == core.OK {
+		if spec.CreateTopic(operation.CreateTopic.Name, operation.CreateTopic.Partitions) == runtime.OK {
 			return []string{"create topic accepted"}
 		}
 		return []string{"create topic invalid"}
 	}
-	done := spec.Exec(*operation.Call).(core.ControlPlaneDone)
+	done := spec.Exec(*operation.Call).(runtime.ControlPlaneDone)
 	switch o := operation.Call.Op.(type) {
-	case core.CommitSegment:
+	case contract.CommitSegment:
 		return classifyCommit(committed, o, done)
-	case core.FindSegments:
+	case contract.FindSegments:
 		return classifyLookup(spec, o, done)
-	case core.DescribeTopics:
-		return classifyDescribe(o, done.Resp.(core.DescribeTopicsResp))
+	case contract.DescribeTopics:
+		return classifyDescribe(o, done.Resp.(contract.DescribeTopicsResp))
 	}
 	return nil
 }
 
-func classifyCommit(committed map[string]bool, o core.CommitSegment, done core.ControlPlaneDone) []string {
+func classifyCommit(committed map[string]bool, o contract.CommitSegment, done runtime.ControlPlaneDone) []string {
 	switch done.Err {
-	case core.ErrConflict:
+	case runtime.ErrConflict:
 		return []string{"commit conflict"}
-	case core.ErrInvalid:
+	case runtime.ErrInvalid:
 		return []string{invalidCommitCase(o)}
 	}
 	out := []string{"commit fresh accepted"}
@@ -221,7 +222,7 @@ func classifyCommit(committed map[string]bool, o core.CommitSegment, done core.C
 	return out
 }
 
-func invalidCommitCase(o core.CommitSegment) string {
+func invalidCommitCase(o contract.CommitSegment) string {
 	if o.SegmentKey == "" {
 		return "commit invalid: empty key"
 	}
@@ -241,12 +242,12 @@ func invalidCommitCase(o core.CommitSegment) string {
 	return "commit invalid: other"
 }
 
-func classifyLookup(spec *speccheck.ControlPlane, o core.FindSegments, done core.ControlPlaneDone) []string {
-	if done.Err != core.OK {
+func classifyLookup(spec *speccheck.ControlPlane, o contract.FindSegments, done runtime.ControlPlaneDone) []string {
+	if done.Err != runtime.OK {
 		return []string{"lookup From = -1"}
 	}
 	out := []string{"lookup accepted"}
-	response := done.Resp.(core.FindSegmentsResp)
+	response := done.Resp.(contract.FindSegmentsResp)
 	if len(response.Ranges) == 0 {
 		return out
 	}
@@ -254,20 +255,20 @@ func classifyLookup(spec *speccheck.ControlPlane, o core.FindSegments, done core
 	if response.Ranges[0].Base < o.From {
 		out = append(out, "lookup From inside a run")
 	}
-	uncut := spec.Exec(core.ControlPlaneCall{Op: core.FindSegments{TopicPartition: o.TopicPartition, From: o.From}}).(core.ControlPlaneDone).Resp.(core.FindSegmentsResp)
+	uncut := spec.Exec(runtime.ControlPlaneCall{Op: contract.FindSegments{TopicPartition: o.TopicPartition, From: o.From}}).(runtime.ControlPlaneDone).Resp.(contract.FindSegmentsResp)
 	if len(response.Ranges) < len(uncut.Ranges) {
 		out = append(out, "lookup MaxBytes cut")
 	}
 	return out
 }
 
-func classifyDescribe(o core.DescribeTopics, response core.DescribeTopicsResp) []string {
+func classifyDescribe(o contract.DescribeTopics, response contract.DescribeTopicsResp) []string {
 	if len(o.Topics) == 0 {
 		return []string{"describe all topics"}
 	}
 	var out []string
 	for _, name := range o.Topics {
-		known := slices.ContainsFunc(response.Topics, func(t core.TopicInfo) bool { return t.Name == name })
+		known := slices.ContainsFunc(response.Topics, func(t contract.TopicInfo) bool { return t.Name == name })
 		if known {
 			out = append(out, "describe known topic")
 		} else {
@@ -293,9 +294,9 @@ func TestSameSeedGivesSameSequence(t *testing.T) {
 	}
 }
 
-func objectSequence(p InputProfile, seed uint64) []core.IOCall {
+func objectSequence(p InputProfile, seed uint64) []runtime.IOCall {
 	r, gen := checker.NewRand(seed), ObjectOps(p)
-	var out []core.IOCall
+	var out []runtime.IOCall
 	for i := range coverageOps {
 		out = append(out, gen(r, i))
 	}
@@ -314,10 +315,10 @@ func controlPlaneSequence(p InputProfile, seed uint64) []string {
 func TestRequestIDsFollowPosition(t *testing.T) {
 	r, objects, plane := checker.NewRand(3), ObjectOps(Default()), ControlPlaneOps(Default())
 	for i := range 50 {
-		if got := objects(r, i).RequestID(); got != core.RequestID(i+1) {
+		if got := objects(r, i).RequestID(); got != runtime.RequestID(i+1) {
 			t.Fatalf("object operation %d has request id %d, want %d.", i, got, i+1)
 		}
-		if operation := plane(r, i); operation.Call != nil && operation.Call.Req != core.RequestID(i+1) {
+		if operation := plane(r, i); operation.Call != nil && operation.Call.Req != runtime.RequestID(i+1) {
 			t.Fatalf("control-plane operation %d has request id %d, want %d.", i, operation.Call.Req, i+1)
 		}
 	}
@@ -355,7 +356,7 @@ func TestShrinkMakesProgressAndEnds(t *testing.T) {
 // shrinkObjectToEnd always takes the first candidate. The loop ends only if
 // every candidate is simpler, so a candidate equal to its parent hangs the
 // test, and the step limit turns that hang into a failure.
-func shrinkObjectToEnd(t *testing.T, operation core.IOCall) {
+func shrinkObjectToEnd(t *testing.T, operation runtime.IOCall) {
 	t.Helper()
 	for range 1000 {
 		next := MinimizeObjectOp(operation)
@@ -402,13 +403,13 @@ func TestFormatIsAGoExpression(t *testing.T) {
 
 func TestFormatExamples(t *testing.T) {
 	cases := []struct{ got, want string }{
-		{FormatObjectOp(core.ObjectPut{Req: 1, Key: "a", Data: []byte("hi")}), `core.ObjectPut{Req: 1, Key: "a", Data: []byte("hi")}`},
-		{FormatObjectOp(core.ObjectPut{Req: 2, Key: "", Data: []byte{}}), `core.ObjectPut{Req: 2, Key: "", Data: []byte{}}`},
-		{FormatObjectOp(core.ObjectList{Req: 3, Prefix: "a/"}), `core.ObjectList{Req: 3, Prefix: "a/"}`},
+		{FormatObjectOp(runtime.ObjectPut{Req: 1, Key: "a", Data: []byte("hi")}), `runtime.ObjectPut{Req: 1, Key: "a", Data: []byte("hi")}`},
+		{FormatObjectOp(runtime.ObjectPut{Req: 2, Key: "", Data: []byte{}}), `runtime.ObjectPut{Req: 2, Key: "", Data: []byte{}}`},
+		{FormatObjectOp(runtime.ObjectList{Req: 3, Prefix: "a/"}), `runtime.ObjectList{Req: 3, Prefix: "a/"}`},
 		{FormatControlPlaneOp(NewCreateTopic("t1", 2)), `generator.NewCreateTopic("t1", 2)`},
 		{
-			FormatControlPlaneOp(NewCall(core.ControlPlaneCall{Req: 4, Op: core.FindSegments{TopicPartition: core.NewTopicPartition("t1", 1), From: -1, MaxBytes: 60}})),
-			`generator.NewCall(core.ControlPlaneCall{Req: 4, Op: core.FindSegments{TopicPartition: core.NewTopicPartition("t1", 1), From: -1, MaxBytes: 60}})`,
+			FormatControlPlaneOp(NewCall(runtime.ControlPlaneCall{Req: 4, Op: contract.FindSegments{TopicPartition: contract.NewTopicPartition("t1", 1), From: -1, MaxBytes: 60}})),
+			`generator.NewCall(runtime.ControlPlaneCall{Req: 4, Op: contract.FindSegments{TopicPartition: contract.NewTopicPartition("t1", 1), From: -1, MaxBytes: 60}})`,
 		},
 	}
 	for _, c := range cases {
@@ -419,7 +420,7 @@ func TestFormatExamples(t *testing.T) {
 }
 
 func TestDescribeNamesTheOperation(t *testing.T) {
-	operation := NewCall(core.ControlPlaneCall{Req: 5, Op: core.CommitSegment{SegmentKey: "s", Batches: make([]core.PendingBatch, 2)}})
+	operation := NewCall(runtime.ControlPlaneCall{Req: 5, Op: contract.CommitSegment{SegmentKey: "s", Batches: make([]contract.PendingBatch, 2)}})
 	if got, want := operation.Describe(), `request 5: commit segment "s" with 2 batches`; got != want {
 		t.Errorf("Describe gave %q, want %q.", got, want)
 	}

@@ -3,18 +3,19 @@ package replica
 import (
 	"bytes"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 const (
-	timerCatchUp = core.TimerID(1)
+	timerCatchUp = runtime.TimerID(1)
 )
 
 // Replica is the control-plane DSM. Build it with New.
 type Replica struct {
-	env    core.Environment
-	self   core.NodeInstance
+	env    runtime.Environment
+	self   runtime.NodeInstance
 	config Config
 
 	openErr error // the first store could not open; NodeStarted stops the machine
@@ -28,50 +29,50 @@ type Replica struct {
 
 	meta *metadata.Store
 
-	now           core.NodeTime
-	timerGen      core.TimerVersion
-	roleGen       core.TimerVersion
-	checkpointGen core.TimerVersion
-	nextReq       core.RequestID
+	now           runtime.NodeTime
+	timerGen      runtime.TimerVersion
+	roleGen       runtime.TimerVersion
+	checkpointGen runtime.TimerVersion
+	nextReq       runtime.RequestID
 	seq           uint64
-	applied       core.LogPosition // next slot to apply
-	goalTail      core.LogPosition // CheckTail answer for the current round
-	high          core.LogPosition // next slot to allocate for commit appends
-	buf           map[core.LogPosition][]byte
-	pending       core.RequestID
-	epoch         uint64         // writer epoch this node holds; zero when it is not the writer
-	claimReq      core.RequestID // in-flight LogClaimEpoch; 0 means none
-	claimExpect   uint64         // epoch that claim expected to find
-	fencedFlag    bool           // a newer epoch was seen while applying; step down after the drain
-	stepDowns     uint64         // times this node stopped being the writer because of a newer epoch
-	tailChecked   bool           // a tail check finished since the last restore
-	maxEpochSeen  uint64         // highest writer epoch seen in applied log entries
-	restoreKey    string         // checkpoint object being read
+	applied       runtime.LogPosition // next slot to apply
+	goalTail      runtime.LogPosition // CheckTail answer for the current round
+	high          runtime.LogPosition // next slot to allocate for commit appends
+	buf           map[runtime.LogPosition][]byte
+	pending       runtime.RequestID
+	epoch         uint64            // writer epoch this node holds; zero when it is not the writer
+	claimReq      runtime.RequestID // in-flight LogClaimEpoch; 0 means none
+	claimExpect   uint64            // epoch that claim expected to find
+	fencedFlag    bool              // a newer epoch was seen while applying; step down after the drain
+	stepDowns     uint64            // times this node stopped being the writer because of a newer epoch
+	tailChecked   bool              // a tail check finished since the last restore
+	maxEpochSeen  uint64            // highest writer epoch seen in applied log entries
+	restoreKey    string            // checkpoint object being read
 	pendingKind   pendingKind
 
-	lastPullOK  core.NodeTime
-	lastOtherAt core.NodeTime
-	lastOwnAt   core.NodeTime
+	lastPullOK  runtime.NodeTime
+	lastOtherAt runtime.NodeTime
+	lastOwnAt   runtime.NodeTime
 
-	checkpointSlot    core.LogPosition // newest checkpoint slot (written or restored)
-	checkpointAt      core.NodeTime
-	checkpointPending core.LogPosition // slot of in-flight ObjectPut snapshot
+	checkpointSlot    runtime.LogPosition // newest checkpoint slot (written or restored)
+	checkpointAt      runtime.NodeTime
+	checkpointPending runtime.LogPosition // slot of in-flight ObjectPut snapshot
 	checkpointData    []byte
 	// The checkpoint lane: the snapshot upload, then the log trim, one request at
 	// a time, on its own request id. It never uses pending, so a slow upload
 	// cannot block catch-up and catch-up cannot block the checkpoint.
-	checkpointRequest core.RequestID // in-flight request of the lane; 0 means idle
+	checkpointRequest runtime.RequestID // in-flight request of the lane; 0 means idle
 	checkpointStage   checkpointStage
-	trimThrough       core.LogPosition // Through of the in-flight trim
+	trimThrough       runtime.LogPosition // Through of the in-flight trim
 
-	queue           []waitingCommand                   // client ops waiting for a commit slot
-	inFlightAppends map[core.RequestID]*inFlightAppend // in-flight commit LogAppends (at most one)
+	queue           []waitingCommand                      // client ops waiting for a commit slot
+	inFlightAppends map[runtime.RequestID]*inFlightAppend // in-flight commit LogAppends (at most one)
 	waiters         map[string][]waitingCommand
 	answers         []ReplyToClient
-	proj            map[core.TopicPartition]core.Offset // InjectedBugWriterOffsets projection
-	trimFloor       core.LogPosition                    // slots below are trimmed
-	stallUntil      core.NodeTime
-	downUntil       core.NodeTime
+	proj            map[contract.TopicPartition]contract.Offset // InjectedBugWriterOffsets projection
+	trimFloor       runtime.LogPosition                         // slots below are trimmed
+	stallUntil      runtime.NodeTime
+	downUntil       runtime.NodeTime
 	crashed         bool
 	needsCheckpoint bool // fell behind a trim; must restore before catch-up from zero
 	checkpointRetry bool // the last checkpoint read failed; read again before catch-up
@@ -105,12 +106,12 @@ const (
 	stageTrim
 )
 
-// New returns the core.MachineFactory of the control-plane machine. A factory
+// New returns the runtime.MachineFactory of the control-plane machine. A factory
 // cannot return an error, so a store that cannot open (Config.OpenStore) is
 // remembered and the machine stops with StopForRestart on NodeStarted: the
 // process cannot serve without its state.
-func New(config Config) core.MachineFactory {
-	return func(env core.Environment, self core.NodeInstance) core.Machine {
+func New(config Config) runtime.MachineFactory {
+	return func(env runtime.Environment, self runtime.NodeInstance) runtime.Machine {
 		meta, err := config.openMetadata()
 		if err != nil {
 			meta = metadata.NewMem() // placeholder; NodeStarted stops the machine
@@ -118,26 +119,26 @@ func New(config Config) core.MachineFactory {
 		return &Replica{
 			env: env, self: self, config: config, openErr: err,
 			meta:            meta,
-			buf:             map[core.LogPosition][]byte{},
-			inFlightAppends: map[core.RequestID]*inFlightAppend{},
+			buf:             map[runtime.LogPosition][]byte{},
+			inFlightAppends: map[runtime.RequestID]*inFlightAppend{},
 			waiters:         map[string][]waitingCommand{},
 		}
 	}
 }
 
-var _ core.Machine = (*Replica)(nil)
+var _ runtime.Machine = (*Replica)(nil)
 
 // Metadata is the metadata store after the applied prefix. Tests compare its
 // digest to an independent oracle.
 func (m *Replica) Metadata() *metadata.Store { return m.meta }
 
 // Applied is the next slot to apply (slots below are folded).
-func (m *Replica) Applied() core.LogPosition { return m.applied }
+func (m *Replica) Applied() runtime.LogPosition { return m.applied }
 
 // SeedTopic pre-creates a topic on the fold before NodeStarted (sim campaign setup).
-func (m *Replica) SeedTopic(name string, partitions int32) core.ErrCode {
+func (m *Replica) SeedTopic(name string, partitions int32) runtime.ErrCode {
 	err := m.meta.CreateTopic(name, partitions)
-	if err == core.OK {
+	if err == runtime.OK {
 		m.seeds = append(m.seeds, topicSeed{name: name, parts: partitions})
 	}
 	return err
@@ -149,38 +150,38 @@ func (m *Replica) reseedTopics() {
 	}
 }
 
-// Step implements core.StateMachine. Unknown completions and unhandled bodies
+// Step implements runtime.StateMachine. Unknown completions and unhandled bodies
 // leave state unchanged. After ShutdownDone, every event is a no-op.
-func (m *Replica) Step(event core.Event) []core.Action {
+func (m *Replica) Step(event runtime.Event) []runtime.Action {
 	if m.exited {
 		return nil
 	}
 	m.now = event.At
-	var acts []core.Action
+	var acts []runtime.Action
 	switch body := event.Body.(type) {
-	case core.NodeStarted:
+	case runtime.NodeStarted:
 		acts = m.onStarted()
-	case core.StopRequest:
+	case runtime.StopRequest:
 		acts = m.stop()
-	case core.TimerFired:
+	case runtime.TimerFired:
 		acts = m.onTimer(body)
-	case core.LogGetEndDone:
+	case runtime.LogGetEndDone:
 		acts = m.onCheckTailDone(body)
-	case core.LogReadDone:
+	case runtime.LogReadDone:
 		acts = m.onReadDone(body)
-	case core.LogAppendDone:
+	case runtime.LogAppendDone:
 		acts = m.onAppendDone(body)
-	case core.LogClaimEpochDone:
+	case runtime.LogClaimEpochDone:
 		acts = m.onClaimDone(body)
-	case core.ObjectListDone:
+	case runtime.ObjectListDone:
 		acts = m.onObjListDone(body)
-	case core.ObjectGetDone:
+	case runtime.ObjectGetDone:
 		acts = m.onObjGetDone(body)
-	case core.ObjectPutDone:
+	case runtime.ObjectPutDone:
 		acts = m.onObjPutDone(body)
-	case core.LogDeleteOldDone:
+	case runtime.LogDeleteOldDone:
 		acts = m.onTrimDone(body)
-	case core.ControlPlaneDeliver:
+	case runtime.ControlPlaneDeliver:
 		return m.onControlPlaneDeliver(body) // already withReplies
 	default:
 		return nil
@@ -189,7 +190,7 @@ func (m *Replica) Step(event core.Event) []core.Action {
 	return m.withReplies(acts)
 }
 
-func (m *Replica) onStarted() []core.Action {
+func (m *Replica) onStarted() []runtime.Action {
 	m.started = true
 	if m.openErr != nil {
 		return m.trip(m.openErr)
@@ -202,7 +203,7 @@ func (m *Replica) onStarted() []core.Action {
 	return m.afterRestore()
 }
 
-func (m *Replica) afterRestore() []core.Action {
+func (m *Replica) afterRestore() []runtime.Action {
 	if m.config.CatchUpEvery > 0 {
 		m.booting = true
 		m.ready = false
@@ -211,18 +212,18 @@ func (m *Replica) afterRestore() []core.Action {
 	return m.finishBoot()
 }
 
-func (m *Replica) finishBoot() []core.Action {
+func (m *Replica) finishBoot() []runtime.Action {
 	m.booting = false
 	m.ready = true
 	m.lastOtherAt, m.lastPullOK, m.lastOwnAt = m.now, m.now, m.now
-	var acts []core.Action
+	var acts []runtime.Action
 	acts = append(acts, m.claimNow()...)
 	acts = append(acts, m.armRole()...)
 	acts = append(acts, m.armCheckpoint()...)
 	return acts
 }
 
-func (m *Replica) maybeBecomeReady() []core.Action {
+func (m *Replica) maybeBecomeReady() []runtime.Action {
 	if !m.booting || m.pending != 0 || m.applied < m.goalTail {
 		return nil
 	}
@@ -234,7 +235,7 @@ func (m *Replica) maybeBecomeReady() []core.Action {
 	return m.finishBoot()
 }
 
-func (m *Replica) onTimer(e core.TimerFired) []core.Action {
+func (m *Replica) onTimer(e runtime.TimerFired) []runtime.Action {
 	switch e.ID {
 	case timerCatchUp:
 		if e.Gen != m.timerGen || m.pending != 0 || m.config.CatchUpEvery <= 0 {
@@ -250,12 +251,12 @@ func (m *Replica) onTimer(e core.TimerFired) []core.Action {
 	}
 }
 
-func (m *Replica) onCheckTailDone(d core.LogGetEndDone) []core.Action {
+func (m *Replica) onCheckTailDone(d runtime.LogGetEndDone) []runtime.Action {
 	if d.Req != m.pending || m.pendingKind != pendingTail {
 		return nil
 	}
 	m.pending, m.pendingKind = 0, pendingNone
-	if d.Err != core.OK || d.Outcome != core.Applied {
+	if d.Err != runtime.OK || d.Outcome != runtime.Applied {
 		return m.armCatchUp()
 	}
 	m.notePullOK()
@@ -265,12 +266,12 @@ func (m *Replica) onCheckTailDone(d core.LogGetEndDone) []core.Action {
 	return m.progress()
 }
 
-func (m *Replica) onReadDone(d core.LogReadDone) []core.Action {
+func (m *Replica) onReadDone(d runtime.LogReadDone) []runtime.Action {
 	if d.Req != m.pending || m.pendingKind != pendingRead {
 		return nil
 	}
 	m.pending, m.pendingKind = 0, pendingNone
-	if d.Err != core.OK || d.Outcome != core.Applied {
+	if d.Err != runtime.OK || d.Outcome != runtime.Applied {
 		return m.armCatchUp()
 	}
 	m.notePullOK()
@@ -291,7 +292,7 @@ func (m *Replica) onReadDone(d core.LogReadDone) []core.Action {
 	if err := m.drain(); err != nil {
 		return m.trip(err)
 	}
-	var acts []core.Action
+	var acts []runtime.Action
 	if m.fencedFlag {
 		acts = m.stepDown()
 	}
@@ -299,7 +300,7 @@ func (m *Replica) onReadDone(d core.LogReadDone) []core.Action {
 	return append(acts, m.flushCommits()...)
 }
 
-func (m *Replica) onAppendDone(d core.LogAppendDone) []core.Action {
+func (m *Replica) onAppendDone(d runtime.LogAppendDone) []runtime.Action {
 	if f, ok := m.inFlightAppends[d.Req]; ok {
 		return m.onCommitAppendDone(d, f)
 	}
@@ -320,7 +321,7 @@ func (m *Replica) drain() error {
 	}
 }
 
-func (m *Replica) progress() []core.Action {
+func (m *Replica) progress() []runtime.Action {
 	if m.pending != 0 {
 		return nil
 	}
@@ -328,7 +329,7 @@ func (m *Replica) progress() []core.Action {
 		return m.emitRead()
 	}
 	if acts := m.maybeBecomeReady(); acts != nil {
-		var out []core.Action
+		var out []runtime.Action
 		out = append(out, acts...)
 		out = append(out, m.armCatchUp()...)
 		return out
@@ -346,50 +347,50 @@ func (m *Replica) nextSlotMissing() bool {
 	return !ok
 }
 
-func (m *Replica) emitCheckTail() []core.Action {
+func (m *Replica) emitCheckTail() []runtime.Action {
 	m.nextReq++
 	m.pending = m.nextReq
 	m.pendingKind = pendingTail
 	m.tailsStarted++
 	m.tailRound = m.tailsStarted
-	return []core.Action{core.LogGetEnd{Req: m.pending}}
+	return []runtime.Action{runtime.LogGetEnd{Req: m.pending}}
 }
 
-func (m *Replica) emitRead() []core.Action {
+func (m *Replica) emitRead() []runtime.Action {
 	m.nextReq++
 	m.pending = m.nextReq
 	m.pendingKind = pendingRead
-	return []core.Action{core.LogRead{Req: m.pending, From: m.applied, Limit: m.config.readLimit()}}
+	return []runtime.Action{runtime.LogRead{Req: m.pending, From: m.applied, Limit: m.config.readLimit()}}
 }
 
-func (m *Replica) armCatchUp() []core.Action {
+func (m *Replica) armCatchUp() []runtime.Action {
 	if m.config.CatchUpEvery <= 0 {
 		return nil
 	}
 	m.timerGen++
-	return []core.Action{core.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
+	return []runtime.Action{runtime.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
 }
 
-func (m *Replica) trip(err error) []core.Action {
+func (m *Replica) trip(err error) []runtime.Action {
 	m.exited = true
-	return []core.Action{core.StopForRestart{Cause: err.Error()}}
+	return []runtime.Action{runtime.StopForRestart{Cause: err.Error()}}
 }
 
 // stop marks the machine shutting down and emits ShutdownDone. With no in-flight work
 // yet that must drain, ShutdownDone is immediate (decision 8).
-func (m *Replica) stop() []core.Action {
+func (m *Replica) stop() []runtime.Action {
 	if m.stopping {
 		return nil
 	}
 	m.stopping = true
 	m.exited = true
-	return []core.Action{core.ShutdownDone{}}
+	return []runtime.Action{runtime.ShutdownDone{}}
 }
 
 // StateHash folds every field that influences behaviour, including the applied
 // metadata store digest (comparable across machines that folded the same prefix).
 func (m *Replica) StateHash() uint64 {
-	h := core.NewHasher()
+	h := runtime.NewHasher()
 	h.Bool(m.started)
 	h.Bool(m.stopping)
 	h.Bool(m.exited)

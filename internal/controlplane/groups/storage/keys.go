@@ -28,8 +28,8 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
 )
 
 const (
@@ -58,6 +58,6 @@ func memberKey(group, member string) []byte {
 }
 
 // offsetKey is the O key of one committed partition of a group.
-func offsetKey(group string, topicPartition core.TopicPartition) []byte {
+func offsetKey(group string, topicPartition contract.TopicPartition) []byte {
 	return kv.AppendTopicPartition(groupPrefix(prefixOffset, group), topicPartition)
 }

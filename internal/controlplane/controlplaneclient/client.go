@@ -16,16 +16,17 @@ import (
 	"google.golang.org/grpc/status"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 )
 
 // Error is a business error answered by the control plane (non-OK status with
 // ErrorDetail).
 type Error struct {
-	Code    core.ErrCode
-	Outcome core.Outcome
+	Code    runtime.ErrCode
+	Outcome runtime.Outcome
 }
 
 func (e *Error) Error() string { return "cp: " + e.Code.String() }
@@ -92,25 +93,25 @@ func (c *Client) Close() error {
 }
 
 // Call performs op. A business error is *Error; other failures are *CallError.
-func (c *Client) Call(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneResponse, error) {
+func (c *Client) Call(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	switch operation.(type) {
-	case core.CommitSegment, core.FindSegments, core.DescribeTopics, core.CreateTopic:
+	case contract.CommitSegment, contract.FindSegments, contract.DescribeTopics, contract.CreateTopic:
 		return c.callTopic(ctx, operation)
-	case core.GroupJoin, core.GroupSync, core.GroupHeartbeat, core.GroupLeave, core.OffsetCommit,
-		core.OffsetFetch, core.DescribeGroups, core.ListGroups:
+	case contract.GroupJoin, contract.GroupSync, contract.GroupHeartbeat, contract.GroupLeave, contract.OffsetCommit,
+		contract.OffsetFetch, contract.DescribeGroups, contract.ListGroups:
 		return c.callGroup(ctx, operation)
 	}
-	return nil, &Error{Code: core.ErrInvalid}
+	return nil, &Error{Code: runtime.ErrInvalid}
 }
 
-// callOp is callRPC for the calls that return a core.ControlPlaneResponse.
+// callOp is callRPC for the calls that return a runtime.ControlPlaneResponse.
 // On error it returns a nil interface, not a typed zero value.
-func callOp[Req, Resp any, Out core.ControlPlaneResponse](ctx context.Context, c *Client, name string,
+func callOp[Req, Resp any, Out runtime.ControlPlaneResponse](ctx context.Context, c *Client, name string,
 	rpc func(cpv1.ControlPlaneClient, context.Context, Req, ...grpc.CallOption) (Resp, error), in Req, toCore func(Resp) Out,
-) (core.ControlPlaneResponse, error) {
+) (runtime.ControlPlaneResponse, error) {
 	r, err := callRPC(ctx, c, name, rpc, in, toCore)
 	if err != nil {
 		return nil, err
@@ -118,7 +119,7 @@ func callOp[Req, Resp any, Out core.ControlPlaneResponse](ctx context.Context, c
 	return r, nil
 }
 
-// callRPC runs one RPC through do and converts the reply to the core type.
+// callRPC runs one RPC through do and converts the reply to the contract type.
 // On error it returns the zero value and the error.
 func callRPC[Req, Resp, Out any](ctx context.Context, c *Client, name string,
 	rpc func(cpv1.ControlPlaneClient, context.Context, Req, ...grpc.CallOption) (Resp, error), in Req, toCore func(Resp) Out,
@@ -172,7 +173,7 @@ func shouldTryOtherNode(ctx context.Context, err error) bool {
 		return !ce.Sent || ce.Code == codes.Unavailable
 	}
 	if be, ok := errors.AsType[*Error](err); ok {
-		return be.Code == core.ErrUnavailable
+		return be.Code == runtime.ErrUnavailable
 	}
 	st, ok := status.FromError(err)
 	return ok && st.Code() == codes.Unavailable
@@ -218,21 +219,21 @@ func convertRPCError(name string, err error) error {
 			}
 		}
 	}
-	code := core.ErrIO
+	code := runtime.ErrIO
 	switch st.Code() {
 	case codes.Unavailable:
-		code = core.ErrUnavailable
+		code = runtime.ErrUnavailable
 	case codes.InvalidArgument:
-		code = core.ErrInvalid
+		code = runtime.ErrInvalid
 	case codes.NotFound:
-		code = core.ErrNotFound
+		code = runtime.ErrNotFound
 	case codes.AlreadyExists:
-		code = core.ErrConflict
+		code = runtime.ErrConflict
 	case codes.DeadlineExceeded, codes.Canceled:
-		code = core.ErrTimeout
+		code = runtime.ErrTimeout
 	}
 	// Prefer typed Error when the status maps cleanly so Classify sees business codes.
-	if code == core.ErrUnavailable || code == core.ErrInvalid || code == core.ErrNotFound || code == core.ErrConflict {
+	if code == runtime.ErrUnavailable || code == runtime.ErrInvalid || code == runtime.ErrNotFound || code == runtime.ErrConflict {
 		return &Error{Code: code}
 	}
 	return &CallError{Op: name, Sent: true, Code: st.Code(), Err: err}

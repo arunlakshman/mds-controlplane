@@ -1,4 +1,4 @@
-// Package core is the deterministic heart of the engine: plain-data Events and
+// Package runtime is the deterministic state-machine runtime: plain-data Events and
 // Actions, the StateMachine contract, and the Environment through which the only
 // permitted nondeterminism (randomness, buggify) and assertion recording enter.
 //
@@ -8,5 +8,8 @@
 //   - never let iteration over a map decide behavior;
 //   - Events and Actions are plain data; byte slices are immutable once sent.
 //
+// The control plane's own request and response types are not here. They are in
+// internal/controlplane/contract, which imports this package, never the reverse.
+//
 // See docs/lessons.md and docs/decisions.md.
-package core
+package runtime

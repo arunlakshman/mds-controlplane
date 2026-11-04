@@ -2,7 +2,7 @@ package checker
 
 import "math/bits"
 
-// Rand is a seeded SplitMix64 stream, the algorithm behind core.Rand in sim.
+// Rand is a seeded SplitMix64 stream, the algorithm behind runtime.Rand in sim.
 type Rand struct{ state uint64 }
 
 // NewRand returns a stream seeded with seed.

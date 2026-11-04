@@ -16,7 +16,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func startNode(t *testing.T, config replica.Config) (cpv1.ControlPlaneClient, healthpb.HealthClient, func()) {
@@ -28,13 +28,13 @@ func startNode(t *testing.T, config replica.Config) (cpv1.ControlPlaneClient, he
 func startNodeWithLease(t *testing.T, config replica.Config, leaseTTL time.Duration) (cpv1.ControlPlaneClient, healthpb.HealthClient, func()) {
 	t.Helper()
 	if config.CatchUpEvery == 0 {
-		config.CatchUpEvery = core.Duration(time.Millisecond)
+		config.CatchUpEvery = runtime.Duration(time.Millisecond)
 	}
 	n := server.New(server.Config{
 		Machine:        config,
 		Log:            executor.NewMemoryLog(),
 		Objects:        executor.NewMemoryObjects(),
-		Self:           core.NodeInstance{Node: "cp-0"},
+		Self:           runtime.NodeInstance{Node: "cp-0"},
 		BrokerLeaseTTL: leaseTTL,
 	})
 	ctx := t.Context()
@@ -61,7 +61,7 @@ func startNodeWithLease(t *testing.T, config replica.Config, leaseTTL time.Durat
 }
 
 func TestHealthServingAfterReady(t *testing.T) {
-	_, hc, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: core.Duration(time.Second)})
+	_, hc, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: runtime.Duration(time.Second)})
 	defer stop()
 	response, err := hc.Check(t.Context(), &healthpb.HealthCheckRequest{})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestHealthServingAfterReady(t *testing.T) {
 }
 
 func TestCommitLookupRoundTrip(t *testing.T) {
-	cli, _, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: core.Duration(time.Second)})
+	cli, _, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: runtime.Duration(time.Second)})
 	defer stop()
 	_, err := cli.CreateTopic(t.Context(), &cpv1.CreateTopicRequest{Topic: "t", Partitions: 2})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestCommitLookupRoundTrip(t *testing.T) {
 
 func TestStandbyCommitUnavailable(t *testing.T) {
 	cli, _, stop := startNode(t, replica.Config{
-		Rank: 1, Heartbeat: core.Duration(time.Second), TakeoverAfter: core.Duration(time.Hour),
+		Rank: 1, Heartbeat: runtime.Duration(time.Second), TakeoverAfter: runtime.Duration(time.Hour),
 	})
 	defer stop()
 	_, err := cli.CommitSegment(t.Context(), &cpv1.CommitSegmentRequest{
@@ -133,10 +133,10 @@ func TestStandbyCommitUnavailable(t *testing.T) {
 
 func TestStartCanceledContext(t *testing.T) {
 	n := server.New(server.Config{
-		Machine: replica.Config{CatchUpEvery: core.Duration(time.Hour)},
+		Machine: replica.Config{CatchUpEvery: runtime.Duration(time.Hour)},
 		Log:     executor.NewMemoryLog(),
 		Objects: executor.NewMemoryObjects(),
-		Self:    core.NodeInstance{Node: "cp-0"},
+		Self:    runtime.NodeInstance{Node: "cp-0"},
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -148,10 +148,10 @@ func TestStartCanceledContext(t *testing.T) {
 
 func TestStartCancelWhileWaiting(t *testing.T) {
 	n := server.New(server.Config{
-		Machine: replica.Config{CatchUpEvery: core.Duration(time.Hour)},
+		Machine: replica.Config{CatchUpEvery: runtime.Duration(time.Hour)},
 		Log:     executor.NewMemoryLog(),
 		Objects: executor.NewMemoryObjects(),
-		Self:    core.NodeInstance{Node: "cp-0"},
+		Self:    runtime.NodeInstance{Node: "cp-0"},
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
@@ -167,7 +167,7 @@ func TestStartCancelWhileWaiting(t *testing.T) {
 // TestExclusiveCreateTopicOverGRPC: a create with fail_if_exists on a topic
 // that exists is AlreadyExists with ERR_CODE_TOPIC_EXISTS, and it changes nothing.
 func TestExclusiveCreateTopicOverGRPC(t *testing.T) {
-	cli, _, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: core.Duration(time.Second)})
+	cli, _, stop := startNode(t, replica.Config{Rank: 0, Heartbeat: runtime.Duration(time.Second)})
 	defer stop()
 	ctx := t.Context()
 	if _, err := cli.CreateTopic(ctx, &cpv1.CreateTopicRequest{Topic: "x", Partitions: 2, FailIfExists: true}); err != nil {

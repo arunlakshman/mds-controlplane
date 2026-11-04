@@ -5,14 +5,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // ObjectStore is the checkpoint object store (S3 in prod). Defined here so
 // controlplane packages do not import github.com/manifesterio/mds-controlplane/internal/system.
 type ObjectStore interface {
 	Put(ctx context.Context, key string, data []byte) error
-	Get(ctx context.Context, ref core.SegmentRef) ([]byte, error)
+	Get(ctx context.Context, ref runtime.SegmentRef) ([]byte, error)
 	Delete(ctx context.Context, key string) error
 	List(ctx context.Context, prefix string) ([]string, error)
 }
@@ -37,7 +37,7 @@ func (o *MemoryObjects) Put(_ context.Context, key string, data []byte) error {
 }
 
 // Get implements ObjectStore.
-func (o *MemoryObjects) Get(_ context.Context, ref core.SegmentRef) ([]byte, error) {
+func (o *MemoryObjects) Get(_ context.Context, ref runtime.SegmentRef) ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	b, ok := o.data[ref.Key]

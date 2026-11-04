@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // ObjectStore is the spec of the object store: a map from key to bytes.
@@ -42,23 +42,23 @@ func (s *ObjectStore) touch(i int) {
 }
 
 // Exec runs one action and returns its completion.
-func (s *ObjectStore) Exec(a core.IOCall) core.IOResult {
+func (s *ObjectStore) Exec(a runtime.IOCall) runtime.IOResult {
 	switch a := a.(type) {
-	case core.ObjectPut:
+	case runtime.ObjectPut:
 		return s.execPut(a)
-	case core.ObjectGet:
+	case runtime.ObjectGet:
 		return s.execGet(a)
-	case core.ObjectDelete:
+	case runtime.ObjectDelete:
 		return s.execDelete(a)
-	case core.ObjectList:
+	case runtime.ObjectList:
 		return s.execList(a)
 	}
 	panic("speccheck.ObjectStore: not an object store action")
 }
 
-func (s *ObjectStore) execPut(a core.ObjectPut) core.IOResult {
+func (s *ObjectStore) execPut(a runtime.ObjectPut) runtime.IOResult {
 	if a.Key == "" {
-		return core.ObjectPutDone{Req: a.Req, Key: a.Key, Err: core.ErrInvalid}
+		return runtime.ObjectPutDone{Req: a.Req, Key: a.Key, Err: runtime.ErrInvalid}
 	}
 	i, found := slices.BinarySearch(s.keys, a.Key)
 	if !found {
@@ -66,22 +66,22 @@ func (s *ObjectStore) execPut(a core.ObjectPut) core.IOResult {
 	}
 	s.touch(i)
 	s.objs[a.Key] = clone(a.Data)
-	return core.ObjectPutDone{Req: a.Req, Key: a.Key, Outcome: core.Applied}
+	return runtime.ObjectPutDone{Req: a.Req, Key: a.Key, Outcome: runtime.Applied}
 }
 
-func (s *ObjectStore) execGet(a core.ObjectGet) core.IOResult {
+func (s *ObjectStore) execGet(a runtime.ObjectGet) runtime.IOResult {
 	data, ok := s.objs[a.Ref.Key]
 	if !ok {
-		return core.ObjectGetDone{Req: a.Req, Err: core.ErrNotFound}
+		return runtime.ObjectGetDone{Req: a.Req, Err: runtime.ErrNotFound}
 	}
 	got, ok := cutRange(data, a.Ref)
 	if !ok {
-		return core.ObjectGetDone{Req: a.Req, Err: core.ErrInvalid}
+		return runtime.ObjectGetDone{Req: a.Req, Err: runtime.ErrInvalid}
 	}
-	return core.ObjectGetDone{Req: a.Req, Data: clone(got)}
+	return runtime.ObjectGetDone{Req: a.Req, Data: clone(got)}
 }
 
-func cutRange(data []byte, ref core.SegmentRef) ([]byte, bool) {
+func cutRange(data []byte, ref runtime.SegmentRef) ([]byte, bool) {
 	end := int64(len(data))
 	if ref.Len > 0 {
 		end = ref.Off + ref.Len
@@ -92,25 +92,25 @@ func cutRange(data []byte, ref core.SegmentRef) ([]byte, bool) {
 	return data[ref.Off:end], true
 }
 
-func (s *ObjectStore) execDelete(a core.ObjectDelete) core.IOResult {
+func (s *ObjectStore) execDelete(a runtime.ObjectDelete) runtime.IOResult {
 	if _, ok := s.objs[a.Key]; !ok {
-		return core.ObjectDeleteDone{Req: a.Req, Err: core.ErrNotFound}
+		return runtime.ObjectDeleteDone{Req: a.Req, Err: runtime.ErrNotFound}
 	}
 	i, _ := slices.BinarySearch(s.keys, a.Key)
 	s.keys = slices.Delete(s.keys, i, i+1)
 	s.touch(i)
 	delete(s.objs, a.Key)
-	return core.ObjectDeleteDone{Req: a.Req, Outcome: core.Applied}
+	return runtime.ObjectDeleteDone{Req: a.Req, Outcome: runtime.Applied}
 }
 
-func (s *ObjectStore) execList(a core.ObjectList) core.IOResult {
+func (s *ObjectStore) execList(a runtime.ObjectList) runtime.IOResult {
 	var keys []string
 	for _, k := range s.keys {
 		if strings.HasPrefix(k, a.Prefix) {
 			keys = append(keys, k)
 		}
 	}
-	return core.ObjectListDone{Req: a.Req, Keys: keys}
+	return runtime.ObjectListDone{Req: a.Req, Keys: keys}
 }
 
 // Keys returns every key, sorted.

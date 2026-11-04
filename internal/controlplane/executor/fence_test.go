@@ -9,20 +9,20 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/logtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/runloop"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestClassifyLogActions(t *testing.T) {
 	cases := []struct {
 		name string
-		a    core.IOCall
+		a    runtime.IOCall
 		err  error
-		code core.ErrCode
-		out  core.Outcome
+		code runtime.ErrCode
+		out  runtime.Outcome
 	}{
-		{"claim timeout", core.LogClaimEpoch{}, context.DeadlineExceeded, core.ErrTimeout, core.MaybeApplied},
-		{"claim io", core.LogClaimEpoch{}, errors.New("boom"), core.ErrIO, core.MaybeApplied},
-		{"read timeout", core.LogRead{}, context.DeadlineExceeded, core.ErrTimeout, core.NotApplied},
+		{"claim timeout", runtime.LogClaimEpoch{}, context.DeadlineExceeded, runtime.ErrTimeout, runtime.MaybeApplied},
+		{"claim io", runtime.LogClaimEpoch{}, errors.New("boom"), runtime.ErrIO, runtime.MaybeApplied},
+		{"read timeout", runtime.LogRead{}, context.DeadlineExceeded, runtime.ErrTimeout, runtime.NotApplied},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -45,12 +45,12 @@ func (slowClaimLog) ClaimEpoch(ctx context.Context, _ uint64, _ string) (uint64,
 }
 
 // nextResult waits for one completion on the inbox.
-func nextResult(t *testing.T, in *runloop.Inbox) core.IOResult {
+func nextResult(t *testing.T, in *runloop.Inbox) runtime.IOResult {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if b, ok := in.Control().Pop(); ok {
-			if r, ok := b.(core.IOResult); ok {
+			if r, ok := b.(runtime.IOResult); ok {
 				return r
 			}
 			continue
@@ -65,7 +65,7 @@ func TestExecutorAppendBelowFloorIsConflict(t *testing.T) {
 	ctx := t.Context()
 	l := executor.NewMemoryLog()
 	for slot := range 2 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("x")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -75,9 +75,9 @@ func TestExecutorAppendBelowFloorIsConflict(t *testing.T) {
 	in := runloop.NewInbox(8)
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, l, executor.NewMemoryObjects(), in)
 
-	ex.Execute(core.LogAppend{Req: 1, Slot: 0, Data: []byte("late")})
-	got, ok := nextResult(t, in).(core.LogAppendDone)
-	if !ok || !got.Taken || got.Existing != nil || got.Err != core.ErrConflict || got.Outcome != core.NotApplied {
+	ex.Execute(runtime.LogAppend{Req: 1, Slot: 0, Data: []byte("late")})
+	got, ok := nextResult(t, in).(runtime.LogAppendDone)
+	if !ok || !got.Taken || got.Existing != nil || got.Err != runtime.ErrConflict || got.Outcome != runtime.NotApplied {
 		t.Fatalf("below floor: got %+v, want taken, no existing, ErrConflict, NotApplied", got)
 	}
 }
@@ -91,9 +91,9 @@ func TestExecutorAppendLiveTakenKeepsExisting(t *testing.T) {
 	in := runloop.NewInbox(8)
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, l, executor.NewMemoryObjects(), in)
 
-	ex.Execute(core.LogAppend{Req: 2, Slot: 4, Data: []byte("other")})
-	got, ok := nextResult(t, in).(core.LogAppendDone)
-	if !ok || !got.Taken || string(got.Existing) != "live" || got.Err != core.OK || got.Outcome != core.Applied {
+	ex.Execute(runtime.LogAppend{Req: 2, Slot: 4, Data: []byte("other")})
+	got, ok := nextResult(t, in).(runtime.LogAppendDone)
+	if !ok || !got.Taken || string(got.Existing) != "live" || got.Err != runtime.OK || got.Outcome != runtime.Applied {
 		t.Fatalf("live taken: %+v", got)
 	}
 }
@@ -103,14 +103,14 @@ func TestExecutorClaimEpoch(t *testing.T) {
 	in := runloop.NewInbox(8)
 	ex := executor.New(ctx, executor.Config{LogTimeout: time.Second}, executor.NewMemoryLog(), executor.NewMemoryObjects(), in)
 
-	ex.Execute(core.LogClaimEpoch{Req: 3, Expect: 0, Owner: "cp-0"})
-	want := core.LogClaimEpochDone{Req: 3, Epoch: 1, Owner: "cp-0", Won: true, Err: core.OK, Outcome: core.Applied}
+	ex.Execute(runtime.LogClaimEpoch{Req: 3, Expect: 0, Owner: "cp-0"})
+	want := runtime.LogClaimEpochDone{Req: 3, Epoch: 1, Owner: "cp-0", Won: true, Err: runtime.OK, Outcome: runtime.Applied}
 	if got := nextResult(t, in); got != want {
 		t.Fatalf("claim: got %+v, want %+v", got, want)
 	}
 
-	ex.Execute(core.LogClaimEpoch{Req: 4, Expect: 0, Owner: "cp-1"})
-	want = core.LogClaimEpochDone{Req: 4, Epoch: 1, Owner: "cp-0", Won: false, Err: core.OK, Outcome: core.Applied}
+	ex.Execute(runtime.LogClaimEpoch{Req: 4, Expect: 0, Owner: "cp-1"})
+	want = runtime.LogClaimEpochDone{Req: 4, Epoch: 1, Owner: "cp-0", Won: false, Err: runtime.OK, Outcome: runtime.Applied}
 	if got := nextResult(t, in); got != want {
 		t.Fatalf("lost claim: got %+v, want %+v", got, want)
 	}
@@ -122,8 +122,8 @@ func TestExecutorClaimEpochTimeoutIsMaybeApplied(t *testing.T) {
 	log := slowClaimLog{Log: executor.NewMemoryLog()}
 	ex := executor.New(ctx, executor.Config{LogTimeout: 20 * time.Millisecond}, log, executor.NewMemoryObjects(), in)
 
-	ex.Execute(core.LogClaimEpoch{Req: 5, Expect: 0, Owner: "cp-0"})
-	want := core.LogClaimEpochDone{Req: 5, Err: core.ErrTimeout, Outcome: core.MaybeApplied}
+	ex.Execute(runtime.LogClaimEpoch{Req: 5, Expect: 0, Owner: "cp-0"})
+	want := runtime.LogClaimEpochDone{Req: 5, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}
 	if got := nextResult(t, in); got != want {
 		t.Fatalf("timed-out claim: got %+v, want %+v", got, want)
 	}

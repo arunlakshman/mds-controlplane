@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 )
 
@@ -31,15 +32,15 @@ type groupRun struct {
 	rng  *rand.Rand
 	orc  *speccheck.ControlPlane
 	now  int64
-	seen map[core.ErrCode]int
+	seen map[runtime.ErrCode]int
 }
 
 func (r *groupRun) pick(xs []string) string { return xs[r.rng.IntN(len(xs))] }
 
 func (r *groupRun) chance(pct int) bool { return r.rng.IntN(100) < pct }
 
-func (r *groupRun) current(group string) core.DescribeGroupResp {
-	return r.orc.Exec(core.ControlPlaneCall{Op: core.DescribeGroup{Group: group}}).(core.ControlPlaneDone).Resp.(core.DescribeGroupResp)
+func (r *groupRun) current(group string) contract.DescribeGroupResp {
+	return r.orc.Exec(runtime.ControlPlaneCall{Op: contract.DescribeGroup{Group: group}}).(runtime.ControlPlaneDone).Resp.(contract.DescribeGroupResp)
 }
 
 // subset picks n distinct members from runMembers.
@@ -51,7 +52,7 @@ func (r *groupRun) subset(n int) []string {
 	return out
 }
 
-func (r *groupRun) install() core.ControlPlaneOperation {
+func (r *groupRun) install() runtime.ControlPlaneOperation {
 	g := r.pick(runGroups)
 	cur := r.current(g).Generation
 	gen := cur + 1
@@ -63,10 +64,10 @@ func (r *groupRun) install() core.ControlPlaneOperation {
 	case q < 25:
 		gen = r.rng.Int32N(5)
 	}
-	operation := core.GroupInstall{Group: g, ProtocolType: "consumer", Protocol: "range", Generation: gen, TimeMs: r.now}
+	operation := contract.GroupInstall{Group: g, ProtocolType: "consumer", Protocol: "range", Generation: gen, TimeMs: r.now}
 	ids := r.subset(r.rng.IntN(4))
 	for _, id := range ids {
-		operation.Members = append(operation.Members, core.GroupMember{MemberID: id, ClientID: "c-" + id, SessionTimeoutMs: 10000,
+		operation.Members = append(operation.Members, contract.GroupMember{MemberID: id, ClientID: "c-" + id, SessionTimeoutMs: 10000,
 			RebalanceTimeoutMs: 30000, Metadata: []byte(strings.Repeat("s", r.rng.IntN(3)))})
 	}
 	if len(ids) > 0 && r.chance(5) {
@@ -79,40 +80,40 @@ func (r *groupRun) install() core.ControlPlaneOperation {
 	return operation
 }
 
-func (r *groupRun) assign() core.ControlPlaneOperation {
+func (r *groupRun) assign() runtime.ControlPlaneOperation {
 	g := r.pick(runGroups)
 	cur := r.current(g)
 	gen := cur.Generation
 	if !r.chance(80) {
 		gen += int32(r.rng.IntN(3)) - 1
 	}
-	operation := core.GroupAssign{Group: g, Generation: gen, Leader: cur.Leader, TimeMs: r.now}
+	operation := contract.GroupAssign{Group: g, Generation: gen, Leader: cur.Leader, TimeMs: r.now}
 	if !r.chance(80) {
 		operation.Leader = r.pick(runMembers)
 	}
 	for _, m := range cur.Members {
 		if r.chance(70) {
-			operation.Assignments = append(operation.Assignments, core.GroupAssignment{Member: m.MemberID, Bytes: []byte("a-" + m.MemberID)})
+			operation.Assignments = append(operation.Assignments, contract.GroupAssignment{Member: m.MemberID, Bytes: []byte("a-" + m.MemberID)})
 		}
 	}
 	if r.chance(10) {
-		operation.Assignments = append(operation.Assignments, core.GroupAssignment{Member: "zz", Bytes: []byte("z")})
+		operation.Assignments = append(operation.Assignments, contract.GroupAssignment{Member: "zz", Bytes: []byte("z")})
 	}
 	if r.chance(1) {
-		operation.Assignments = append(operation.Assignments, core.GroupAssignment{Member: "zz", Bytes: bytes.Repeat([]byte("x"), 300<<10)})
+		operation.Assignments = append(operation.Assignments, contract.GroupAssignment{Member: "zz", Bytes: bytes.Repeat([]byte("x"), 300<<10)})
 	}
 	return operation
 }
 
-func (r *groupRun) remove() core.ControlPlaneOperation {
+func (r *groupRun) remove() runtime.ControlPlaneOperation {
 	reason := "leave"
 	if r.chance(30) {
 		reason = "expire"
 	}
-	return core.GroupRemove{Group: r.pick(runGroups), Members: r.subset(r.rng.IntN(3)), TimeMs: r.now, Reason: reason}
+	return contract.GroupRemove{Group: r.pick(runGroups), Members: r.subset(r.rng.IntN(3)), TimeMs: r.now, Reason: reason}
 }
 
-func (r *groupRun) commit() core.ControlPlaneOperation {
+func (r *groupRun) commit() runtime.ControlPlaneOperation {
 	g := r.pick(runGroups)
 	cur := r.current(g)
 	gen := cur.Generation
@@ -122,7 +123,7 @@ func (r *groupRun) commit() core.ControlPlaneOperation {
 	case q < 50:
 		gen = int32(r.rng.IntN(6)) - 2
 	}
-	operation := core.OffsetCommit{Group: g, Member: r.pick(runMembers), Generation: gen, TimeMs: r.now}
+	operation := contract.OffsetCommit{Group: g, Member: r.pick(runMembers), Generation: gen, TimeMs: r.now}
 	if r.chance(15) {
 		operation.Member = ""
 	}
@@ -132,7 +133,7 @@ func (r *groupRun) commit() core.ControlPlaneOperation {
 		operation.Generation = cur.Generation
 	}
 	for range r.rng.IntN(4) {
-		o := core.PartitionOffset{TopicPartition: core.NewTopicPartition(r.pick(append(runTopics, "ghost")), int32(r.rng.IntN(4)-1))}
+		o := contract.PartitionOffset{TopicPartition: contract.NewTopicPartition(r.pick(append(runTopics, "ghost")), int32(r.rng.IntN(4)-1))}
 		o.Offset = int64(r.rng.IntN(10))
 		if r.chance(10) {
 			o.Offset = -1
@@ -142,16 +143,16 @@ func (r *groupRun) commit() core.ControlPlaneOperation {
 		operation.Offsets = append(operation.Offsets, o)
 	}
 	if r.chance(1) {
-		operation.Offsets = append(operation.Offsets, core.PartitionOffset{TopicPartition: core.NewTopicPartition("orders", 0), Offset: 1,
+		operation.Offsets = append(operation.Offsets, contract.PartitionOffset{TopicPartition: contract.NewTopicPartition("orders", 0), Offset: 1,
 			Metadata: strings.Repeat("m", 256<<10)})
 	}
 	return operation
 }
 
-func (r *groupRun) write() core.ControlPlaneOperation {
+func (r *groupRun) write() runtime.ControlPlaneOperation {
 	switch p := r.rng.IntN(100); {
 	case p < 5:
-		return core.CreateTopic{Name: r.pick(runTopics), Partitions: int32(r.rng.IntN(4)), FailIfExists: r.chance(50)}
+		return contract.CreateTopic{Name: r.pick(runTopics), Partitions: int32(r.rng.IntN(4)), FailIfExists: r.chance(50)}
 	case p < 20:
 		return r.install()
 	case p < 40:
@@ -162,24 +163,24 @@ func (r *groupRun) write() core.ControlPlaneOperation {
 	return r.commit()
 }
 
-func (r *groupRun) read() core.ControlPlaneOperation {
+func (r *groupRun) read() runtime.ControlPlaneOperation {
 	switch r.rng.IntN(3) {
 	case 0:
-		return core.DescribeGroup{Group: r.pick(runGroups)}
+		return contract.DescribeGroup{Group: r.pick(runGroups)}
 	case 1:
-		operation := core.OffsetFetch{Group: r.pick(runGroups)}
+		operation := contract.OffsetFetch{Group: r.pick(runGroups)}
 		for n := r.rng.IntN(4); n > 0 && r.chance(50); n-- {
-			operation.Partitions = append(operation.Partitions, core.NewTopicPartition(r.pick(runTopics[:2]), int32(r.rng.IntN(4))))
+			operation.Partitions = append(operation.Partitions, contract.NewTopicPartition(r.pick(runTopics[:2]), int32(r.rng.IntN(4))))
 		}
 		return operation
 	}
-	return core.ListGroups{}
+	return contract.ListGroups{}
 }
 
 // entryFor is the log entry of a write.
-func entryFor(t *testing.T, operation core.ControlPlaneOperation, slot int) metadata.Entry {
+func entryFor(t *testing.T, operation runtime.ControlPlaneOperation, slot int) metadata.Entry {
 	t.Helper()
-	if c, ok := operation.(core.CreateTopic); ok {
+	if c, ok := operation.(contract.CreateTopic); ok {
 		return metadata.CreateEntry(c)
 	}
 	e, ok := metadata.EntryOf(operation)
@@ -191,10 +192,10 @@ func entryFor(t *testing.T, operation core.ControlPlaneOperation, slot int) meta
 
 // sameAnswer compares two answers. Req is not compared. Slice 1's CreateTopic
 // apply path sets no Outcome, so only its Err is compared.
-func sameAnswer(t *testing.T, where string, operation core.ControlPlaneOperation, got, want core.ControlPlaneDone) {
+func sameAnswer(t *testing.T, where string, operation runtime.ControlPlaneOperation, got, want runtime.ControlPlaneDone) {
 	t.Helper()
 	got.Req, want.Req = 0, 0
-	if _, ok := operation.(core.CreateTopic); ok {
+	if _, ok := operation.(contract.CreateTopic); ok {
 		got.Outcome = want.Outcome
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -204,7 +205,7 @@ func sameAnswer(t *testing.T, where string, operation core.ControlPlaneOperation
 
 // groupLockstep runs one seed. crashAt, when >= 0, is the step where the fold
 // is checkpointed, dropped and restored.
-func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[core.ErrCode]int) {
+func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[runtime.ErrCode]int) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(uint64(seed), 0x6a)) //nolint:gosec // G404: deterministic test PRNG
 	r := &groupRun{rng: rng, orc: speccheck.NewControlPlane(), seen: seen}
@@ -227,8 +228,8 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[core.ErrCode]
 		}
 		if r.chance(25) {
 			operation := r.read()
-			got := meta.Exec(core.ControlPlaneCall{Op: operation}).(core.ControlPlaneDone)
-			want := r.orc.Exec(core.ControlPlaneCall{Op: operation}).(core.ControlPlaneDone)
+			got := meta.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
+			want := r.orc.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
 			sameAnswer(t, "read", operation, got, want)
 			continue
 		}
@@ -237,10 +238,10 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[core.ErrCode]
 		e := entryFor(t, operation, slot)
 		writes = append(writes, e)
 		got := meta.Apply(int64(slot), e)
-		want := r.orc.Exec(core.ControlPlaneCall{Req: core.RequestID(slot), Op: operation}).(core.ControlPlaneDone)
+		want := r.orc.Exec(runtime.ControlPlaneCall{Req: runtime.RequestID(slot), Op: operation}).(runtime.ControlPlaneDone)
 		sameAnswer(t, "write", operation, got, want)
 		seen[got.Err]++
-		if response, ok := got.Resp.(core.OffsetCommitResp); ok {
+		if response, ok := got.Resp.(contract.OffsetCommitResp); ok {
 			for _, c := range response.Errs {
 				seen[c]++
 			}
@@ -253,29 +254,29 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[core.ErrCode]
 // reads with speccheck's state at the end.
 func checkMachineGroups(t *testing.T, r *groupRun, writes []metadata.Entry) {
 	t.Helper()
-	m := newMachine(t, replica.Config{CatchUpEvery: core.Millisecond})
+	m := newMachine(t, replica.Config{CatchUpEvery: runtime.Millisecond})
 	feedContiguous(t, m, writes)
-	var ops []core.ControlPlaneOperation
-	ops = append(ops, core.ListGroups{})
+	var ops []runtime.ControlPlaneOperation
+	ops = append(ops, contract.ListGroups{})
 	for _, g := range runGroups {
-		ops = append(ops, core.DescribeGroup{Group: g}, core.OffsetFetch{Group: g})
+		ops = append(ops, contract.DescribeGroup{Group: g}, contract.OffsetFetch{Group: g})
 	}
 	for _, operation := range ops {
-		got := m.Metadata().Exec(core.ControlPlaneCall{Op: operation}).(core.ControlPlaneDone)
-		want := r.orc.Exec(core.ControlPlaneCall{Op: operation}).(core.ControlPlaneDone)
+		got := m.Metadata().Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
+		want := r.orc.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
 		sameAnswer(t, "machine read", operation, got, want)
 	}
 }
 
 func TestGroupLockstepRandom(t *testing.T) {
-	seen := map[core.ErrCode]int{}
+	seen := map[runtime.ErrCode]int{}
 	for seed := int64(1); seed <= 8; seed++ {
 		t.Run("plain", func(t *testing.T) { groupLockstep(t, seed, -1, seen) })
 		t.Run("crash", func(t *testing.T) { groupLockstep(t, seed+100, 150+int(seed)*17, seen) })
 	}
 	// The run must reach every answer, or the random steps are too weak.
-	for _, c := range []core.ErrCode{core.OK, core.ErrUnknownMember, core.ErrIllegalGeneration,
-		core.ErrUnknownPartition, core.ErrInvalid, core.ErrTooLarge} {
+	for _, c := range []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember, runtime.ErrIllegalGeneration,
+		runtime.ErrUnknownPartition, runtime.ErrInvalid, runtime.ErrTooLarge} {
 		if seen[c] == 0 {
 			t.Errorf("no write answered %v in any run (answers %v)", c, seen)
 		}

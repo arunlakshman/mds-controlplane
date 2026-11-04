@@ -3,11 +3,12 @@ package metadata
 import (
 	"errors"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // The log format of an entry is: the kind (uvarint), the id (string), and then
@@ -38,16 +39,16 @@ type Entry struct {
 	ID   string
 	Kind Kind
 	// Op is the logged operation that the entry carries. It is nil for KindNoop.
-	Op core.ControlPlaneOperation
+	Op runtime.ControlPlaneOperation
 	// WriterBases, when set and equal in length to the commit's batches, forces
 	// those bases at apply (sim BugWriterOffsets). Not on the wire.
-	WriterBases []core.Offset
+	WriterBases []contract.Offset
 }
 
 // CommitSegment is the CommitSegment that the entry carries. It is false for any
 // other entry.
-func (e Entry) CommitSegment() (core.CommitSegment, bool) {
-	c, ok := e.Op.(core.CommitSegment)
+func (e Entry) CommitSegment() (contract.CommitSegment, bool) {
+	c, ok := e.Op.(contract.CommitSegment)
 	return c, ok
 }
 
@@ -75,7 +76,7 @@ func newRegistry(list ...module.Module) modules {
 
 // EntryOf is the log entry of a logged operation. It returns false for an
 // operation that is not logged (a read, or an unknown one).
-func EntryOf(operation core.ControlPlaneOperation) (Entry, bool) {
+func EntryOf(operation runtime.ControlPlaneOperation) (Entry, bool) {
 	for _, m := range registry.list {
 		if kind, ok := m.KindOf(operation); ok {
 			return Entry{Kind: kind, Op: operation}, true
@@ -85,7 +86,7 @@ func EntryOf(operation core.ControlPlaneOperation) (Entry, bool) {
 }
 
 // CreateEntry is the log entry of a CreateTopic.
-func CreateEntry(operation core.CreateTopic) Entry {
+func CreateEntry(operation contract.CreateTopic) Entry {
 	e, _ := EntryOf(operation)
 	return e
 }
@@ -125,29 +126,29 @@ func NewMem() *Store { return New(kv.NewMemory()) }
 
 // Apply folds one log entry at slot into the store. No-ops leave state unchanged.
 // A store failure panics (fail-stop), matching Commit.
-func (a *Store) Apply(slot int64, e Entry) core.ControlPlaneDone {
+func (a *Store) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
 	if e.Kind == KindNoop {
-		return core.ControlPlaneDone{Req: core.RequestID(slot), Outcome: core.Applied}
+		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Outcome: runtime.Applied}
 	}
-	if c, ok := e.Op.(core.CommitSegment); ok && len(e.WriterBases) == len(c.Batches) && len(e.WriterBases) > 0 {
+	if c, ok := e.Op.(contract.CommitSegment); ok && len(e.WriterBases) == len(c.Batches) && len(e.WriterBases) > 0 {
 		d := a.commitWithBases(slot, c, e.WriterBases)
-		d.Req = core.RequestID(slot)
+		d.Req = runtime.RequestID(slot)
 		return d
 	}
 	if e.Op == nil {
-		return core.ControlPlaneDone{Req: core.RequestID(slot), Err: core.ErrInvalid}
+		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Err: runtime.ErrInvalid}
 	}
 	d, err := a.Write(slot, e.Op)
 	mustStore(err)
-	d.Req = core.RequestID(slot)
+	d.Req = runtime.RequestID(slot)
 	return d
 }
 
 // ApplyBytes decodes data then Apply. Returns ErrCorrupt without mutating state.
-func (a *Store) ApplyBytes(slot int64, data []byte) (core.ControlPlaneDone, error) {
+func (a *Store) ApplyBytes(slot int64, data []byte) (runtime.ControlPlaneDone, error) {
 	e, err := Decode(data)
 	if err != nil {
-		return core.ControlPlaneDone{}, err
+		return runtime.ControlPlaneDone{}, err
 	}
 	return a.Apply(slot, e), nil
 }

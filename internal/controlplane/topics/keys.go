@@ -5,8 +5,9 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 const (
@@ -25,15 +26,15 @@ var errCorrupt = errors.New("topics: corrupt record")
 func topicKey(name string) []byte { return append([]byte{prefixTopic}, name...) }
 
 // topicPartitionPrefix is the prefix-free key prefix of one partition for kind p.
-func topicPartitionPrefix(p byte, topicPartition core.TopicPartition) []byte {
+func topicPartitionPrefix(p byte, topicPartition contract.TopicPartition) []byte {
 	return kv.AppendTopicPartition([]byte{p}, topicPartition)
 }
 
-func endKey(topicPartition core.TopicPartition) []byte {
+func endKey(topicPartition contract.TopicPartition) []byte {
 	return topicPartitionPrefix(prefixEndOffset, topicPartition)
 }
 
-func batchRunKey(topicPartition core.TopicPartition, base int64) []byte {
+func batchRunKey(topicPartition contract.TopicPartition, base int64) []byte {
 	return binary.BigEndian.AppendUint64(topicPartitionPrefix(prefixRun, topicPartition), uint64(base))
 }
 
@@ -53,12 +54,12 @@ func readVarint(b []byte) int64 {
 
 // checksum identifies a request's batches (not its key): a replay is the same
 // request iff the digests are equal.
-func checksum(bs []core.PendingBatch) [checksumLength]byte {
+func checksum(bs []contract.PendingBatch) [checksumLength]byte {
 	sum := sha256.Sum256(checksumBytes(bs))
 	return [checksumLength]byte(sum[:checksumLength])
 }
 
-func checksumBytes(bs []core.PendingBatch) []byte {
+func checksumBytes(bs []contract.PendingBatch) []byte {
 	n := binary.AppendUvarint(nil, uint64(len(bs)))
 	for _, b := range bs {
 		n = binary.AppendUvarint(n, uint64(len(b.TopicPartition.Topic)))
@@ -75,7 +76,7 @@ func checksumBytes(bs []core.PendingBatch) []byte {
 
 // duplicateCheckRecord is the stored fact that a key committed: its slot, the request
 // digest, and the base offset assigned to each batch, in request order.
-func duplicateCheckRecord(slot int64, dig [checksumLength]byte, rs []core.BatchRange) []byte {
+func duplicateCheckRecord(slot int64, dig [checksumLength]byte, rs []contract.BatchRange) []byte {
 	b := binary.AppendUvarint(nil, uint64(slot))
 	b = append(b, dig[:]...)
 	for _, r := range rs {
@@ -107,7 +108,7 @@ func parseDuplicateCheck(b []byte) ([checksumLength]byte, []int64, error) {
 // encodeBatchRun packs the batches of one run (one partition, contiguous offsets,
 // in order): format byte, the distinct segment keys, then per batch the key
 // index, record count, offset and length.
-func encodeBatchRun(rs []core.BatchRange) []byte {
+func encodeBatchRun(rs []contract.BatchRange) []byte {
 	var keys []string
 	idx := map[string]int{} // lookups only
 	for _, r := range rs {
@@ -133,7 +134,7 @@ func encodeBatchRun(rs []core.BatchRange) []byte {
 }
 
 // decodeBatchRun unpacks the run of tp that starts at base.
-func decodeBatchRun(topicPartition core.TopicPartition, base int64, b []byte) ([]core.BatchRange, error) {
+func decodeBatchRun(topicPartition contract.TopicPartition, base int64, b []byte) ([]contract.BatchRange, error) {
 	if len(b) == 0 || b[0] != runFormat {
 		return nil, errCorrupt
 	}
@@ -150,14 +151,14 @@ func decodeBatchRun(topicPartition core.TopicPartition, base int64, b []byte) ([
 	if n > uint64(len(r.Rest())) {
 		return nil, errCorrupt
 	}
-	out := make([]core.BatchRange, 0, n)
+	out := make([]contract.BatchRange, 0, n)
 	for ; n > 0 && r.OK(); n-- {
 		ki, cnt, off, ln := r.Uvarint(), r.Uvarint(), r.Varint(), r.Varint()
 		if ki >= uint64(len(keys)) {
 			return nil, errCorrupt
 		}
-		out = append(out, core.BatchRange{TopicPartition: topicPartition, Base: core.Offset(base), Count: int64(cnt),
-			Loc: core.SegmentRef{Key: keys[ki], Off: off, Len: ln}})
+		out = append(out, contract.BatchRange{TopicPartition: topicPartition, Base: contract.Offset(base), Count: int64(cnt),
+			Loc: runtime.SegmentRef{Key: keys[ki], Off: off, Len: ln}})
 		base += int64(cnt)
 	}
 	if !r.Done() {

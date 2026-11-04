@@ -23,7 +23,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 	"github.com/manifesterio/mds-controlplane/internal/system/awsmetrics"
 	"github.com/manifesterio/mds-controlplane/internal/system/httpconnections"
@@ -44,11 +44,11 @@ type Config struct {
 }
 
 // Error is a truthful failure of the store, as plain data.
-type Error struct{ Code core.ErrCode }
+type Error struct{ Code runtime.ErrCode }
 
 func (e *Error) Error() string { return "s3store: " + e.Code.String() }
 
-func fail(c core.ErrCode) error { return &Error{c} }
+func fail(c runtime.ErrCode) error { return &Error{c} }
 
 // Store implements system.ObjectStore.
 type Store struct {
@@ -115,7 +115,7 @@ func (s *Store) key(k string) *string { return new(s.prefix + k) }
 // Put writes data under key.
 func (s *Store) Put(ctx context.Context, key string, data []byte) error {
 	if key == "" {
-		return fail(core.ErrInvalid)
+		return fail(runtime.ErrInvalid)
 	}
 	_, err := s.c.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: &s.bucket, Key: s.key(key),
@@ -125,9 +125,9 @@ func (s *Store) Put(ctx context.Context, key string, data []byte) error {
 }
 
 // Get reads the bytes referenced by ref.
-func (s *Store) Get(ctx context.Context, ref core.SegmentRef) ([]byte, error) {
+func (s *Store) Get(ctx context.Context, ref runtime.SegmentRef) ([]byte, error) {
 	if ref.Key == "" {
-		return nil, fail(core.ErrNotFound) // never stored: Put refuses it
+		return nil, fail(runtime.ErrNotFound) // never stored: Put refuses it
 	}
 	if ref.Off < 0 {
 		return nil, s.badRange(ctx, ref)
@@ -141,7 +141,7 @@ func (s *Store) Get(ctx context.Context, ref core.SegmentRef) ([]byte, error) {
 	return readBody(out.Body, ref.Len)
 }
 
-func rangeHeader(ref core.SegmentRef) *string {
+func rangeHeader(ref runtime.SegmentRef) *string {
 	switch {
 	case ref.Len > 0:
 		return new(fmt.Sprintf("bytes=%d-%d", ref.Off, ref.Off+ref.Len-1))
@@ -153,9 +153,9 @@ func rangeHeader(ref core.SegmentRef) *string {
 
 // getFailed maps a failed GetObject; reading exactly at the end of the
 // object is an empty result, not an error.
-func (s *Store) getFailed(ctx context.Context, ref core.SegmentRef, ranged bool, err error) ([]byte, error) {
+func (s *Store) getFailed(ctx context.Context, ref runtime.SegmentRef, ranged bool, err error) ([]byte, error) {
 	if notFound(err) && !ranged {
-		return nil, fail(core.ErrNotFound)
+		return nil, fail(runtime.ErrNotFound)
 	}
 	// Some servers answer a range past the end of an empty object with 404.
 	if apiCode(err) == "InvalidRange" || notFound(err) {
@@ -173,25 +173,25 @@ func readBody(body io.Reader, want int64) ([]byte, error) {
 		return nil, err
 	}
 	if want > 0 && int64(len(data)) != want {
-		return nil, fail(core.ErrInvalid) // the range ran past the end
+		return nil, fail(runtime.ErrInvalid) // the range ran past the end
 	}
 	return data, nil
 }
 
 // badRange resolves a 416: reading from exactly the end is empty, anything
 // else past the end is invalid.
-func (s *Store) badRange(ctx context.Context, ref core.SegmentRef) error {
+func (s *Store) badRange(ctx context.Context, ref runtime.SegmentRef) error {
 	h, err := s.c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: s.key(ref.Key)})
 	if err != nil {
 		if notFound(err) {
-			return fail(core.ErrNotFound)
+			return fail(runtime.ErrNotFound)
 		}
 		return err
 	}
 	if ref.Len <= 0 && aws.ToInt64(h.ContentLength) == ref.Off {
 		return errEmpty
 	}
-	return fail(core.ErrInvalid)
+	return fail(runtime.ErrInvalid)
 }
 
 var errEmpty = errors.New("empty range")
@@ -199,11 +199,11 @@ var errEmpty = errors.New("empty range")
 // Delete removes the object under key.
 func (s *Store) Delete(ctx context.Context, key string) error {
 	if key == "" {
-		return fail(core.ErrNotFound)
+		return fail(runtime.ErrNotFound)
 	}
 	if _, err := s.c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &s.bucket, Key: s.key(key)}); err != nil {
 		if notFound(err) {
-			return fail(core.ErrNotFound)
+			return fail(runtime.ErrNotFound)
 		}
 		return err
 	}

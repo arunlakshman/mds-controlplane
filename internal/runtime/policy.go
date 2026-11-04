@@ -1,4 +1,4 @@
-package core
+package runtime
 
 // ControlFirstPicker is the InboxPicker of decision G/H: control always wins, data
 // only when control is empty. Stateless, so one value serves any number of nodes.

@@ -11,7 +11,7 @@ interfacebloat, dupl) is paid.
 Original rule set (errcheck, revive, errorlint, staticcheck, gocritic, nakedret,
 usestdlibvars, copyloopvar): still clean everywhere.
 
-Panic remains allowed only where the config excludes it: `internal/core/`, `internal/verify/simulator/`,
+Panic remains allowed only where the config excludes it: `internal/runtime/`, `internal/verify/simulator/`,
 `ops/tools/`, `internal/verify/speccheck/` (reference machine), `internal/controlplane/metadata/` (mirrors
 speccheck), and `*_test.go`. The former `logcp`/`logsm` `time.Now` ban was
 removed with those packages.

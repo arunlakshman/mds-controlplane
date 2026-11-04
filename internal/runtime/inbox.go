@@ -1,4 +1,4 @@
-package core
+package runtime
 
 import "fmt"
 
@@ -24,12 +24,11 @@ func InboxKindOf(b EventData) InboxKind {
 	case NodeStarted, StopRequest, TimerFired,
 		ObjectPutDone, ObjectGetDone, ObjectDeleteDone, ObjectListDone,
 		ControlPlaneDone, ControlPlaneDeliver,
-		LogAppendDone, LogReadDone, LogGetEndDone, LogDeleteOldDone, LogClaimEpochDone,
-		LiveBrokers:
+		LogAppendDone, LogReadDone, LogGetEndDone, LogDeleteOldDone, LogClaimEpochDone:
 		return Control
 	default:
 		// A new EventData type without a row here is a programming error.
-		panic(fmt.Sprintf("core.InboxKindOf: unclassified event %T", b))
+		panic(fmt.Sprintf("runtime.InboxKindOf: unclassified event %T", b))
 	}
 }
 

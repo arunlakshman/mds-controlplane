@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/injectedbug"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
@@ -20,11 +20,11 @@ import (
 // Conformance C3: the shared object store suite runs on the S3 adapter and on
 // the in-process fake. Both are compared with speccheck.ObjectStore.
 
-// codeOf turns an error of the adapter or of the fake into a core.ErrCode.
+// codeOf turns an error of the adapter or of the fake into a runtime.ErrCode.
 // Any other error counts as ErrIO, as the broker would see it.
-func codeOf(err error) core.ErrCode {
+func codeOf(err error) runtime.ErrCode {
 	if err == nil {
-		return core.OK
+		return runtime.OK
 	}
 	if se, ok := errors.AsType[*Error](err); ok {
 		return se.Code
@@ -32,28 +32,28 @@ func codeOf(err error) core.ErrCode {
 	if ve, ok := errors.AsType[*specsystem.Error](err); ok {
 		return ve.Code
 	}
-	return core.ErrIO
+	return runtime.ErrIO
 }
 
 // storeSubject makes a system.ObjectStore usable as a suite subject. Neither the
 // fake nor real S3 can give the hash of the spec, so StateHash says no.
 type storeSubject struct{ store system.ObjectStore }
 
-func (s storeSubject) Do(operation core.IOCall) (observation.ObjectResult, error) {
+func (s storeSubject) Do(operation runtime.IOCall) (observation.ObjectResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	switch call := operation.(type) {
-	case core.ObjectPut:
+	case runtime.ObjectPut:
 		return writeResult(s.store.Put(ctx, call.Key, call.Data)), nil
-	case core.ObjectGet:
+	case runtime.ObjectGet:
 		data, err := s.store.Get(ctx, call.Ref)
 		if err != nil {
 			return observation.ObjectResult{Code: codeOf(err)}, nil
 		}
 		return observation.ObjectResult{Data: data}, nil
-	case core.ObjectDelete:
+	case runtime.ObjectDelete:
 		return writeResult(s.store.Delete(ctx, call.Key)), nil
-	case core.ObjectList:
+	case runtime.ObjectList:
 		keys, err := s.store.List(ctx, call.Prefix)
 		if err != nil {
 			return observation.ObjectResult{Code: codeOf(err)}, nil
@@ -67,9 +67,9 @@ func (s storeSubject) Do(operation core.IOCall) (observation.ObjectResult, error
 // that fails is NotApplied.
 func writeResult(err error) observation.ObjectResult {
 	if err != nil {
-		return observation.ObjectResult{Code: codeOf(err), Outcome: core.NotApplied}
+		return observation.ObjectResult{Code: codeOf(err), Outcome: runtime.NotApplied}
 	}
-	return observation.ObjectResult{Code: core.OK, Outcome: core.Applied}
+	return observation.ObjectResult{Code: runtime.OK, Outcome: runtime.Applied}
 }
 
 func (storeSubject) StateHash() (uint64, bool) { return 0, false }

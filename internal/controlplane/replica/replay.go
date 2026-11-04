@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // ReplayPosition folds one durable log entry into fold. Used for the reference
 // replay of the Dynamo log. Client waiters and InjectedBugWriterOffsets stamps are
 // ignored: truth assigns offsets at apply time like a cold replica.
-func ReplayPosition(meta *metadata.Store, slot core.LogPosition, data []byte) error {
+func ReplayPosition(meta *metadata.Store, slot runtime.LogPosition, data []byte) error {
 	_, _, payload, ok := unwrap(data)
 	if !ok {
 		return fmt.Errorf("replica: truncated log envelope at slot %d", slot)

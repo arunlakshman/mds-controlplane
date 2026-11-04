@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // A join whose ctx ends while it is parked gets the ctx error, and the
@@ -53,7 +53,7 @@ func TestJoinCanceledThenRoundCompletes(t *testing.T) {
 	id, ch := h.join("g")
 	h.clock.Advance(time.Duration(h.session) * time.Millisecond)
 	r := h.recvJoin(ch)
-	if r.err != nil || r.response.Err != core.OK || r.response.Generation != 1 || r.response.MemberID != id {
+	if r.err != nil || r.response.Err != runtime.OK || r.response.Generation != 1 || r.response.MemberID != id {
 		t.Fatalf("second join: %+v %v", r.response, r.err)
 	}
 	if v := peek(h.c, "g"); v.joined[id] {

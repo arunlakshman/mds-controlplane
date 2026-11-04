@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
 
@@ -47,7 +47,7 @@ func genPartitionModelOp(r *checker.Rand, _ int) partitionModelOp {
 func stepPartitionModel(s *partitionPair, operation partitionModelOp) error {
 	switch operation.Kind {
 	case "append":
-		wantBase := core.Offset(len(s.model))
+		wantBase := contract.Offset(len(s.model))
 		input := make([][]byte, len(operation.Batch))
 		for i, v := range operation.Batch {
 			input[i] = bytes.Clone(v)
@@ -64,7 +64,7 @@ func stepPartitionModel(s *partitionPair, operation partitionModelOp) error {
 			}
 		}
 	case "hwm":
-		if got, want := s.spec.HighWatermark(), core.Offset(len(s.model)); got != want {
+		if got, want := s.spec.HighWatermark(), contract.Offset(len(s.model)); got != want {
 			return fmt.Errorf("HighWatermark is %d, the model expected %d", got, want)
 		}
 	default:
@@ -74,7 +74,7 @@ func stepPartitionModel(s *partitionPair, operation partitionModelOp) error {
 }
 
 func checkPartitionRead(s *partitionPair, operation partitionModelOp) error {
-	recs, ok := s.spec.Read(core.Offset(operation.From), operation.Max)
+	recs, ok := s.spec.Read(contract.Offset(operation.From), operation.Max)
 	wantOK := operation.From >= 0 && operation.From <= int64(len(s.model))
 	if ok != wantOK {
 		return fmt.Errorf("Read(from %d, max %d): ok is %v, the model expected %v (high watermark %d)", operation.From, operation.Max, ok, wantOK, len(s.model))
@@ -96,7 +96,7 @@ func checkPartitionRead(s *partitionPair, operation partitionModelOp) error {
 		return fmt.Errorf("Read(from %d, max %d): got %d records, the model expected %d", operation.From, operation.Max, len(recs), len(want))
 	}
 	for i, r := range recs {
-		if r.Offset != core.Offset(operation.From)+core.Offset(i) || !bytes.Equal(r.Value, want[i]) {
+		if r.Offset != contract.Offset(operation.From)+contract.Offset(i) || !bytes.Equal(r.Value, want[i]) {
 			return fmt.Errorf("Read(from %d, max %d): record %d is offset %d value %q, the model expected offset %d value %q",
 				operation.From, operation.Max, i, r.Offset, r.Value, operation.From+int64(i), want[i])
 		}
@@ -109,7 +109,7 @@ func checkPartitionRead(s *partitionPair, operation partitionModelOp) error {
 }
 
 func checkPartitionState(s *partitionPair) error {
-	if g, w := s.spec.HighWatermark(), core.Offset(len(s.model)); g != w {
+	if g, w := s.spec.HighWatermark(), contract.Offset(len(s.model)); g != w {
 		return fmt.Errorf("HighWatermark is %d, the model expected %d", g, w)
 	}
 	if g, w := s.spec.StateHash(), s.twin.StateHash(); g != w {

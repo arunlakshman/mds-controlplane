@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/memorystore"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/suites"
@@ -17,22 +18,22 @@ import (
 // impl is a control plane as the conformance runner drives it. A business error
 // is the Err of the answer. The error result is for infrastructure failures only.
 type impl interface {
-	Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error)
+	Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error)
 }
 
 // grpcImpl drives a machine node through controlplaneclient.
 type grpcImpl struct{ c *controlplaneclient.Client }
 
-func (h grpcImpl) Exec(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneDone, error) {
+func (h grpcImpl) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	r, err := h.c.Call(ctx, operation)
-	return core.ControlPlaneDone{Resp: r, Err: errCode(err)}, nonBusiness(err)
+	return runtime.ControlPlaneDone{Resp: r, Err: errCode(err)}, nonBusiness(err)
 }
 
-func errCode(err error) core.ErrCode {
+func errCode(err error) runtime.ErrCode {
 	if be, ok := errors.AsType[*controlplaneclient.Error](err); ok {
 		return be.Code
 	}
-	return core.OK
+	return runtime.OK
 }
 
 func nonBusiness(err error) error {
@@ -57,16 +58,16 @@ func (s implSubject) Do(operation generator.ControlPlaneTestStep) (observation.C
 	defer cancel()
 	switch {
 	case operation.CreateTopic != nil:
-		d, err := s.im.Exec(ctx, core.CreateTopic{Name: operation.CreateTopic.Name, Partitions: operation.CreateTopic.Partitions})
+		d, err := s.im.Exec(ctx, contract.CreateTopic{Name: operation.CreateTopic.Name, Partitions: operation.CreateTopic.Partitions})
 		return observation.ControlPlaneResult{Code: d.Err}, err
 	case operation.Call != nil:
 		done, err := s.im.Exec(ctx, operation.Call.Op)
-		if err != nil || done.Err != core.OK {
+		if err != nil || done.Err != runtime.OK {
 			return observation.ControlPlaneResult{Code: done.Err}, err
 		}
 		switch operation.Call.Op.(type) {
-		case core.CommitSegment, core.CreateTopic:
-			done.Outcome = core.Applied
+		case contract.CommitSegment, contract.CreateTopic:
+			done.Outcome = runtime.Applied
 		}
 		return observation.FromControlPlaneDone(done), nil
 	}

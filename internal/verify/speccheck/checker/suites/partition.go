@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker"
 )
@@ -131,7 +131,7 @@ func partitionStep(p *PartitionPair, operation PartitionOp) error {
 }
 
 func partitionRead(p *PartitionPair, operation PartitionOp) error {
-	from := core.Offset(operation.From)
+	from := contract.Offset(operation.From)
 	specRecords, specOK := p.spec.Read(from, operation.Max)
 	records, ok := p.subject.Read(from, operation.Max)
 	defer func() {

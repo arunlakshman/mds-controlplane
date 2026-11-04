@@ -4,16 +4,17 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/groupfix"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestCodecRoundTrip(t *testing.T) {
 	m := storage.NewModule(nil)
-	for _, operation := range []core.ControlPlaneOperation{
+	for _, operation := range []runtime.ControlPlaneOperation{
 		groupfix.Install("g", 2, "m1", "m1", "m2"),
 		groupfix.Assign("g", 2, "m1", "m1", "a1", "m2", "a2"),
 		groupfix.Remove("g", "m1", "m2"),
@@ -46,20 +47,20 @@ func TestKindsModeAndForeignOperations(t *testing.T) {
 	if len(m.Kinds()) != 4 {
 		t.Fatalf("kinds %v", m.Kinds())
 	}
-	if _, ok := m.KindOf(core.CreateTopic{}); ok {
+	if _, ok := m.KindOf(contract.CreateTopic{}); ok {
 		t.Fatal("CreateTopic is not a group operation")
 	}
 	for _, c := range []struct {
-		operation core.ControlPlaneOperation
+		operation runtime.ControlPlaneOperation
 		want      module.Mode
 	}{
-		{core.GroupInstall{}, module.Logged},
-		{core.OffsetCommit{}, module.Logged},
-		{core.OffsetFetch{}, module.ReadOnly},
-		{core.DescribeGroup{}, module.ReadOnly},
-		{core.ListGroups{}, module.ReadOnly},
-		{core.CreateTopic{}, module.NotMine},
-		{core.DescribeTopics{}, module.NotMine},
+		{contract.GroupInstall{}, module.Logged},
+		{contract.OffsetCommit{}, module.Logged},
+		{contract.OffsetFetch{}, module.ReadOnly},
+		{contract.DescribeGroup{}, module.ReadOnly},
+		{contract.ListGroups{}, module.ReadOnly},
+		{contract.CreateTopic{}, module.NotMine},
+		{contract.DescribeTopics{}, module.NotMine},
 	} {
 		if got := m.Mode(c.operation); got != c.want {
 			t.Errorf("%T: mode %v, want %v", c.operation, got, c.want)
@@ -70,11 +71,11 @@ func TestKindsModeAndForeignOperations(t *testing.T) {
 		t.Fatal("an unknown kind must fail the reader")
 	}
 	w := kv.NewWriter()
-	m.Encode(w, storage.KindGroupInstall, core.CreateTopic{})
+	m.Encode(w, storage.KindGroupInstall, contract.CreateTopic{})
 	if len(w.Bytes()) != 0 {
 		t.Fatal("encoded an operation that is not a group operation")
 	}
-	if d := m.Read(nil, core.CreateTopic{}); d.Err != core.ErrInvalid {
+	if d := m.Read(nil, contract.CreateTopic{}); d.Err != runtime.ErrInvalid {
 		t.Fatalf("Read of a foreign operation: %+v", d)
 	}
 }

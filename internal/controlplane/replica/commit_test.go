@@ -4,29 +4,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func commitCmd(key string, records int64) metadata.Entry {
 	return metadata.Entry{
 		Kind: metadata.KindCommit,
-		Op: core.CommitSegment{
+		Op: contract.CommitSegment{
 			SegmentKey: key,
-			Batches: []core.PendingBatch{
-				{TopicPartition: core.NewTopicPartition("t", 0), Records: records, Loc: core.SegmentRef{Key: key, Off: 0, Len: records}},
+			Batches: []contract.PendingBatch{
+				{TopicPartition: contract.NewTopicPartition("t", 0), Records: records, Loc: runtime.SegmentRef{Key: key, Off: 0, Len: records}},
 			},
 		},
 	}
 }
 
-func onlyAppend(t *testing.T, acts []core.Action) core.LogAppend {
+func onlyAppend(t *testing.T, acts []runtime.Action) runtime.LogAppend {
 	t.Helper()
 	if len(acts) != 1 {
 		t.Fatalf("actions = %v, want one LogAppend", acts)
 	}
-	ap, ok := acts[0].(core.LogAppend)
+	ap, ok := acts[0].(runtime.LogAppend)
 	if !ok {
 		t.Fatalf("action = %T, want LogAppend", acts[0])
 	}
@@ -37,7 +38,7 @@ func TestOneLogAppendInFlight(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
 	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("sa", 1)}))
 	for i, key := range []string{"sb", "sc"} {
-		acts := m.Offer(replica.ClientOperation{Req: core.RequestID(i + 2), Cmd: commitCmd(key, 1)})
+		acts := m.Offer(replica.ClientOperation{Req: runtime.RequestID(i + 2), Cmd: commitCmd(key, 1)})
 		if len(acts) != 0 {
 			t.Fatalf("Offer while one append is in flight returned %v", acts)
 		}
@@ -52,14 +53,14 @@ func TestOneLogAppendInFlight(t *testing.T) {
 		t.Fatalf("answers before apply: %v", ans)
 	}
 
-	acts := step(m, core.LogAppendDone{
-		Req: first.Req, Slot: first.Slot, Err: core.OK, Outcome: core.Applied,
+	acts := step(m, runtime.LogAppendDone{
+		Req: first.Req, Slot: first.Slot, Err: runtime.OK, Outcome: runtime.Applied,
 	})
 	if m.Applied() != 1 {
 		t.Fatalf("Applied = %d, want 1", m.Applied())
 	}
 	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 1 || ans[0].Done.Err != core.OK {
+	if len(ans) != 1 || ans[0].Req != 1 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("answers after first apply = %+v", ans)
 	}
 	next := onlyAppend(t, acts)
@@ -77,7 +78,7 @@ func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("g0", 1)}))
 	for i := 2; i <= 6; i++ {
 		if acts := m.Offer(replica.ClientOperation{
-			Req: core.RequestID(i),
+			Req: runtime.RequestID(i),
 			Cmd: commitCmd("g"+string(rune('0'+i-1)), 1),
 		}); len(acts) != 0 {
 			t.Fatalf("Offer while in-flight returned %v", acts)
@@ -86,7 +87,7 @@ func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 	if m.QueueDepth() != 5 {
 		t.Fatalf("queue depth = %d, want 5", m.QueueDepth())
 	}
-	acts := step(m, core.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: core.OK, Outcome: core.Applied})
+	acts := step(m, runtime.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	_ = m.TakeAnswers() // answer for g0
 	packed := onlyAppend(t, acts)
 	id, cmds, ok := replica.DecodeGroup(packed.Data)
@@ -96,32 +97,32 @@ func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 	if m.QueueDepth() != 2 {
 		t.Fatalf("queue depth = %d, want 2 left after packing 3", m.QueueDepth())
 	}
-	step(m, core.LogAppendDone{Req: packed.Req, Slot: packed.Slot, Err: core.OK, Outcome: core.Applied})
+	step(m, runtime.LogAppendDone{Req: packed.Req, Slot: packed.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	ans := m.TakeAnswers()
 	if len(ans) != 3 {
 		t.Fatalf("packed answers = %d, want 3", len(ans))
 	}
 	for i, a := range ans {
-		if a.Req != core.RequestID(i+2) || a.Done.Err != core.OK {
+		if a.Req != runtime.RequestID(i+2) || a.Done.Err != runtime.OK {
 			t.Fatalf("answer[%d] = %+v", i, a)
 		}
 	}
-	if m.Metadata().End(core.NewTopicPartition("t", 0)) != 4 { // g0 + 3 packed
-		t.Fatalf("end = %d, want 4", m.Metadata().End(core.NewTopicPartition("t", 0)))
+	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 4 { // g0 + 3 packed
+		t.Fatalf("end = %d, want 4", m.Metadata().End(contract.NewTopicPartition("t", 0)))
 	}
 }
 
 func TestMaybeAppliedRetriesSameSlot(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
 	a := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("a", 1)}))
-	acts := step(m, core.LogAppendDone{
-		Req: a.Req, Slot: a.Slot, Err: core.ErrTimeout, Outcome: core.MaybeApplied,
+	acts := step(m, runtime.LogAppendDone{
+		Req: a.Req, Slot: a.Slot, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied,
 	})
 	retry := onlyAppend(t, acts)
 	if retry.Slot != a.Slot {
 		t.Fatalf("MaybeApplied retry slot %d, want same slot %d", retry.Slot, a.Slot)
 	}
-	step(m, core.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: core.OK, Outcome: core.Applied})
+	step(m, runtime.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	if m.Applied() != 1 {
 		t.Fatalf("Applied = %d, want 1", m.Applied())
 	}
@@ -134,9 +135,9 @@ func TestLostAppendRetriesSameEntryLaterSlot(t *testing.T) {
 	ap := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 7, Cmd: commitCmd("lost-key", 2)}))
 	other := replica.EncodeGroupForTest("other/1", []metadata.Entry{commitCmd("other-key", 1)})
 
-	acts := step(m, core.LogAppendDone{
+	acts := step(m, runtime.LogAppendDone{
 		Req: ap.Req, Slot: ap.Slot, Taken: true, Existing: other,
-		Err: core.OK, Outcome: core.Applied,
+		Err: runtime.OK, Outcome: runtime.Applied,
 	})
 	retry := onlyAppend(t, acts)
 	if retry.Slot <= ap.Slot {
@@ -151,23 +152,23 @@ func TestLostAppendRetriesSameEntryLaterSlot(t *testing.T) {
 	if m.Applied() != 1 {
 		t.Fatalf("Applied = %d after observing foreign winner, want 1", m.Applied())
 	}
-	step(m, core.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: core.OK, Outcome: core.Applied})
+	step(m, runtime.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != core.OK {
+	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("answers after retry apply = %+v", ans)
 	}
-	if m.Metadata().End(core.NewTopicPartition("t", 0)) != 3 {
-		t.Fatalf("end = %d, want 3", m.Metadata().End(core.NewTopicPartition("t", 0)))
+	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 3 {
+		t.Fatalf("end = %d, want 3", m.Metadata().End(contract.NewTopicPartition("t", 0)))
 	}
 }
 
 func TestStickySingleAppenderAtMachineLevel(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "sticky"})
-	var apps []core.LogAppend
+	var apps []runtime.LogAppend
 	acts := m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("sta", 1)})
 	apps = append(apps, onlyAppend(t, acts))
 	m.Offer(replica.ClientOperation{Req: 2, Cmd: commitCmd("stb", 1)})
-	acts = step(m, core.LogAppendDone{Req: apps[0].Req, Slot: apps[0].Slot, Err: core.OK, Outcome: core.Applied})
+	acts = step(m, runtime.LogAppendDone{Req: apps[0].Req, Slot: apps[0].Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	apps = append(apps, onlyAppend(t, acts))
 	if apps[0].Slot == apps[1].Slot {
 		t.Fatal("sticky appender allocated the same slot twice")
@@ -181,7 +182,7 @@ func TestStickySingleAppenderAtMachineLevel(t *testing.T) {
 			t.Fatalf("entry id %q, want sticky/ prefix (single writer)", id)
 		}
 	}
-	step(m, core.LogAppendDone{Req: apps[1].Req, Slot: apps[1].Slot, Err: core.OK, Outcome: core.Applied})
+	step(m, runtime.LogAppendDone{Req: apps[1].Req, Slot: apps[1].Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	ans := m.TakeAnswers()
 	if len(ans) != 2 {
 		t.Fatalf("answers = %d, want 2", len(ans))
@@ -191,8 +192,8 @@ func TestStickySingleAppenderAtMachineLevel(t *testing.T) {
 func TestOfferKnownCommitSkipsAppend(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
 	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("known", 2)}))
-	step(m, core.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: core.OK, Outcome: core.Applied})
-	if ans := m.TakeAnswers(); len(ans) != 1 || ans[0].Done.Err != core.OK {
+	step(m, runtime.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: runtime.OK, Outcome: runtime.Applied})
+	if ans := m.TakeAnswers(); len(ans) != 1 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("first answers = %+v", ans)
 	}
 	acts := m.Offer(replica.ClientOperation{Req: 2, Cmd: commitCmd("known", 2)})
@@ -200,10 +201,10 @@ func TestOfferKnownCommitSkipsAppend(t *testing.T) {
 		t.Fatalf("known Offer returned %v, want immediate answer", acts)
 	}
 	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 2 || ans[0].Done.Err != core.OK {
+	if len(ans) != 1 || ans[0].Req != 2 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("known answers = %+v", ans)
 	}
-	response, ok := ans[0].Done.Resp.(core.CommitSegmentResp)
+	response, ok := ans[0].Done.Resp.(contract.CommitSegmentResp)
 	if !ok || len(response.Assigned) != 1 || response.Assigned[0].Count != 2 {
 		t.Fatalf("known resp = %+v", ans[0].Done.Resp)
 	}
@@ -219,9 +220,9 @@ func TestOfferRetargetsInFlightCommit(t *testing.T) {
 	if m.QueueDepth() != 0 {
 		t.Fatalf("queue depth = %d, want 0 (coalesced)", m.QueueDepth())
 	}
-	step(m, core.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: core.OK, Outcome: core.Applied})
+	step(m, runtime.LogAppendDone{Req: first.Req, Slot: first.Slot, Err: runtime.OK, Outcome: runtime.Applied})
 	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 2 || ans[0].Done.Err != core.OK {
+	if len(ans) != 1 || ans[0].Req != 2 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("answers = %+v, want Req 2", ans)
 	}
 }

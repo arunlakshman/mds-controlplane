@@ -9,29 +9,29 @@ import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func toRPCError(code core.ErrCode, outcome core.Outcome) error {
+func toRPCError(code runtime.ErrCode, outcome runtime.Outcome) error {
 	st := codes.Internal
 	switch code {
-	case core.ErrUnavailable:
+	case runtime.ErrUnavailable:
 		st = codes.Unavailable
-	case core.ErrInvalid:
+	case runtime.ErrInvalid:
 		st = codes.InvalidArgument
-	case core.ErrNotFound:
+	case runtime.ErrNotFound:
 		st = codes.NotFound
-	case core.ErrConflict, core.ErrTopicExists:
+	case runtime.ErrConflict, runtime.ErrTopicExists:
 		st = codes.AlreadyExists
-	case core.ErrTimeout:
+	case runtime.ErrTimeout:
 		st = codes.DeadlineExceeded
-	case core.ErrTooLarge:
+	case runtime.ErrTooLarge:
 		st = codes.ResourceExhausted
-	case core.ErrUnknownMember, core.ErrUnknownPartition:
+	case runtime.ErrUnknownMember, runtime.ErrUnknownPartition:
 		st = codes.NotFound
-	case core.ErrIllegalGeneration, core.ErrRebalanceInProgress, core.ErrInconsistentGroupProtocol:
+	case runtime.ErrIllegalGeneration, runtime.ErrRebalanceInProgress, runtime.ErrInconsistentGroupProtocol:
 		st = codes.FailedPrecondition
-	case core.OK:
+	case runtime.OK:
 		return nil
 	}
 	detail := &cpv1.ErrorDetail{
@@ -54,7 +54,7 @@ func (n *Node) GetStatus(ctx context.Context, _ *cpv1.GetStatusRequest) (*cpv1.G
 		ready            bool
 	}
 	ch := make(chan st, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []core.Action {
+	err := n.onLoop(ctx, func(m *replica.Replica) []runtime.Action {
 		role := "standby"
 		if m.IsActive() {
 			role = "active"
@@ -66,16 +66,16 @@ func (n *Node) GetStatus(ctx context.Context, _ *cpv1.GetStatusRequest) (*cpv1.G
 		return nil
 	})
 	if err != nil {
-		return nil, toRPCError(core.ErrIO, core.NotApplied)
+		return nil, toRPCError(runtime.ErrIO, runtime.NotApplied)
 	}
 	select {
 	case s := <-ch:
 		if !s.ready {
-			return nil, toRPCError(core.ErrUnavailable, core.NotApplied)
+			return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 		}
 		return &cpv1.GetStatusResponse{Role: s.role, AppliedSlot: s.applied, LogTail: s.logTail,
 			Epoch: s.epoch, StepDowns: s.stepDowns}, nil
 	case <-ctx.Done():
-		return nil, toRPCError(core.ErrTimeout, core.NotApplied)
+		return nil, toRPCError(runtime.ErrTimeout, runtime.NotApplied)
 	}
 }

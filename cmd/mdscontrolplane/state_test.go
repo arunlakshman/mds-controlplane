@@ -6,9 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestMachineConfigSetsTheIdempotencyWindow(t *testing.T) {
@@ -31,11 +32,11 @@ func TestMachineConfigSetsTheIdempotencyWindow(t *testing.T) {
 // topicCount asks a store how many topics it holds.
 func topicCount(t *testing.T, keyValue kv.Store) int {
 	t.Helper()
-	d, err := metadata.New(keyValue).Describe(core.DescribeTopics{})
+	d, err := metadata.New(keyValue).Describe(contract.DescribeTopics{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return len(core.ResponseAs[core.DescribeTopicsResp](d).Topics)
+	return len(runtime.ResponseAs[contract.DescribeTopicsResp](d).Topics)
 }
 
 func TestPebbleStateReopensEmpty(t *testing.T) {
@@ -48,7 +49,7 @@ func TestPebbleStateReopensEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := metadata.New(first).CreateTopic("orders", 2); code != core.OK {
+	if code := metadata.New(first).CreateTopic("orders", 2); code != runtime.OK {
 		t.Fatalf("CreateTopic code = %v", code)
 	}
 	if n := topicCount(t, first); n != 1 {

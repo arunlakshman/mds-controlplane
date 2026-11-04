@@ -6,7 +6,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // trackedStore is an in-memory store that remembers whether it was closed.
@@ -37,27 +37,27 @@ func (s *storeSource) open() (kv.Store, error) {
 
 // driveToTomb runs a lagging replica into a trimmed slot, which makes it drop
 // its state and restore from a checkpoint. It returns the actions of that step.
-func driveToTomb(t *testing.T, m *replica.Replica) []core.Action {
+func driveToTomb(t *testing.T, m *replica.Replica) []runtime.Action {
 	t.Helper()
-	acts := step(m, core.NodeStarted{})
-	list := acts[0].(core.ObjectList)
-	acts = step(m, core.ObjectListDone{Req: list.Req})
-	timer := acts[0].(core.SetTimer)
-	acts = step(m, core.TimerFired{ID: timer.ID, Gen: timer.Gen})
-	tail := acts[0].(core.LogGetEnd)
-	acts = step(m, core.LogGetEndDone{Req: tail.Req, Tail: 2, Err: core.OK, Outcome: core.Applied})
-	read := acts[0].(core.LogRead)
+	acts := step(m, runtime.NodeStarted{})
+	list := acts[0].(runtime.ObjectList)
+	acts = step(m, runtime.ObjectListDone{Req: list.Req})
+	timer := acts[0].(runtime.SetTimer)
+	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
+	tail := acts[0].(runtime.LogGetEnd)
+	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})
+	read := acts[0].(runtime.LogRead)
 	// Slot 0 is missing but slot 1 exists: the node is behind a trim.
-	return step(m, core.LogReadDone{
-		Req: read.Req, Err: core.OK, Outcome: core.Applied,
-		Entries: []core.LogEntry{{Slot: 1, Data: noop("late")}},
+	return step(m, runtime.LogReadDone{
+		Req: read.Req, Err: runtime.OK, Outcome: runtime.Applied,
+		Entries: []runtime.LogEntry{{Slot: 1, Data: noop("late")}},
 	})
 }
 
 func tombConfig(src *storeSource) replica.Config {
 	return replica.Config{
-		CatchUpEvery: core.Millisecond, Writer: "w",
-		CheckpointPrefix: "checkpoint/t/", CheckpointEvery: core.Second, Rank: 1,
+		CatchUpEvery: runtime.Millisecond, Writer: "w",
+		CheckpointPrefix: "checkpoint/t/", CheckpointEvery: runtime.Second, Rank: 1,
 		OpenStore: src.open,
 	}
 }
@@ -78,7 +78,7 @@ func TestOpenStoreRunsAtBuildAndAfterRestore(t *testing.T) {
 	if src.opened[1].closed {
 		t.Error("the new store must stay open")
 	}
-	if _, ok := acts[0].(core.ObjectList); !ok {
+	if _, ok := acts[0].(runtime.ObjectList); !ok {
 		t.Fatalf("act = %#v, want the checkpoint read", acts[0])
 	}
 }
@@ -87,7 +87,7 @@ func TestOpenStoreFailureAfterRestoreStopsTheNode(t *testing.T) {
 	src := &storeSource{failOn: 2}
 	m := newMachine(t, tombConfig(src))
 	acts := driveToTomb(t, m)
-	stop, ok := acts[len(acts)-1].(core.StopForRestart)
+	stop, ok := acts[len(acts)-1].(runtime.StopForRestart)
 	if !ok {
 		t.Fatalf("acts = %#v, want StopForRestart last", acts)
 	}
@@ -98,8 +98,8 @@ func TestOpenStoreFailureAfterRestoreStopsTheNode(t *testing.T) {
 
 func TestOpenStoreFailureAtBuildStopsOnStart(t *testing.T) {
 	m := newMachine(t, tombConfig(&storeSource{failOn: 1}))
-	acts := step(m, core.NodeStarted{})
-	stop, ok := acts[0].(core.StopForRestart)
+	acts := step(m, runtime.NodeStarted{})
+	stop, ok := acts[0].(runtime.StopForRestart)
 	if !ok || stop.Cause != "disk is full" {
 		t.Fatalf("acts = %#v, want StopForRestart with the open error", acts)
 	}

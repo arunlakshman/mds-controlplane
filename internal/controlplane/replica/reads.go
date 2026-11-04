@@ -1,6 +1,8 @@
 package replica
 
-import "github.com/manifesterio/mds-controlplane/internal/core"
+import (
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
+)
 
 // readWaiter is one lookup or describe that waits for a fresh view.
 // A read is answered only after this node has applied the log tail that was
@@ -8,21 +10,21 @@ import "github.com/manifesterio/mds-controlplane/internal/core"
 // Without it a standby could answer from an old fold and show a consumer an
 // end offset below what was already acked.
 type readWaiter struct {
-	request core.RequestID
-	from    core.NodeInstance
-	read    func() (core.ControlPlaneDone, error)
-	round   uint64           // first tail check that started after the read arrived
-	goal    core.LogPosition // tail seen by that check; valid when haveGoal
+	request runtime.RequestID
+	from    runtime.NodeInstance
+	read    func() (runtime.ControlPlaneDone, error)
+	round   uint64              // first tail check that started after the read arrived
+	goal    runtime.LogPosition // tail seen by that check; valid when haveGoal
 	have    bool
 }
 
 // queueRead holds a read until a tail check that starts after now has been applied.
-func (m *Replica) queueRead(request core.RequestID, from core.NodeInstance, read func() (core.ControlPlaneDone, error)) {
+func (m *Replica) queueRead(request runtime.RequestID, from runtime.NodeInstance, read func() (runtime.ControlPlaneDone, error)) {
 	m.readWaiters = append(m.readWaiters, readWaiter{request: request, from: from, read: read, round: m.tailsStarted + 1})
 }
 
 // noteTail gives the waiters covered by tail check `round` their goal slot.
-func (m *Replica) noteTail(round uint64, tail core.LogPosition) {
+func (m *Replica) noteTail(round uint64, tail runtime.LogPosition) {
 	for i := range m.readWaiters {
 		w := &m.readWaiters[i]
 		if !w.have && w.round <= round {
@@ -32,18 +34,18 @@ func (m *Replica) noteTail(round uint64, tail core.LogPosition) {
 }
 
 // serveReads answers every waiter whose goal slot is applied.
-func (m *Replica) serveReads() []core.Action {
+func (m *Replica) serveReads() []runtime.Action {
 	if len(m.readWaiters) == 0 || !m.ready {
 		return nil
 	}
-	var acts []core.Action
+	var acts []runtime.Action
 	keep := m.readWaiters[:0]
 	for _, w := range m.readWaiters {
 		if !w.have || m.applied < w.goal {
 			keep = append(keep, w)
 			continue
 		}
-		acts = append(acts, core.ControlPlaneReply{To: w.from, Done: m.readDone(w.request, w.read)})
+		acts = append(acts, runtime.ControlPlaneReply{To: w.from, Done: m.readDone(w.request, w.read)})
 	}
 	m.readWaiters = keep
 	return acts
@@ -51,19 +53,19 @@ func (m *Replica) serveReads() []core.Action {
 
 // refuseReads answers every waiting read with Unavailable so the bridge can
 // try the other replica at once.
-func (m *Replica) refuseReads() []core.Action {
-	var acts []core.Action
+func (m *Replica) refuseReads() []runtime.Action {
+	var acts []runtime.Action
 	for _, w := range m.readWaiters {
-		acts = append(acts, core.ControlPlaneReply{To: w.from, Done: core.ControlPlaneDone{Req: w.request, Err: core.ErrUnavailable}})
+		acts = append(acts, runtime.ControlPlaneReply{To: w.from, Done: runtime.ControlPlaneDone{Req: w.request, Err: runtime.ErrUnavailable}})
 	}
 	m.readWaiters = nil
 	return acts
 }
 
-func (m *Replica) readDone(request core.RequestID, read func() (core.ControlPlaneDone, error)) core.ControlPlaneDone {
+func (m *Replica) readDone(request runtime.RequestID, read func() (runtime.ControlPlaneDone, error)) runtime.ControlPlaneDone {
 	d, err := read()
 	if err != nil {
-		return core.ControlPlaneDone{Req: request, Err: core.ErrIO}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrIO}
 	}
 	d.Req = request
 	return d

@@ -4,13 +4,14 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func roundTrip(t *testing.T, operation core.ControlPlaneOperation) core.ControlPlaneOperation {
+func roundTrip(t *testing.T, operation runtime.ControlPlaneOperation) runtime.ControlPlaneOperation {
 	t.Helper()
 	m := topics.Module{}
 	kind, ok := m.KindOf(operation)
@@ -28,20 +29,20 @@ func roundTrip(t *testing.T, operation core.ControlPlaneOperation) core.ControlP
 }
 
 func TestCodecRoundTrip(t *testing.T) {
-	tp := core.NewTopicPartition
-	for _, operation := range []core.ControlPlaneOperation{
-		core.CreateTopic{Name: "orders", Partitions: 3},
-		core.CreateTopic{Name: "orders", Partitions: 3, FailIfExists: true},
-		core.CommitSegment{SegmentKey: "k", Batches: []core.PendingBatch{
-			{TopicPartition: tp("t", 0), Records: 3, Loc: core.SegmentRef{Key: "o", Off: 10, Len: 30}},
-			{TopicPartition: tp("t", 1), Records: 2, Loc: core.SegmentRef{Key: "o", Off: 40, Len: 20}},
+	tp := contract.NewTopicPartition
+	for _, operation := range []runtime.ControlPlaneOperation{
+		contract.CreateTopic{Name: "orders", Partitions: 3},
+		contract.CreateTopic{Name: "orders", Partitions: 3, FailIfExists: true},
+		contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{
+			{TopicPartition: tp("t", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o", Off: 10, Len: 30}},
+			{TopicPartition: tp("t", 1), Records: 2, Loc: runtime.SegmentRef{Key: "o", Off: 40, Len: 20}},
 		}},
-		core.CommitSegment{SegmentKey: "empty"},
+		contract.CommitSegment{SegmentKey: "empty"},
 	} {
 		got := roundTrip(t, operation)
 		// an empty batch list reads back as an empty, non-nil slice; compare by content
-		if c, ok := operation.(core.CommitSegment); ok && len(c.Batches) == 0 {
-			if g, ok := got.(core.CommitSegment); !ok || g.SegmentKey != c.SegmentKey || len(g.Batches) != 0 {
+		if c, ok := operation.(contract.CommitSegment); ok && len(c.Batches) == 0 {
+			if g, ok := got.(contract.CommitSegment); !ok || g.SegmentKey != c.SegmentKey || len(g.Batches) != 0 {
 				t.Fatalf("empty commit: %+v", got)
 			}
 			continue
@@ -57,18 +58,18 @@ func TestKindsAndMode(t *testing.T) {
 	if len(m.Kinds()) != 3 {
 		t.Fatalf("kinds %v", m.Kinds())
 	}
-	if _, ok := m.KindOf(core.DescribeTopics{}); ok {
+	if _, ok := m.KindOf(contract.DescribeTopics{}); ok {
 		t.Fatal("a read has no kind")
 	}
 	for _, c := range []struct {
-		operation core.ControlPlaneOperation
+		operation runtime.ControlPlaneOperation
 		want      module.Mode
 	}{
-		{core.CommitSegment{}, module.Logged},
-		{core.CreateTopic{}, module.Logged},
-		{core.FindSegments{}, module.ReadOnly},
-		{core.DescribeTopics{}, module.ReadOnly},
-		{core.ListGroups{}, module.NotMine},
+		{contract.CommitSegment{}, module.Logged},
+		{contract.CreateTopic{}, module.Logged},
+		{contract.FindSegments{}, module.ReadOnly},
+		{contract.DescribeTopics{}, module.ReadOnly},
+		{contract.ListGroups{}, module.NotMine},
 	} {
 		if got := m.Mode(c.operation); got != c.want {
 			t.Errorf("%T: mode %v, want %v", c.operation, got, c.want)
@@ -79,8 +80,8 @@ func TestKindsAndMode(t *testing.T) {
 func TestDecodeRejectsDamage(t *testing.T) {
 	m := topics.Module{}
 	valid := kv.NewWriter()
-	m.Encode(valid, topics.KindCommit, core.CommitSegment{SegmentKey: "k", Batches: []core.PendingBatch{
-		{TopicPartition: core.NewTopicPartition("t", 0), Records: 1, Loc: core.SegmentRef{Key: "o", Len: 1}},
+	m.Encode(valid, topics.KindCommit, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{
+		{TopicPartition: contract.NewTopicPartition("t", 0), Records: 1, Loc: runtime.SegmentRef{Key: "o", Len: 1}},
 	}})
 	whole := valid.Bytes()
 	// every cut of a valid commit must fail the reader, and never panic
@@ -108,7 +109,7 @@ func TestDecodeRejectsDamage(t *testing.T) {
 	}
 	// Encode of an operation this module does not own writes nothing
 	w := kv.NewWriter()
-	m.Encode(w, topics.KindCommit, core.ListGroups{})
+	m.Encode(w, topics.KindCommit, contract.ListGroups{})
 	if len(w.Bytes()) != 0 {
 		t.Fatal("encoded an operation that is not a topics operation")
 	}

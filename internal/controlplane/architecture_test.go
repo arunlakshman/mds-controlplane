@@ -29,7 +29,7 @@ var skipDirs = map[string]bool{
 
 // goFile is one .go file of the repo and the imports it lists.
 type goFile struct {
-	rel     string   // slash path from the module root, for example internal/core/doc.go
+	rel     string   // slash path from the module root, for example internal/runtime/doc.go
 	dir     string   // slash dir from the module root, "." at the root
 	isTest  bool     // true for *_test.go files
 	imports []string // import paths as written in the file
@@ -166,11 +166,11 @@ func TestControlPlaneTestPackageUsedOnlyByTests(t *testing.T) {
 	}
 }
 
-// TestWireBoundaryPackagesDoNotImportWire: core, broker and the simulator
+// TestWireBoundaryPackagesDoNotImportWire: runtime and contract
 // (and their sub-packages) must not import the wire packages. Test files count too.
 func TestWireBoundaryPackagesDoNotImportWire(t *testing.T) {
 	r := loadRepo(t)
-	guarded := []string{"internal/core", "internal/broker", "internal/verify/simulator"}
+	guarded := []string{"internal/runtime", "internal/controlplane/contract"}
 	wire := []string{"internal/controlplane/api/v1", "internal/controlplane/wireboundary"}
 	for _, f := range r.files {
 		if !underAny(f.dir, guarded) {
@@ -185,13 +185,29 @@ func TestWireBoundaryPackagesDoNotImportWire(t *testing.T) {
 	}
 }
 
-// TestRunLoopImportsOnlyCore: the run loop doc says it imports only core and
+// TestRuntimeDoesNotImportContract: the dependency goes one way. contract imports
+// runtime, runtime never imports contract.
+func TestRuntimeDoesNotImportContract(t *testing.T) {
+	r := loadRepo(t)
+	for _, f := range r.files {
+		if !underDir(f.dir, "internal/runtime") {
+			continue
+		}
+		for _, imp := range f.imports {
+			if rel, ok := inModule(imp, r.module); ok && underDir(rel, "internal/controlplane") {
+				t.Errorf("%s imports %q: internal/runtime must not import any control-plane package", f.rel, imp)
+			}
+		}
+	}
+}
+
+// TestRunLoopImportsOnlyRuntime: the run loop doc says it imports only runtime and
 // the standard library. This test checks that rule for non-test files.
-func TestRunLoopImportsOnlyCore(t *testing.T) {
+func TestRunLoopImportsOnlyRuntime(t *testing.T) {
 	r := loadRepo(t)
 	const dir = "internal/controlplane/runloop"
-	const core = "internal/core"
-	claim := "imports only " + r.module + "/" + core + " and stdlib"
+	const runtimePkg = "internal/runtime"
+	claim := "imports only " + r.module + "/" + runtimePkg + " and stdlib"
 	if doc := packageComment(t, r, dir); !strings.Contains(doc, claim) {
 		t.Fatalf("the package comment of %s no longer says %q; update this rule to match", dir, claim)
 	}
@@ -202,14 +218,14 @@ func TestRunLoopImportsOnlyCore(t *testing.T) {
 		for _, imp := range f.imports {
 			rel, ok := inModule(imp, r.module)
 			if ok {
-				if !underDir(rel, core) {
-					t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, core)
+				if !underDir(rel, runtimePkg) {
+					t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, runtimePkg)
 				}
 				continue
 			}
 			// A standard library path has no dot in its first element.
 			if strings.Contains(strings.Split(imp, "/")[0], ".") {
-				t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, core)
+				t.Errorf("%s imports %q: the run loop may import only %s and the standard library", f.rel, imp, runtimePkg)
 			}
 		}
 	}
@@ -243,17 +259,18 @@ func packageComment(t *testing.T, r repo, dir string) string {
 // executor/sqllog, kv/pebblestore).
 var layerRules = []struct {
 	dir     string
-	allowed []string // module-relative packages, or "internal/core" and so on
+	allowed []string // module-relative packages, or "internal/runtime" and so on
 }{
-	{"internal/controlplane/kv", []string{"internal/core"}},
-	{"internal/controlplane/membership", []string{"internal/core"}},
-	{"internal/controlplane/module", []string{"internal/controlplane/kv", "internal/core"}},
-	{"internal/controlplane/topics", []string{"internal/controlplane/kv", "internal/controlplane/module", "internal/core"}},
-	{"internal/controlplane/groups/storage", []string{"internal/controlplane/kv", "internal/controlplane/module", "internal/core"}},
-	{"internal/controlplane/groups", []string{"internal/core", "internal/system/realclock"}},
-	{"internal/controlplane/metadata", []string{"internal/controlplane/groups/storage", "internal/controlplane/kv", "internal/controlplane/module", "internal/controlplane/topics", "internal/core"}},
-	{"internal/controlplane/replica", []string{"internal/controlplane/kv", "internal/controlplane/metadata", "internal/controlplane/module", "internal/core"}},
-	{"internal/controlplane/executor", []string{"internal/controlplane/runloop", "internal/core"}},
+	{"internal/controlplane/contract", []string{"internal/runtime"}},
+	{"internal/controlplane/kv", []string{"internal/controlplane/contract", "internal/runtime"}},
+	{"internal/controlplane/membership", []string{"internal/controlplane/contract", "internal/runtime"}},
+	{"internal/controlplane/module", []string{"internal/controlplane/kv", "internal/runtime"}},
+	{"internal/controlplane/topics", []string{"internal/controlplane/contract", "internal/controlplane/kv", "internal/controlplane/module", "internal/runtime"}},
+	{"internal/controlplane/groups/storage", []string{"internal/controlplane/contract", "internal/controlplane/kv", "internal/controlplane/module", "internal/runtime"}},
+	{"internal/controlplane/groups", []string{"internal/controlplane/contract", "internal/runtime", "internal/system/realclock"}},
+	{"internal/controlplane/metadata", []string{"internal/controlplane/contract", "internal/controlplane/groups/storage", "internal/controlplane/kv", "internal/controlplane/module", "internal/controlplane/topics", "internal/runtime"}},
+	{"internal/controlplane/replica", []string{"internal/controlplane/contract", "internal/controlplane/kv", "internal/controlplane/metadata", "internal/controlplane/module", "internal/runtime"}},
+	{"internal/controlplane/executor", []string{"internal/controlplane/runloop", "internal/runtime"}},
 }
 
 // TestControlPlaneLayers: the domain packages depend inward only. Each one may
@@ -285,7 +302,7 @@ func TestControlPlaneLayers(t *testing.T) {
 }
 
 // TestLogAdaptersImportOnlyThePort: dynamolog and sqllog implement executor.Log.
-// They may import the port (executor) and core, and no other control-plane package.
+// They may import the port (executor) and runtime, and no other control-plane package.
 func TestLogAdaptersImportOnlyThePort(t *testing.T) {
 	r := loadRepo(t)
 	adapters := []string{"internal/controlplane/executor/dynamolog", "internal/controlplane/executor/sqllog"}
@@ -295,15 +312,15 @@ func TestLogAdaptersImportOnlyThePort(t *testing.T) {
 		}
 		for _, imp := range f.imports {
 			rel, ok := inModule(imp, r.module)
-			if ok && !slices.Contains([]string{"internal/controlplane/executor", "internal/core", "internal/system/realclock"}, rel) {
-				t.Errorf("%s imports %q: a log adapter may import only internal/controlplane/executor, internal/core and internal/system/realclock", f.rel, imp)
+			if ok && !slices.Contains([]string{"internal/controlplane/executor", "internal/runtime", "internal/system/realclock"}, rel) {
+				t.Errorf("%s imports %q: a log adapter may import only internal/controlplane/executor, internal/runtime and internal/system/realclock", f.rel, imp)
 			}
 		}
 	}
 }
 
 // timeCallPackages are the packages whose non-test files may not call the time
-// functions below. All time comes from core.Clock (see core/clock.go): the real
+// functions below. All time comes from runtime.Clock (see runtime/clock.go): the real
 // implementation is system/realclock and the test one is system/fakeclock. A
 // context timeout is not a time call in this sense.
 var timeCallPackages = []string{
@@ -322,7 +339,7 @@ var timeCallPackages = []string{
 var forbiddenTimeCalls = []string{"Now", "Since", "Until", "AfterFunc", "After", "NewTimer", "NewTicker", "Tick", "Sleep"}
 
 // TestControlPlaneTimeComesFromClock: in the packages above, no file calls
-// time.Now, time.AfterFunc, time.NewTimer and the like. They take a core.Clock.
+// time.Now, time.AfterFunc, time.NewTimer and the like. They take a runtime.Clock.
 func TestControlPlaneTimeComesFromClock(t *testing.T) {
 	r := loadRepo(t)
 	for _, f := range r.files {
@@ -339,7 +356,7 @@ func TestControlPlaneTimeComesFromClock(t *testing.T) {
 				return true
 			}
 			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "time" && slices.Contains(forbiddenTimeCalls, sel.Sel.Name) {
-				t.Errorf("%s calls time.%s: take a core.Clock instead (core/clock.go)", f.rel, sel.Sel.Name)
+				t.Errorf("%s calls time.%s: take a runtime.Clock instead (runtime/clock.go)", f.rel, sel.Sel.Name)
 			}
 			return true
 		})

@@ -22,12 +22,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplaneclient"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanemetrics"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/fakedynamodb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
 	"github.com/manifesterio/mds-controlplane/internal/system/runinfo"
 )
@@ -148,7 +149,7 @@ func newFake(t *testing.T) *fakedynamodb.FakeDynamoDB {
 // acks records what the control plane acknowledged.
 type acks struct {
 	mu   sync.Mutex
-	rngs map[string][]core.BatchRange // segment key -> assigned
+	rngs map[string][]contract.BatchRange // segment key -> assigned
 }
 
 func commitLoop(ctx context.Context, c *controlplaneclient.Client, w int, a *acks, n *atomic.Int64, stop <-chan struct{}) error {
@@ -159,14 +160,14 @@ func commitLoop(ctx context.Context, c *controlplaneclient.Client, w int, a *ack
 		default:
 		}
 		key := fmt.Sprintf("seg/w%d-%06d", w, i)
-		operation := core.CommitSegment{SegmentKey: key, Batches: []core.PendingBatch{
-			{TopicPartition: core.NewTopicPartition("t", int32(i%3)), Records: 2 + int64(w), Loc: core.SegmentRef{Key: key, Off: 0, Len: 10}}}}
+		operation := contract.CommitSegment{SegmentKey: key, Batches: []contract.PendingBatch{
+			{TopicPartition: contract.NewTopicPartition("t", int32(i%3)), Records: 2 + int64(w), Loc: runtime.SegmentRef{Key: key, Off: 0, Len: 10}}}}
 		response, err := commitRetrying(ctx, c, operation)
 		if err != nil {
 			return fmt.Errorf("%s: %w", key, err)
 		}
 		a.mu.Lock()
-		a.rngs[key] = response.(core.CommitSegmentResp).Assigned
+		a.rngs[key] = response.(contract.CommitSegmentResp).Assigned
 		a.mu.Unlock()
 		n.Add(1)
 	}
@@ -175,7 +176,7 @@ func commitLoop(ctx context.Context, c *controlplaneclient.Client, w int, a *ack
 // commitRetrying is the broker's rule: the same segment key is retried with a
 // short backoff on any transport failure or 503 until a deadline (the real
 // deadline is 120 s; a takeover takes seconds).
-func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation core.CommitSegment) (core.ControlPlaneResponse, error) {
+func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation contract.CommitSegment) (runtime.ControlPlaneResponse, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	for {
@@ -185,7 +186,7 @@ func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation
 		}
 		_, isCallErr := errors.AsType[*controlplaneclient.CallError](err)
 		be, isErr := errors.AsType[*controlplaneclient.Error](err)
-		retry := isCallErr || (isErr && be.Code == core.ErrUnavailable)
+		retry := isCallErr || (isErr && be.Code == runtime.ErrUnavailable)
 		if !retry {
 			return response, err
 		}
@@ -196,7 +197,7 @@ func commitRetrying(ctx context.Context, c *controlplaneclient.Client, operation
 // partitionsMatch reports whether c's fold holds exactly the acked ranges.
 func partitionsMatch(ctx context.Context, c *controlplaneclient.Client, a *acks) error {
 	type run struct{ base, cnt int64 }
-	want := map[core.TopicPartition]map[run]string{}
+	want := map[contract.TopicPartition]map[run]string{}
 	for key, rs := range a.rngs {
 		for _, r := range rs {
 			if want[r.TopicPartition] == nil {
@@ -212,11 +213,11 @@ func partitionsMatch(ctx context.Context, c *controlplaneclient.Client, a *acks)
 	for topicPartition, runs := range want {
 		var next int64
 		for next < int64(len(runs))*100 {
-			response, err := c.Call(ctx, core.FindSegments{TopicPartition: topicPartition, From: core.Offset(next), MaxBytes: 1 << 30})
+			response, err := c.Call(ctx, contract.FindSegments{TopicPartition: topicPartition, From: contract.Offset(next), MaxBytes: 1 << 30})
 			if err != nil {
 				return err
 			}
-			lr := response.(core.FindSegmentsResp)
+			lr := response.(contract.FindSegmentsResp)
 			for _, r := range lr.Ranges {
 				if int64(r.Base) != next {
 					return fmt.Errorf("%v: gap or overlap, range at %d, expected %d", topicPartition, r.Base, next)
@@ -268,7 +269,7 @@ func TestLogStoreThreeNodesTakeover(t *testing.T) {
 	if err := c.CreateTopic(ctx, "t", 3); err != nil {
 		t.Fatal(err)
 	}
-	a := &acks{rngs: map[string][]core.BatchRange{}}
+	a := &acks{rngs: map[string][]contract.BatchRange{}}
 	var n atomic.Int64
 	stop := make(chan struct{})
 	errs := make(chan error, 3)
@@ -316,8 +317,8 @@ func TestLogStoreRestartFromFinalCheckpoint(t *testing.T) {
 	}
 	for i := range 5 {
 		key := fmt.Sprintf("seg/%d", i)
-		_, err := c.Call(t.Context(), core.CommitSegment{SegmentKey: key, Batches: []core.PendingBatch{
-			{TopicPartition: core.NewTopicPartition("t", 0), Records: 3, Loc: core.SegmentRef{Key: key, Len: 9}}}})
+		_, err := c.Call(t.Context(), contract.CommitSegment{SegmentKey: key, Batches: []contract.PendingBatch{
+			{TopicPartition: contract.NewTopicPartition("t", 0), Records: 3, Loc: runtime.SegmentRef{Key: key, Len: 9}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -327,8 +328,8 @@ func TestLogStoreRestartFromFinalCheckpoint(t *testing.T) {
 	}
 	// Restart against the same Dynamo log: catch-up rebuilds fold state.
 	n2 := startLogNode(t, d, "n0", 0, "-checkpoint-every", "-1s")
-	response, err := controlplaneclient.New(n2.addr, nil).Call(t.Context(), core.FindSegments{TopicPartition: core.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
-	if err != nil || response.(core.FindSegmentsResp).End != 15 {
+	response, err := controlplaneclient.New(n2.addr, nil).Call(t.Context(), contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
+	if err != nil || response.(contract.FindSegmentsResp).End != 15 {
 		t.Fatalf("after restart: %v %+v\n%s", err, response, n2.logs.String())
 	}
 	_ = objs
@@ -384,7 +385,7 @@ func TestTakeoverRankStepFlag(t *testing.T) {
 	if f.log.takeoverRankStep != 250*time.Millisecond {
 		t.Fatalf("flag value: %v", f.log.takeoverRankStep)
 	}
-	if got := machineConfig(f).TakeoverRankStep; got != core.Duration(250*time.Millisecond) {
+	if got := machineConfig(f).TakeoverRankStep; got != runtime.Duration(250*time.Millisecond) {
 		t.Fatalf("machine config: %v", got)
 	}
 	if _, _, err := parseFlags([]string{"-takeover-rank-step", "soon"}, &bytes.Buffer{}); err == nil {
@@ -527,13 +528,13 @@ func TestPostgresStoreCommitAndLookup(t *testing.T) {
 		t.Fatalf("create topic: %v\n%s", err, n.logs.String())
 	}
 	key := "seg/0"
-	_, err := c.Call(t.Context(), core.CommitSegment{SegmentKey: key, Batches: []core.PendingBatch{
-		{TopicPartition: core.NewTopicPartition("t", 0), Records: 3, Loc: core.SegmentRef{Key: key, Len: 9}}}})
+	_, err := c.Call(t.Context(), contract.CommitSegment{SegmentKey: key, Batches: []contract.PendingBatch{
+		{TopicPartition: contract.NewTopicPartition("t", 0), Records: 3, Loc: runtime.SegmentRef{Key: key, Len: 9}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := c.Call(t.Context(), core.FindSegments{TopicPartition: core.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
-	if err != nil || response.(core.FindSegmentsResp).End != 3 {
+	response, err := c.Call(t.Context(), contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 0), MaxBytes: 1 << 20})
+	if err != nil || response.(contract.FindSegmentsResp).End != 3 {
 		t.Fatalf("lookup after commit: %v %+v\n%s", err, response, n.logs.String())
 	}
 	if code := n.stop(t); code != 0 {

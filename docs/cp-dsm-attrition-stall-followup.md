@@ -56,7 +56,7 @@ They live at **two layers**. Do not conflate them.
 // internal/verify/simulator/kafka/config.go (configLogWith)
 cfg.Processes = append(cfg.Processes, simulator.Process{
     Name: "cp", Count: 2, NoAttrition: true,
-    FactoryFor: func(sc simulator.SeedConfig) core.MachineFactory { return cpFactory(sc, opts) },
+    FactoryFor: func(sc simulator.SeedConfig) runtime.MachineFactory { return cpFactory(sc, opts) },
 })
 ```
 

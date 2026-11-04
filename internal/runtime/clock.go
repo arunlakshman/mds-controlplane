@@ -1,4 +1,4 @@
-package core
+package runtime
 
 // Clock is the only source of time and timers for code that is not a Machine:
 // the run loops, the group coordinator, the log adapters. A Machine does not use

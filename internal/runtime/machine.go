@@ -1,4 +1,4 @@
-package core
+package runtime
 
 // StateMachine is the shape of every stateful component (broker, sim workload).
 // Step is the only place state changes. It never blocks and never does I/O.

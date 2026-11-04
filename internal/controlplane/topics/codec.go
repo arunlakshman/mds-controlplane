@@ -1,9 +1,10 @@
 package topics
 
 import (
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // The log entry kinds of this module. The numbers are part of the log format.
@@ -23,11 +24,11 @@ func (Module) Kinds() []module.Kind {
 }
 
 // KindOf is the kind of a CommitSegment or a CreateTopic.
-func (Module) KindOf(operation core.ControlPlaneOperation) (module.Kind, bool) {
+func (Module) KindOf(operation runtime.ControlPlaneOperation) (module.Kind, bool) {
 	switch x := operation.(type) {
-	case core.CommitSegment:
+	case contract.CommitSegment:
 		return KindCommit, true
-	case core.CreateTopic:
+	case contract.CreateTopic:
 		if x.FailIfExists {
 			return KindCreateTopicExclusive, true
 		}
@@ -37,24 +38,24 @@ func (Module) KindOf(operation core.ControlPlaneOperation) (module.Kind, bool) {
 }
 
 // Encode writes the payload of a CommitSegment or a CreateTopic.
-func (Module) Encode(w *kv.Writer, kind module.Kind, operation core.ControlPlaneOperation) {
+func (Module) Encode(w *kv.Writer, kind module.Kind, operation runtime.ControlPlaneOperation) {
 	switch x := operation.(type) {
-	case core.CommitSegment:
+	case contract.CommitSegment:
 		encodeCommit(w, x)
-	case core.CreateTopic:
+	case contract.CreateTopic:
 		w.String(x.Name)
 		w.Varint(int64(x.Partitions))
 	}
 }
 
 // Decode reads the payload of an entry of kind.
-func (Module) Decode(r *kv.Reader, kind module.Kind) core.ControlPlaneOperation {
+func (Module) Decode(r *kv.Reader, kind module.Kind) runtime.ControlPlaneOperation {
 	switch kind {
 	case KindCommit:
 		return decodeCommit(r)
 	case KindCreateTopic, KindCreateTopicExclusive:
 		name := r.String()
-		return core.CreateTopic{Name: name, Partitions: int32(r.Varint()), FailIfExists: kind == KindCreateTopicExclusive}
+		return contract.CreateTopic{Name: name, Partitions: int32(r.Varint()), FailIfExists: kind == KindCreateTopicExclusive}
 	}
 	r.Fail()
 	return nil
@@ -63,7 +64,7 @@ func (Module) Decode(r *kv.Reader, kind module.Kind) core.ControlPlaneOperation 
 // encodeCommit writes the segment key, then a table of the strings that the
 // batches use (each topic and each object key once), then the batches, which
 // refer to the table by index.
-func encodeCommit(w *kv.Writer, c core.CommitSegment) {
+func encodeCommit(w *kv.Writer, c contract.CommitSegment) {
 	w.String(c.SegmentKey)
 	var table []string
 	index := map[string]int{}
@@ -92,14 +93,14 @@ func encodeCommit(w *kv.Writer, c core.CommitSegment) {
 	w.Append(body.Bytes())
 }
 
-func decodeCommit(r *kv.Reader) core.CommitSegment {
-	c := core.CommitSegment{SegmentKey: r.String()}
+func decodeCommit(r *kv.Reader) contract.CommitSegment {
+	c := contract.CommitSegment{SegmentKey: r.String()}
 	table := make([]string, 0, 8)
 	for n := r.Uvarint(); n > 0 && r.OK(); n-- {
 		table = append(table, r.String())
 	}
 	n := r.Count()
-	c.Batches = make([]core.PendingBatch, 0, n)
+	c.Batches = make([]contract.PendingBatch, 0, n)
 	ref := func() string {
 		i := r.Uvarint()
 		if i >= uint64(len(table)) {
@@ -109,7 +110,7 @@ func decodeCommit(r *kv.Reader) core.CommitSegment {
 		return table[i]
 	}
 	for ; n > 0 && r.OK(); n-- {
-		var b core.PendingBatch
+		var b contract.PendingBatch
 		b.TopicPartition.Topic = ref()
 		b.TopicPartition.Partition = int32(r.Varint())
 		b.Records = r.Varint()

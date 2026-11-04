@@ -45,7 +45,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/realclock"
 )
 
@@ -57,7 +58,7 @@ type Config struct {
 	// WriteTimeout bounds one log write (default 10s).
 	WriteTimeout time.Duration
 	// Clock is the time source (default: the real clock).
-	Clock core.Clock
+	Clock runtime.Clock
 	// NewID returns a random id for a new member (default: 128 random bits in
 	// uuid form).
 	NewID func() string
@@ -101,7 +102,7 @@ type Member struct {
 
 // JoinResp is the answer to a JoinGroup call. Err is the group error.
 type JoinResp struct {
-	Err        core.ErrCode
+	Err        runtime.ErrCode
 	Generation int32
 	Protocol   string
 	Leader     string
@@ -125,7 +126,7 @@ type SyncReq struct {
 
 // SyncResp is the answer to a SyncGroup call. Err is the group error.
 type SyncResp struct {
-	Err        core.ErrCode
+	Err        runtime.ErrCode
 	Assignment []byte
 }
 
@@ -145,7 +146,7 @@ type LeaveReq struct {
 // GroupDescription is one group of a DescribeGroups answer.
 type GroupDescription struct {
 	Name string
-	core.DescribeGroupResp
+	contract.DescribeGroupResp
 }
 
 // Coordinator serves the group calls on the active node.
@@ -188,7 +189,7 @@ func New(config Config, store Store) *Coordinator {
 func randomID() string { return rand.Text() }
 
 // write runs one group write on the store and returns its business code.
-func (c *Coordinator) write(ctx context.Context, operation core.ControlPlaneOperation) (core.ErrCode, error) {
+func (c *Coordinator) write(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ErrCode, error) {
 	d, err := c.store.Exec(ctx, operation)
 	return d.Err, err
 }
@@ -207,21 +208,21 @@ func (c *Coordinator) Rebuild(ctx context.Context) error {
 	if closed {
 		return ErrClosed
 	}
-	listed, err := c.store.Exec(ctx, core.ListGroups{})
+	listed, err := c.store.Exec(ctx, contract.ListGroups{})
 	if err != nil {
 		return err
 	}
-	names := core.ResponseAs[core.ListGroupsResp](listed)
+	names := runtime.ResponseAs[contract.ListGroupsResp](listed)
 	tctx, cancel := context.WithCancel(context.Background())
 	t := &term{ctx: tctx, cancel: cancel, groups: map[string]*group{}}
 	for _, s := range names.Groups {
-		described, err := c.store.Exec(ctx, core.DescribeGroup{Group: s.Name})
+		described, err := c.store.Exec(ctx, contract.DescribeGroup{Group: s.Name})
 		if err != nil {
 			cancel()
 			return err
 		}
 		g := newGroup(s.Name)
-		c.load(t, g, core.ResponseAs[core.DescribeGroupResp](described))
+		c.load(t, g, runtime.ResponseAs[contract.DescribeGroupResp](described))
 		t.groups[s.Name] = g
 	}
 	c.mu.Lock()
@@ -311,15 +312,15 @@ func (t *term) poison() {
 // settle turns the answer of a decision write into the code for the callers.
 // A write that proves nothing was written keeps its code (ErrTooLarge and
 // ErrInvalid). Any other failure breaks the term and gives ErrUnavailable.
-func settle(t *term, code core.ErrCode, err error) core.ErrCode {
+func settle(t *term, code runtime.ErrCode, err error) runtime.ErrCode {
 	switch {
-	case err == nil && code == core.OK:
-		return core.OK
-	case err == nil && (code == core.ErrTooLarge || code == core.ErrInvalid):
+	case err == nil && code == runtime.OK:
+		return runtime.OK
+	case err == nil && (code == runtime.ErrTooLarge || code == runtime.ErrInvalid):
 		return code
 	}
 	t.poison()
-	return core.ErrUnavailable
+	return runtime.ErrUnavailable
 }
 
 // writeCtx is the context of one log write. It ends with the term or after WriteTimeout.
@@ -342,11 +343,11 @@ func (c *Coordinator) newMemberID(clientID string) string {
 // ends (then the error is ctx.Err()).
 func (c *Coordinator) JoinGroup(ctx context.Context, request JoinReq) (JoinResp, error) {
 	if request.Group == "" || request.ProtocolType == "" || len(request.Protocols) == 0 || request.SessionTimeoutMs <= 0 {
-		return JoinResp{Err: core.ErrInvalid}, nil
+		return JoinResp{Err: runtime.ErrInvalid}, nil
 	}
 	t := c.enter()
 	if t == nil {
-		return JoinResp{Err: core.ErrUnavailable}, nil
+		return JoinResp{Err: runtime.ErrUnavailable}, nil
 	}
 	id := request.MemberID
 	if id == "" {
@@ -354,14 +355,14 @@ func (c *Coordinator) JoinGroup(ctx context.Context, request JoinReq) (JoinResp,
 	}
 	g := c.group(t, request.Group, true)
 	if !t.lockLive(g) {
-		return JoinResp{Err: core.ErrUnavailable}, nil
+		return JoinResp{Err: runtime.ErrUnavailable}, nil
 	}
 	response, ch := c.joinLocked(t, g, request, id)
 	g.mu.Unlock()
 	if ch == nil {
 		return response, nil
 	}
-	return waitReply(ctx, t, g, id, ch, JoinResp{Err: core.ErrUnavailable}, func(m *member) *chan JoinResp { return &m.joinWait })
+	return waitReply(ctx, t, g, id, ch, JoinResp{Err: runtime.ErrUnavailable}, func(m *member) *chan JoinResp { return &m.joinWait })
 }
 
 // SyncGroup sends the leader's assignment, or waits for it as a follower. It
@@ -369,23 +370,23 @@ func (c *Coordinator) JoinGroup(ctx context.Context, request JoinReq) (JoinResp,
 func (c *Coordinator) SyncGroup(ctx context.Context, request SyncReq) (SyncResp, error) {
 	t := c.enter()
 	if t == nil {
-		return SyncResp{Err: core.ErrUnavailable}, nil
+		return SyncResp{Err: runtime.ErrUnavailable}, nil
 	}
 	g := c.group(t, request.Group, false)
 	if g == nil {
-		return SyncResp{Err: core.ErrUnknownMember}, nil
+		return SyncResp{Err: runtime.ErrUnknownMember}, nil
 	}
 	if !t.lockLive(g) {
-		return SyncResp{Err: core.ErrUnavailable}, nil
+		return SyncResp{Err: runtime.ErrUnavailable}, nil
 	}
 	m := g.members[request.MemberID]
 	if m == nil {
 		g.mu.Unlock()
-		return SyncResp{Err: core.ErrUnknownMember}, nil
+		return SyncResp{Err: runtime.ErrUnknownMember}, nil
 	}
 	if request.Generation != g.generation {
 		g.mu.Unlock()
-		return SyncResp{Err: core.ErrIllegalGeneration}, nil
+		return SyncResp{Err: runtime.ErrIllegalGeneration}, nil
 	}
 	c.armSession(t, g, m)
 	switch g.phase {
@@ -399,70 +400,70 @@ func (c *Coordinator) SyncGroup(ctx context.Context, request SyncReq) (SyncResp,
 		}
 		ch := make(chan SyncResp, 1)
 		if m.syncWait != nil {
-			m.syncWait <- SyncResp{Err: core.ErrRebalanceInProgress}
+			m.syncWait <- SyncResp{Err: runtime.ErrRebalanceInProgress}
 		}
 		m.syncWait = ch
 		g.mu.Unlock()
-		return waitReply(ctx, t, g, m.id, ch, SyncResp{Err: core.ErrUnavailable}, func(m *member) *chan SyncResp { return &m.syncWait })
+		return waitReply(ctx, t, g, m.id, ch, SyncResp{Err: runtime.ErrUnavailable}, func(m *member) *chan SyncResp { return &m.syncWait })
 	case phasePrep:
 		g.mu.Unlock()
-		return SyncResp{Err: core.ErrRebalanceInProgress}, nil
+		return SyncResp{Err: runtime.ErrRebalanceInProgress}, nil
 	}
 	g.mu.Unlock()
-	return SyncResp{Err: core.ErrUnknownMember}, nil
+	return SyncResp{Err: runtime.ErrUnknownMember}, nil
 }
 
 // Heartbeat renews a member's session. It is memory only.
-func (c *Coordinator) Heartbeat(_ context.Context, request HeartbeatReq) core.ErrCode {
+func (c *Coordinator) Heartbeat(_ context.Context, request HeartbeatReq) runtime.ErrCode {
 	t := c.enter()
 	if t == nil {
-		return core.ErrUnavailable
+		return runtime.ErrUnavailable
 	}
 	g := c.group(t, request.Group, false)
 	if g == nil {
-		return core.ErrUnknownMember
+		return runtime.ErrUnknownMember
 	}
 	if !t.lockLive(g) {
-		return core.ErrUnavailable
+		return runtime.ErrUnavailable
 	}
 	defer g.mu.Unlock()
 	m := g.members[request.MemberID]
 	if m == nil {
-		return core.ErrUnknownMember
+		return runtime.ErrUnknownMember
 	}
 	if request.Generation != g.generation {
-		return core.ErrIllegalGeneration
+		return runtime.ErrIllegalGeneration
 	}
 	c.armSession(t, g, m)
 	if g.phase == phaseStable {
-		return core.OK
+		return runtime.OK
 	}
-	return core.ErrRebalanceInProgress
+	return runtime.ErrRebalanceInProgress
 }
 
 // LeaveGroup removes members. It gives one code per member, in request order.
-func (c *Coordinator) LeaveGroup(_ context.Context, request LeaveReq) []core.ErrCode {
-	errs := make([]core.ErrCode, len(request.Members))
+func (c *Coordinator) LeaveGroup(_ context.Context, request LeaveReq) []runtime.ErrCode {
+	errs := make([]runtime.ErrCode, len(request.Members))
 	t := c.enter()
 	if t == nil {
-		return fillCodes(errs, core.ErrUnavailable)
+		return fillCodes(errs, runtime.ErrUnavailable)
 	}
 	g := c.group(t, request.Group, false)
 	if g == nil {
-		return fillCodes(errs, core.ErrUnknownMember)
+		return fillCodes(errs, runtime.ErrUnknownMember)
 	}
 	if !t.lockLive(g) {
-		return fillCodes(errs, core.ErrUnavailable)
+		return fillCodes(errs, runtime.ErrUnavailable)
 	}
 	defer g.mu.Unlock()
 	var gone []string
 	seen := map[string]bool{}
 	for i, id := range request.Members {
 		if g.members[id] == nil {
-			errs[i] = core.ErrUnknownMember
+			errs[i] = runtime.ErrUnknownMember
 			continue
 		}
-		errs[i] = core.OK
+		errs[i] = runtime.OK
 		if !seen[id] {
 			seen[id] = true
 			gone = append(gone, id)
@@ -472,11 +473,11 @@ func (c *Coordinator) LeaveGroup(_ context.Context, request LeaveReq) []core.Err
 		return errs
 	}
 	ctx, cancel := c.writeCtx(t)
-	code, err := c.write(ctx, core.GroupRemove{Group: g.name, Members: gone, TimeMs: c.nowMs(), Reason: "leave"})
+	code, err := c.write(ctx, contract.GroupRemove{Group: g.name, Members: gone, TimeMs: c.nowMs(), Reason: "leave"})
 	cancel()
-	if code = settle(t, code, err); code != core.OK {
+	if code = settle(t, code, err); code != runtime.OK {
 		for i := range errs {
-			if errs[i] == core.OK {
+			if errs[i] == runtime.OK {
 				errs[i] = code
 			}
 		}
@@ -489,7 +490,7 @@ func (c *Coordinator) LeaveGroup(_ context.Context, request LeaveReq) []core.Err
 	return errs
 }
 
-func fillCodes(errs []core.ErrCode, code core.ErrCode) []core.ErrCode {
+func fillCodes(errs []runtime.ErrCode, code runtime.ErrCode) []runtime.ErrCode {
 	for i := range errs {
 		errs[i] = code
 	}
@@ -498,10 +499,10 @@ func fillCodes(errs []core.ErrCode, code core.ErrCode) []core.ErrCode {
 
 // OffsetCommit stores committed offsets. A member's commit counts as its
 // heartbeat. The log checks the generation and the member.
-func (c *Coordinator) OffsetCommit(_ context.Context, operation core.OffsetCommit) (core.OffsetCommitResp, core.ErrCode) {
+func (c *Coordinator) OffsetCommit(_ context.Context, operation contract.OffsetCommit) (contract.OffsetCommitResp, runtime.ErrCode) {
 	t := c.enter()
 	if t == nil {
-		return core.OffsetCommitResp{}, core.ErrUnavailable
+		return contract.OffsetCommitResp{}, runtime.ErrUnavailable
 	}
 	if operation.Member != "" {
 		if g := c.group(t, operation.Group, false); g != nil && t.lockLive(g) {
@@ -516,51 +517,51 @@ func (c *Coordinator) OffsetCommit(_ context.Context, operation core.OffsetCommi
 	defer cancel()
 	d, err := c.store.Exec(ctx, operation)
 	if err != nil {
-		return core.OffsetCommitResp{}, core.ErrUnavailable
+		return contract.OffsetCommitResp{}, runtime.ErrUnavailable
 	}
-	if d.Err != core.OK {
-		return core.OffsetCommitResp{}, d.Err
+	if d.Err != runtime.OK {
+		return contract.OffsetCommitResp{}, d.Err
 	}
-	return core.ResponseAs[core.OffsetCommitResp](d), core.OK
+	return runtime.ResponseAs[contract.OffsetCommitResp](d), runtime.OK
 }
 
 // OffsetFetch reads committed offsets. It is not logged.
-func (c *Coordinator) OffsetFetch(_ context.Context, operation core.OffsetFetch) (core.OffsetFetchResp, core.ErrCode) {
+func (c *Coordinator) OffsetFetch(_ context.Context, operation contract.OffsetFetch) (contract.OffsetFetchResp, runtime.ErrCode) {
 	t := c.enter()
 	if t == nil {
-		return core.OffsetFetchResp{}, core.ErrUnavailable
+		return contract.OffsetFetchResp{}, runtime.ErrUnavailable
 	}
 	d, err := c.store.Exec(t.ctx, operation)
 	if err != nil {
-		return core.OffsetFetchResp{}, core.ErrUnavailable
+		return contract.OffsetFetchResp{}, runtime.ErrUnavailable
 	}
-	return core.ResponseAs[core.OffsetFetchResp](d), core.OK
+	return runtime.ResponseAs[contract.OffsetFetchResp](d), runtime.OK
 }
 
 // DescribeGroup reads one group. It is not logged.
-func (c *Coordinator) DescribeGroup(_ context.Context, group string) (core.DescribeGroupResp, core.ErrCode) {
+func (c *Coordinator) DescribeGroup(_ context.Context, group string) (contract.DescribeGroupResp, runtime.ErrCode) {
 	t := c.enter()
 	if t == nil {
-		return core.DescribeGroupResp{}, core.ErrUnavailable
+		return contract.DescribeGroupResp{}, runtime.ErrUnavailable
 	}
-	d, err := c.store.Exec(t.ctx, core.DescribeGroup{Group: group})
+	d, err := c.store.Exec(t.ctx, contract.DescribeGroup{Group: group})
 	if err != nil {
-		return core.DescribeGroupResp{}, core.ErrUnavailable
+		return contract.DescribeGroupResp{}, runtime.ErrUnavailable
 	}
-	return core.ResponseAs[core.DescribeGroupResp](d), core.OK
+	return runtime.ResponseAs[contract.DescribeGroupResp](d), runtime.OK
 }
 
 // ListGroups lists every group in the log. It is not logged.
-func (c *Coordinator) ListGroups(_ context.Context) ([]core.GroupSummary, core.ErrCode) {
+func (c *Coordinator) ListGroups(_ context.Context) ([]contract.GroupSummary, runtime.ErrCode) {
 	t := c.enter()
 	if t == nil {
-		return nil, core.ErrUnavailable
+		return nil, runtime.ErrUnavailable
 	}
-	d, err := c.store.Exec(t.ctx, core.ListGroups{})
+	d, err := c.store.Exec(t.ctx, contract.ListGroups{})
 	if err != nil {
-		return nil, core.ErrUnavailable
+		return nil, runtime.ErrUnavailable
 	}
-	return core.ResponseAs[core.ListGroupsResp](d).Groups, core.OK
+	return runtime.ResponseAs[contract.ListGroupsResp](d).Groups, runtime.OK
 }
 
 // copyBytes returns a copy of b. An empty value is nil, as the log returns it.

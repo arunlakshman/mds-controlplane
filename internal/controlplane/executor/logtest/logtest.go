@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Open opens a fresh, empty Log for one test.
@@ -124,7 +124,7 @@ func appendAfterTrim(t *testing.T, open Open) {
 	ctx := t.Context()
 	l := open(t)
 	for slot, data := range []string{"a", "b", "c"} {
-		if _, taken, err := l.Append(ctx, core.LogPosition(slot), []byte(data)); err != nil || taken {
+		if _, taken, err := l.Append(ctx, runtime.LogPosition(slot), []byte(data)); err != nil || taken {
 			t.Fatalf("append %d: taken=%v err=%v", slot, taken, err)
 		}
 	}
@@ -145,7 +145,7 @@ func appendAfterTrim(t *testing.T, open Open) {
 // are not commits. The puts land (they were free), so these are stray rows.
 func appendBelowFloorIsTaken(t *testing.T, l executor.Log) {
 	t.Helper()
-	for _, slot := range []core.LogPosition{0, 1} {
+	for _, slot := range []runtime.LogPosition{0, 1} {
 		existing, taken, err := l.Append(t.Context(), slot, []byte("stale"))
 		if err != nil || !taken || existing != nil {
 			t.Fatalf("below floor slot %d: existing=%q taken=%v err=%v, want nil, true, nil",
@@ -193,7 +193,7 @@ func readNeverReturnsStrayRowsAtFloor(t *testing.T, open Open) {
 	if err := l.TrimThrough(ctx, 5); err != nil {
 		t.Fatal(err)
 	}
-	for _, slot := range []core.LogPosition{2, 5} {
+	for _, slot := range []runtime.LogPosition{2, 5} {
 		if _, taken, err := l.Append(ctx, slot, []byte("stray")); err != nil || !taken {
 			t.Fatalf("stray at %d: taken=%v err=%v", slot, taken, err)
 		}
@@ -215,7 +215,7 @@ func appendRetryBelowFloorIsNotStray(t *testing.T, open Open) {
 	ctx := t.Context()
 	l := open(t)
 	for slot := range 2 {
-		if _, _, err := l.Append(ctx, core.LogPosition(slot), []byte("a")); err != nil {
+		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("a")); err != nil {
 			t.Fatal(err)
 		}
 	}

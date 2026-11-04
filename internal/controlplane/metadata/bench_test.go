@@ -6,15 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/core"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // benchSegment is a commit of parts distinct partitions (1-2 batches each) out
 // of 4 topics x 10,000 partitions: the stage 1 target shape (40k partitions).
-func benchSegment(rng *rand.Rand, n, parts int) core.CommitSegment {
-	cs := core.CommitSegment{SegmentKey: fmt.Sprintf("seg/%032x", n)}
+func benchSegment(rng *rand.Rand, n, parts int) contract.CommitSegment {
+	cs := contract.CommitSegment{SegmentKey: fmt.Sprintf("seg/%032x", n)}
 	seen := map[int]bool{}
 	var off int64
 	for len(seen) < parts {
@@ -25,9 +26,9 @@ func benchSegment(rng *rand.Rand, n, parts int) core.CommitSegment {
 		seen[p] = true
 		for i := 1 + rng.Intn(2); i > 0; i-- {
 			ln := int64(8000 + rng.Intn(24000))
-			cs.Batches = append(cs.Batches, core.PendingBatch{
-				TopicPartition: core.NewTopicPartition(fmt.Sprintf("topic-%d", p/10000), int32(p%10000)),
-				Records:        int64(1 + rng.Intn(50)), Loc: core.SegmentRef{Key: cs.SegmentKey, Off: off, Len: ln}})
+			cs.Batches = append(cs.Batches, contract.PendingBatch{
+				TopicPartition: contract.NewTopicPartition(fmt.Sprintf("topic-%d", p/10000), int32(p%10000)),
+				Records:        int64(1 + rng.Intn(50)), Loc: runtime.SegmentRef{Key: cs.SegmentKey, Off: off, Len: ln}})
 			off += ln
 		}
 	}
