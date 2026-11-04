@@ -12,24 +12,21 @@ const (
 	// its own timers, boot). Strict priority; bounded by construction because
 	// the state machine caps in-flight work.
 	Control InboxKind = iota
-	// Data is the class of everything a connection sends, one ordered stream per connection.
-	// Bounded; real backpressure is PauseReads.
+	// Data is the class of work that comes from outside the node. No event kind uses it
+	// today, but the control plane's run loop still has a second, bounded queue for it.
 	Data
 )
 
 // InboxKindOf is the fixed classification table. Events that must stay ordered
-// relative to each other share a queue: ConnClosed is Data so a client's EOF
-// can never overtake its last request.
+// relative to each other share a queue.
 func InboxKindOf(b EventData) InboxKind {
 	switch b.(type) {
-	case NodeStarted, StopRequest, TimerFired, ConnectDone,
+	case NodeStarted, StopRequest, TimerFired,
 		ObjectPutDone, ObjectGetDone, ObjectDeleteDone, ObjectListDone,
 		ControlPlaneDone, ControlPlaneDeliver,
 		LogAppendDone, LogReadDone, LogGetEndDone, LogDeleteOldDone, LogClaimEpochDone,
-		LiveBrokers, SendDone:
+		LiveBrokers:
 		return Control
-	case ConnOpened, BytesReceived, ConnClosed:
-		return Data
 	default:
 		// A new EventData type without a row here is a programming error.
 		panic(fmt.Sprintf("core.InboxKindOf: unclassified event %T", b))

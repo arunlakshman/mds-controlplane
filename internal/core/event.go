@@ -31,41 +31,6 @@ type NodeStarted struct{ Self NodeInstance }
 // deadline passes first the runtime kills the node. InboxKind: Control.
 type StopRequest struct{ Deadline NodeTime }
 
-// ---- network (inbound) ----
-
-// ConnOpened reports that a connection was accepted.
-type ConnOpened struct {
-	Conn ConnID
-	Peer string // remote address, informational only
-}
-
-// BytesReceived is a chunk of a TCP byte stream. Chunks may be arbitrarily
-// short: framing is the core's job (decision A).
-type BytesReceived struct {
-	Conn ConnID
-	Data []byte
-}
-
-// ConnClosed reports EOF (graceful) or reset (abort) from the peer or network.
-type ConnClosed struct {
-	Conn  ConnID
-	Abort bool
-}
-
-// SendDone completes a Send. Err != OK means the bytes may be partially sent.
-type SendDone struct {
-	Req  RequestID
-	Conn ConnID
-	Err  ErrCode
-}
-
-// ConnectDone completes a Connect. Conn is valid only when Err == OK.
-type ConnectDone struct {
-	Req  RequestID
-	Conn ConnID
-	Err  ErrCode
-}
-
 // ---- timers ----
 
 // TimerFired is ignored by the receiver if Gen is not the current generation
@@ -206,11 +171,6 @@ func ResponseAs[T any](d ControlPlaneDone) T {
 
 func (NodeStarted) isEvent()         {}
 func (StopRequest) isEvent()         {}
-func (ConnectDone) isEvent()         {}
-func (ConnOpened) isEvent()          {}
-func (BytesReceived) isEvent()       {}
-func (ConnClosed) isEvent()          {}
-func (SendDone) isEvent()            {}
 func (TimerFired) isEvent()          {}
 func (ObjectPutDone) isEvent()       {}
 func (ObjectGetDone) isEvent()       {}
@@ -224,12 +184,6 @@ func (LogGetEndDone) isEvent()       {}
 func (LogDeleteOldDone) isEvent()    {}
 func (LogClaimEpochDone) isEvent()   {}
 func (LiveBrokers) isEvent()         {}
-
-// RequestID returns the request this completion answers.
-func (e SendDone) RequestID() RequestID { return e.Req }
-
-// RequestID returns the request this completion answers.
-func (e ConnectDone) RequestID() RequestID { return e.Req }
 
 // RequestID returns the request this completion answers.
 func (e ObjectPutDone) RequestID() RequestID { return e.Req }
@@ -263,8 +217,6 @@ func (e LogClaimEpochDone) RequestID() RequestID { return e.Req }
 
 //nolint:dupl // compile-time IOResult assertions; parallel list lives on IOCalls
 var (
-	_ IOResult = SendDone{}
-	_ IOResult = ConnectDone{}
 	_ IOResult = ObjectPutDone{}
 	_ IOResult = ObjectGetDone{}
 	_ IOResult = ObjectDeleteDone{}

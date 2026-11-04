@@ -23,16 +23,6 @@ type ControlPlane interface {
 	Call(ctx context.Context, operation core.ControlPlaneOperation) (core.ControlPlaneResponse, error)
 }
 
-// Connections writes to and closes accepted connections. Writes on one connection
-// are applied in call order (one writer goroutine per connection).
-type Connections interface {
-	Write(conn core.ConnID, data []byte) error
-	Close(conn core.ConnID, abort bool) error
-	// PauseReads parks the connection's reader goroutine; ResumeReads wakes it.
-	PauseReads(conn core.ConnID)
-	ResumeReads(conn core.ConnID)
-}
-
 // ErrorClassifier is the single place SDK/HTTP/net errors become plain data
 // (lesson 1). Getting Outcome right here is what makes acks honest.
 type ErrorClassifier interface {
@@ -48,8 +38,8 @@ type InboxWriter interface {
 	// DeliverControl is used by timer callbacks and I/O completion goroutines.
 	// It never blocks: the control queue is bounded by construction.
 	DeliverControl(body core.EventData)
-	// DeliverData is used by connection reader goroutines. It blocks when the
-	// data queue is full (a safety net; real backpressure is PauseReads).
+	// DeliverData is used by senders from outside the node. It blocks when the
+	// data queue is full.
 	DeliverData(body core.EventData)
 	// Closed is closed when the incarnation ends. Later deliveries are dropped,
 	// never block, and never reach the next incarnation.
@@ -69,7 +59,6 @@ type Dependencies struct {
 	Clock        core.Clock
 	Objects      ObjectStore
 	ControlPlane ControlPlane
-	Connections  Connections
 	Classifier   ErrorClassifier
 	Env          core.Environment // crypto-seeded Rand, inert FaultInjector, logging Assertions
 	Inbox        *Inbox           // shared with the Executor and readers; Run closes it on return

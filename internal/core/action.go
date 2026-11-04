@@ -28,37 +28,6 @@ type SetTimer struct {
 // CancelTimer is an optimization only; correctness relies on Gen.
 type CancelTimer struct{ ID TimerID }
 
-// ---- network (outbound) ----
-
-// Send writes bytes to a connection, in order with earlier Sends on it.
-type Send struct {
-	Req  RequestID
-	Conn ConnID
-	Data []byte
-}
-
-// CloseConn closes gracefully (FIN after queued bytes) or aborts (RST).
-type CloseConn struct {
-	Conn  ConnID
-	Abort bool
-}
-
-// PauseReads stops reading from a connection (admission control; see
-// docs/flow-control.md sec. 2). Bytes already received are still processed. In
-// production the reader goroutine parks; in simulation the bytes stay in the
-// sender's flow-control window.
-type PauseReads struct{ Conn ConnID }
-
-// ResumeReads undoes PauseReads.
-type ResumeReads struct{ Conn ConnID }
-
-// Connect opens an outbound connection (used by simulator workloads; brokers reach the
-// control plane through ControlPlaneCall, not raw dials).
-type Connect struct {
-	Req  RequestID
-	Addr string
-}
-
 // ---- object store ----
 
 // ObjectPut uploads Data under Key.
@@ -168,11 +137,6 @@ type RecordFact struct{ Fact Fact }
 
 func (SetTimer) isAction()          {}
 func (CancelTimer) isAction()       {}
-func (Send) isAction()              {}
-func (CloseConn) isAction()         {}
-func (PauseReads) isAction()        {}
-func (ResumeReads) isAction()       {}
-func (Connect) isAction()           {}
 func (ObjectPut) isAction()         {}
 func (ObjectGet) isAction()         {}
 func (ObjectDelete) isAction()      {}
@@ -187,12 +151,6 @@ func (LogClaimEpoch) isAction()     {}
 func (RecordFact) isAction()        {}
 func (StopForRestart) isAction()    {}
 func (ShutdownDone) isAction()      {}
-
-// RequestID returns the request this action carries.
-func (a Send) RequestID() RequestID { return a.Req }
-
-// RequestID returns the request this action carries.
-func (a Connect) RequestID() RequestID { return a.Req }
 
 // RequestID returns the request this action carries.
 func (a ObjectPut) RequestID() RequestID { return a.Req }
@@ -226,8 +184,6 @@ func (a LogClaimEpoch) RequestID() RequestID { return a.Req }
 
 //nolint:dupl // compile-time IOCall assertions; parallel list lives on IOResults
 var (
-	_ IOCall = Send{}
-	_ IOCall = Connect{}
 	_ IOCall = ObjectPut{}
 	_ IOCall = ObjectGet{}
 	_ IOCall = ObjectDelete{}

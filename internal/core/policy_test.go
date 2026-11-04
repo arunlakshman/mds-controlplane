@@ -16,9 +16,9 @@ func (q *sliceQ) Pop() (EventData, bool) {
 
 func TestControlFirst(t *testing.T) {
 	c := &sliceQ{TimerFired{ID: 1}, TimerFired{ID: 2}}
-	d := &sliceQ{ConnOpened{Conn: 1}}
+	d := &sliceQ{StopRequest{Deadline: 1}}
 	var p InboxPicker = ControlFirstPicker{}
-	for _, want := range []EventData{TimerFired{ID: 1}, TimerFired{ID: 2}, ConnOpened{Conn: 1}} {
+	for _, want := range []EventData{TimerFired{ID: 1}, TimerFired{ID: 2}, StopRequest{Deadline: 1}} {
 		got, ok := p.Next(c, d)
 		if !ok || got != want {
 			t.Fatalf("got %v,%v want %v", got, ok, want)

@@ -113,7 +113,7 @@ func TestObjectConverterPanicsOnOtherType(t *testing.T) {
 			t.Errorf("The panic message was %v, which does not explain the mistake.", r)
 		}
 	}()
-	FromObjectCompletion(core.SendDone{})
+	FromObjectCompletion(core.ControlPlaneDone{})
 }
 
 func TestControlPlaneConverter(t *testing.T) {

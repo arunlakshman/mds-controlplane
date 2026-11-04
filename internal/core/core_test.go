@@ -4,19 +4,13 @@ import "testing"
 
 func TestClassOfCoversEveryEvent(t *testing.T) {
 	control := []EventData{
-		NodeStarted{}, StopRequest{}, TimerFired{}, SendDone{}, ConnectDone{},
+		NodeStarted{}, StopRequest{}, TimerFired{},
 		ObjectPutDone{}, ObjectGetDone{}, ObjectDeleteDone{}, ObjectListDone{}, ControlPlaneDone{},
 		LogAppendDone{}, LogReadDone{}, LogGetEndDone{}, LogDeleteOldDone{},
 	}
-	data := []EventData{ConnOpened{}, BytesReceived{}, ConnClosed{}}
 	for _, b := range control {
 		if InboxKindOf(b) != Control {
 			t.Errorf("%T: want Control", b)
-		}
-	}
-	for _, b := range data {
-		if InboxKindOf(b) != Data {
-			t.Errorf("%T: want Data", b)
 		}
 	}
 }

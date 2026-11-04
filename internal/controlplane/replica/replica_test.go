@@ -110,9 +110,7 @@ func TestStateHashStableAcrossNoopIOResults(t *testing.T) {
 		core.LogReadDone{Req: 999},
 		core.LogGetEndDone{Req: 999},
 		core.LogDeleteOldDone{Req: 999},
-		core.SendDone{Req: 1},
 		core.TimerFired{ID: 77, Gen: 3},
-		core.ConnOpened{Conn: 1},
 	}
 	for _, body := range noops {
 		if acts := step(m, body); acts != nil {

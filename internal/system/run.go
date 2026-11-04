@@ -108,12 +108,6 @@ func (r *eventLoop) dispatch(acts []core.Action) (bool, error) {
 			r.setTimer(a)
 		case core.CancelTimer:
 			r.cancelTimer(a.ID)
-		case core.CloseConn:
-			_ = r.b.Connections.Close(a.Conn, a.Abort)
-		case core.PauseReads:
-			r.b.Connections.PauseReads(a.Conn)
-		case core.ResumeReads:
-			r.b.Connections.ResumeReads(a.Conn)
 		case core.StopForRestart:
 			return true, fmt.Errorf("%w: %s", ErrStoppedForRestart, a.Cause)
 		case core.ShutdownDone:

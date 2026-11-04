@@ -132,7 +132,7 @@ func TestInvalidAndUnknown(t *testing.T) {
 			t.Fatal("Exec of a non-ControlPlaneCall must panic")
 		}
 	}()
-	a.Exec(core.Connect{})
+	a.Exec(core.ObjectPut{})
 }
 
 // edgeLookups asks lk again with MaxBytes at, just below and just above every
