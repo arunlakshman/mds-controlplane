@@ -1,6 +1,6 @@
 package runtime
 
-import "context"
+import "context" //determinismcheck:ok context is only a parameter type here; the implementations are outside the deterministic code
 
 // OperationRunner runs one control-plane operation and returns its answer. It is
 // the one shape that the group coordinator's store, the control-plane node and

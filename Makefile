@@ -1,5 +1,5 @@
 # Build for the MDS control plane. `make` / `make build` is the full gate:
-#   proto, fmt, ascii, vet, lint, modernize, compile, unit tests.
+#   proto, fmt, ascii, vet, lint, modernize, compile, unit tests, determinism.
 # Toolchain + commit hook: `mise install` (pins in mise.toml; postinstall runs make install-hooks).
 
 BUF             ?= buf
@@ -12,9 +12,9 @@ POSTGRES_IMAGE  ?= postgres:17.11-alpine
 PG_TEST_ARGS    ?=
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check install-hooks it-postgres
+	ascii-check determinism install-hooks it-postgres
 
-build: proto fmt-check ascii-check vet lint modernize-check compile test
+build: proto fmt-check ascii-check vet lint modernize-check compile test determinism
 
 # Generate Go from internal/controlplane/api/v1/*.proto into ignored *.pb.go files.
 proto: proto-tools
@@ -54,6 +54,10 @@ modernize:
 
 ascii-check:
 	@ops/scripts/ascii-check.sh
+
+# Determinism gate for internal/runtime, the contract and the deterministic domain packages.
+determinism:
+	bash ops/scripts/ci-determinism.sh
 
 compile:
 	go build ./...
