@@ -38,7 +38,7 @@ func (m *Replica) armCheckpoint() []any {
 		return nil
 	}
 	m.checkpointGen++
-	return []any{runtime.SetTimer{ID: timerCheckpoint, Gen: m.checkpointGen, After: m.config.CheckpointEvery}}
+	return []any{arm(timerCheckpoint, m.checkpointGen, m.config.CheckpointEvery)}
 }
 
 func (m *Replica) onCheckpointTimer(e runtime.TimerFired) []any {
@@ -219,7 +219,7 @@ func (m *Replica) armCheckpointRetry() []any {
 		after = 250 * runtime.Millisecond
 	}
 	m.checkpointGen++
-	return []any{runtime.SetTimer{ID: timerCheckpoint, Gen: m.checkpointGen, After: after}}
+	return []any{arm(timerCheckpoint, m.checkpointGen, after)}
 }
 
 func (m *Replica) onObjPutDone(d runtime.ObjectPutDone) []any {
