@@ -1,5 +1,5 @@
 # Build for the MDS control plane. `make` / `make build` is the full gate:
-#   proto, fmt, ascii, vet, lint, modernize, compile, unit tests, determinism.
+#   proto, fmt, ascii, vet, lint, modernize, compile, unit tests, determinism, simulation.
 # Toolchain + commit hook: `mise install` (pins in mise.toml; postinstall runs make install-hooks).
 
 BUF             ?= buf
@@ -10,11 +10,13 @@ PROTO_GRPC_VER  ?= v1.5.1
 # Image for make it-postgres (pinned; see ops/scripts/postgres-test.sh).
 POSTGRES_IMAGE  ?= postgres:17.11-alpine
 PG_TEST_ARGS    ?=
+# Seeds per scenario for make sim-campaign (see docs/simulation.md).
+SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism install-hooks it-postgres
+	ascii-check determinism sim sim-campaign install-hooks it-postgres
 
-build: proto fmt-check ascii-check vet lint modernize-check compile test determinism
+build: proto fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
 # Generate Go from internal/controlplane/api/v1/*.proto into ignored *.pb.go files.
 proto: proto-tools
@@ -64,6 +66,15 @@ compile:
 
 test:
 	go test ./...
+
+# Deterministic simulation of the replicated control plane: its own tests, then
+# a campaign of SIM_SEEDS seeds for each scenario. A failure prints the command
+# that runs the seed again.
+sim:
+	go test ./internal/verify/simulator/...
+
+sim-campaign:
+	go run ./cmd/cpsim -seeds $(SIM_SEEDS) -scenario all
 
 # Log tests against a real PostgreSQL in Docker (needs Docker). Not part of build.
 it-postgres:

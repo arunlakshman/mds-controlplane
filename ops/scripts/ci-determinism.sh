@@ -2,6 +2,10 @@
 # CI gate for the deterministic packages of the control plane:
 #   internal/runtime, internal/controlplane/contract, and the control-plane
 #   domain packages that pass the check today (module, groups/storage, replica).
+# The simulator engine (internal/verify/simulator) is checked too, with one more
+# allowed import: context, because the in-memory log API takes a context. Its
+# campaign runner (simulator/campaign) uses goroutines and wall time on purpose,
+# to run many seeds at once, so it is not in the gate.
 # Other control-plane packages (kv, topics, groups, metadata, membership) use sync,
 # time or other banned things and are not in this gate yet.
 #   1. determinismcheck: exact-path import allow-list plus banned constructs.
@@ -18,8 +22,17 @@ pkgs=(
   ./internal/controlplane/replica
 )
 
+sim=./internal/verify/simulator
+
 echo "== determinismcheck"
 go run ./ops/tools/determinismcheck "${pkgs[@]}"
+
+echo "== determinismcheck (simulator engine)"
+allow=$(mktemp)
+trap 'rm -f "$allow"' EXIT
+cat ops/tools/determinismcheck/allow.txt >"$allow"
+echo context >>"$allow"
+go run ./ops/tools/determinismcheck -allow "$allow" "$sim"
 
 echo "== dependency audit records"
 # Only code that the deterministic packages really run needs an audit record.
@@ -28,7 +41,7 @@ echo "== dependency audit records"
 # dependencies are not audited here. The packages still may import it for type
 # definitions only (decision 57).
 edge=github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1
-roots=$(go list "${pkgs[@]}" | tr '\n' ' ')
+roots=$(go list "${pkgs[@]}" "$sim" | tr '\n' ' ')
 missing=0
 while read -r modver; do
   [[ -z $modver ]] && continue
@@ -41,7 +54,7 @@ while read -r modver; do
   fi
 done < <(
   # Line format: import path, module (or "-"), then the imports of that package.
-  go list -deps -f '{{.ImportPath}} {{if and .Module (not .Module.Main)}}{{.Module.Path}}@{{.Module.Version}}{{else}}-{{end}} {{join .Imports " "}}' "${pkgs[@]}" |
+  go list -deps -f '{{.ImportPath}} {{if and .Module (not .Module.Main)}}{{.Module.Path}}@{{.Module.Version}}{{else}}-{{end}} {{join .Imports " "}}' "${pkgs[@]}" "$sim" |
     awk -v edge="$edge" -v roots="$roots" '
       { mod[$1] = $2; n = split($0, f, " "); imps[$1] = ""; for (i = 3; i <= n; i++) imps[$1] = imps[$1] " " f[i] }
       END {
