@@ -1,9 +1,10 @@
-# github.com/manifesterio/dst@v0.1.0
+# github.com/manifesterio/dst@v0.2.0
 
 - Date / auditor: 2026-11-04, retarget of mds-controlplane cpsim onto OSS dst (module moved from `github.com/arunlakshman/dst`, v0.0.0, to the manifesterio org).
 - Requires Go: 1.26+
 - Verdict: **ACCEPTED** for `internal/verify/simulator` (and future deterministic packages that need the same primitives).
-- Import paths allowed (`ops/tools/determinismcheck/allow.txt`), one by one: `assert`, `campaign`, `clock`, `fault`, `golden`, `mutant`, `rng`, `sched`, `trace`.
+- v0.2.0 adds `check` (generic oracle checks over a log; imports only `assert` and `fmt`; no goroutines, time or OS). Inside the deterministic gate of dst.
+- Import paths allowed (`ops/tools/determinismcheck/allow.txt`), one by one: `assert`, `campaign`, `check`, `clock`, `fault`, `golden`, `mutant`, `rng`, `sched`, `trace`.
 
 ## Findings
 | Finding | Matters? | Why |
@@ -12,10 +13,10 @@
 | `syncclock` imports `sync`; its own doc forbids use inside a deterministic run | Yes | Not on the allow-list. Only test code outside the gate (`internal/system/fakeclock`) imports it. |
 | `realclock` reads the real clock | Yes | Not on the allow-list. Only production adapter `internal/system/realclock` imports it. |
 | `eng`, `sim`, `model`, `examples/...` not reviewed for determinism | Yes | Not on the allow-list until someone checks them. |
-| Tag `v0.1.0` is local; `go.mod` carries a temporary `replace` to `/Users/arun.lakshman/tmp/dst` | Yes (process) | The repo is not pushed to manifesterio yet. Remove the `replace` once the tag is published; re-audit on any version bump. |
+| Tag `v0.2.0` is local; `go.mod` carries a temporary `replace` to `/Users/arun.lakshman/tmp/dst` | Yes (process) | The repo is not pushed to manifesterio yet. Remove the `replace` once the tag is published; re-audit on any version bump. |
 
 ## Rules for our code
-1. Import only the nine packages above from the simulator and other determinism-gated code. Do not pull examples.
+1. Import only the ten packages above from the simulator and other determinism-gated code. Do not pull examples.
 2. Keep CP scenario / node / oracle control flow local; dst owns the shared stream primitives only.
 3. Quiet must go through `fault.Injector.SetQuiet` (suppresses `Fault` only).
 

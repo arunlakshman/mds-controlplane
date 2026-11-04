@@ -28,12 +28,13 @@ unicode/utf8
 github.com/manifesterio/mds-controlplane/...
 
 # OSS deterministic simulation primitives (github.com/manifesterio/dst), audited in
-# docs/dep-audits/github.com/manifesterio/dst@v0.1.0.md. Listed one by one on purpose.
+# docs/dep-audits/github.com/manifesterio/dst@v0.2.0.md. Listed one by one on purpose.
 # Deliberately absent: realclock (reads the real clock), syncclock (uses sync; goroutine
 # callers race, so timer order is not reproducible), eng, sim, model and examples
 # (not audited for determinism).
 github.com/manifesterio/dst/assert
 github.com/manifesterio/dst/campaign
+github.com/manifesterio/dst/check
 github.com/manifesterio/dst/clock
 github.com/manifesterio/dst/fault
 github.com/manifesterio/dst/golden

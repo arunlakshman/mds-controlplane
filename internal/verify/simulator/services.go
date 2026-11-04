@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/manifesterio/dst/check"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
@@ -58,8 +59,8 @@ type storage struct {
 	// history is the first entry that was committed in each slot. Trims delete
 	// slots from the log but not from here: it is the truth for the oracle.
 	history     map[runtime.LogPosition][]byte
-	epochWriter map[uint64]string            // writer epoch -> writer that wrote entries with it
-	epochOwner  map[uint64]string            // writer epoch -> owner that won the claim
+	epochWriter check.Holders[string]        // writer epoch -> writer that wrote entries with it
+	epochOwner  check.Holders[string]        // writer epoch -> owner that won the claim
 	end         runtime.LogPosition          // history has every slot below end
 	changes     map[runtime.LogPosition]bool // slots that carry a command that changes state (not a heartbeat or a fence)
 }
@@ -67,10 +68,8 @@ type storage struct {
 func newStorage(s *sim) *storage {
 	return &storage{
 		s: s, log: executor.NewMemoryLog(), objs: executor.NewMemoryObjects(), ctx: context.Background(),
-		history:     map[runtime.LogPosition][]byte{},
-		epochWriter: map[uint64]string{},
-		epochOwner:  map[uint64]string{},
-		changes:     map[runtime.LogPosition]bool{},
+		history: map[runtime.LogPosition][]byte{},
+		changes: map[runtime.LogPosition]bool{},
 	}
 }
 
@@ -240,11 +239,9 @@ func (st *storage) committed(slot runtime.LogPosition, data []byte) {
 	if !ok {
 		return
 	}
-	if first, seen := st.epochWriter[epoch]; seen && first != writer {
+	if first, ok := st.epochWriter.Note(epoch, writer); !ok {
 		st.s.violation("one writer per epoch", "epoch %d has entries from %q and from %q (slot %d)", epoch, first, writer, slot)
-		return
 	}
-	st.epochWriter[epoch] = writer
 }
 
 func (st *storage) applyClaim(c runtime.LogClaimEpoch) runtime.IOResult {
@@ -256,10 +253,9 @@ func (st *storage) applyClaim(c runtime.LogClaimEpoch) runtime.IOResult {
 		epoch, owner, won = c.Expect+1, c.Owner, true
 	}
 	if won {
-		if first, seen := st.epochOwner[epoch]; seen && first != owner {
+		if first, ok := st.epochOwner.Note(epoch, owner); !ok {
 			st.s.violation("one writer per epoch", "epoch %d was won by %q and by %q", epoch, first, owner)
 		}
-		st.epochOwner[epoch] = owner
 	}
 	return runtime.LogClaimEpochDone{Req: c.Req, Epoch: epoch, Owner: owner, Won: won, Err: runtime.OK, Outcome: runtime.Applied}
 }
@@ -302,6 +298,21 @@ func (st *storage) applyObject(call runtime.IOCall) runtime.IOResult {
 func (st *storage) logEnd() (runtime.LogPosition, bool) {
 	return st.end, len(st.history) > int(st.end)
 }
+
+// storage is the check.Log of the oracle.
+var _ check.Log = (*storage)(nil)
+
+// End implements check.Log.
+func (st *storage) End() (check.Slot, bool) {
+	end, hole := st.logEnd()
+	return check.Slot(end), hole
+}
+
+// Entry implements check.Log.
+func (st *storage) Entry(slot check.Slot) []byte { return st.history[runtime.LogPosition(slot)] }
+
+// QuietAfter implements check.Log.
+func (st *storage) QuietAfter(from check.Slot) bool { return st.quietAfter(runtime.LogPosition(from)) }
 
 // quietAfter reports that the slots from `from` to the end of the log carry no
 // command that changes state. A node that has applied up to `from` then has the

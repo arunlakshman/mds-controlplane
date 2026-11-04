@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/manifesterio/dst/check"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -44,10 +45,10 @@ type readRec struct {
 
 // floors are the lower bounds from what clients have been told.
 type floors struct {
-	ends   map[contract.TopicPartition]contract.Offset
+	ends   check.Monotonic[contract.TopicPartition, contract.Offset]
 	ranges map[contract.TopicPartition][]contract.BatchRange
 	topics []contract.TopicInfo // sorted by name
-	gens   map[string]int32
+	gens   check.Monotonic[string, int32]
 }
 
 // snapshot is a copy of the floors that matter to one read, taken when the read is sent.
@@ -60,9 +61,7 @@ type snapshot struct {
 
 func newOracle(s *sim) *oracle {
 	return &oracle{s: s, floor: floors{
-		ends:   map[contract.TopicPartition]contract.Offset{},
 		ranges: map[contract.TopicPartition][]contract.BatchRange{},
-		gens:   map[string]int32{},
 	}}
 }
 
@@ -80,7 +79,7 @@ func (o *oracle) snapshotFor(op runtime.ControlPlaneOperation) *snapshot {
 	f := &o.floor
 	switch q := op.(type) {
 	case contract.FindSegments:
-		return &snapshot{end: f.ends[q.TopicPartition], ranges: slices.Clone(f.ranges[q.TopicPartition])}
+		return &snapshot{end: f.ends.Floor(q.TopicPartition), ranges: slices.Clone(f.ranges[q.TopicPartition])}
 	case contract.DescribeTopics:
 		snap := &snapshot{}
 		for _, t := range f.topics {
@@ -90,7 +89,7 @@ func (o *oracle) snapshotFor(op runtime.ControlPlaneOperation) *snapshot {
 		}
 		return snap
 	case contract.DescribeGroup:
-		return &snapshot{gen: f.gens[q.Group]}
+		return &snapshot{gen: f.gens.Floor(q.Group)}
 	}
 	return nil
 }
@@ -123,14 +122,14 @@ func (o *oracle) raiseFloors(op runtime.ControlPlaneOperation, d runtime.Control
 		resp, _ := d.Resp.(contract.CommitSegmentResp)
 		for _, r := range resp.Assigned {
 			tp := r.TopicPartition
-			f.ends[tp] = max(f.ends[tp], r.Base+contract.Offset(r.Count))
+			f.ends.Raise(tp, r.Base+contract.Offset(r.Count))
 			f.ranges[tp] = append(f.ranges[tp], r)
 			f.raiseTopic(tp.Topic, tp.Partition+1)
 		}
 	case contract.CreateTopic:
 		f.raiseTopic(w.Name, w.Partitions)
 	case contract.GroupInstall:
-		f.gens[w.Group] = max(f.gens[w.Group], w.Generation)
+		f.gens.Raise(w.Group, w.Generation)
 	}
 }
 
@@ -140,7 +139,7 @@ func (o *oracle) observeRead(op runtime.ControlPlaneOperation, d runtime.Control
 	switch q := op.(type) {
 	case contract.FindSegments:
 		if r, ok := d.Resp.(contract.FindSegmentsResp); ok {
-			f.ends[q.TopicPartition] = max(f.ends[q.TopicPartition], r.End)
+			f.ends.Raise(q.TopicPartition, r.End)
 		}
 	case contract.DescribeTopics:
 		if r, ok := d.Resp.(contract.DescribeTopicsResp); ok {
@@ -212,8 +211,8 @@ func describeAnswer(d runtime.ControlPlaneDone) string {
 // verify replays the log into the spec and judges everything that was recorded.
 func (o *oracle) verify() {
 	s := o.s
-	end, hole := s.store.logEnd()
-	s.verdict(!hole, "log has no hole", "the log history has a slot missing below its last slot (contiguous up to %d)", end)
+	end, _ := s.store.logEnd()
+	s.check().NoHole(s.store)
 	spec := newSpec()
 	slices.SortStableFunc(o.reads, func(a, b readRec) int { return cmp.Compare(a.prefix, b.prefix) })
 	next := 0
@@ -223,25 +222,27 @@ func (o *oracle) verify() {
 			next++
 		}
 	}
-	judge(0)
 	committed := map[string]runtime.ControlPlaneDone{}
-	for slot := range end {
-		cmds, err := replica.EntryCommands(s.store.history[slot])
-		if !s.verdict(err == nil, "log entries decode", "slot %d: %v", slot, err) {
-			return
-		}
+	decode := func(entry []byte) ([]runtime.ControlPlaneOperation, error) {
+		cmds, err := replica.EntryCommands(entry)
+		var ops []runtime.ControlPlaneOperation
 		for _, c := range cmds {
-			if c.Op == nil {
-				continue
-			}
-			d := spec.Apply(c.Op)
-			if cs, ok := c.Op.(contract.CommitSegment); ok && d.Err == runtime.OK {
-				if _, seen := committed[cs.SegmentKey]; !seen {
-					committed[cs.SegmentKey] = d
-				}
+			if c.Op != nil {
+				ops = append(ops, c.Op)
 			}
 		}
-		judge(slot + 1)
+		return ops, err
+	}
+	apply := func(spec specModel, op runtime.ControlPlaneOperation) {
+		d := spec.Apply(op)
+		if cs, ok := op.(contract.CommitSegment); ok && d.Err == runtime.OK {
+			if _, seen := committed[cs.SegmentKey]; !seen {
+				committed[cs.SegmentKey] = d
+			}
+		}
+	}
+	if !check.Replay(s.check(), s.store, spec, decode, apply, func(prefix check.Slot) { judge(runtime.LogPosition(prefix)) }) {
+		return
 	}
 	for ; next < len(o.reads); next++ {
 		o.judgeRead(spec, o.reads[next], end)

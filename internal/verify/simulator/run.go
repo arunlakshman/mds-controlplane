@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"fmt"
+	"github.com/manifesterio/dst/check"
 	"strings"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
@@ -87,13 +88,13 @@ func (s *sim) quietPhase() {
 
 // converged reports that every node is up and ready, and has applied the whole log.
 func (s *sim) converged() bool {
-	for _, n := range s.nodes {
-		r := n.replica()
-		if !n.up || r == nil || !r.Ready() || !s.store.quietAfter(r.Applied()) {
-			return false
+	nodes := make([]check.Node, len(s.nodes))
+	for i, n := range s.nodes {
+		if r := n.replica(); n.up && r != nil {
+			nodes[i] = check.Node{Up: true, Ready: r.Ready(), Applied: check.Slot(r.Applied())}
 		}
 	}
-	return true
+	return check.Converged(s.store, nodes)
 }
 
 func (s *sim) describeNodes() string {

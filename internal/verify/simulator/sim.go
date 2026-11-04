@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/manifesterio/dst/assert"
+	"github.com/manifesterio/dst/check"
 	dstclock "github.com/manifesterio/dst/clock"
 	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/dst/sched"
@@ -65,12 +66,6 @@ func (r Result) Reproduce() string {
 
 func nodeWriter(idx int) string { return fmt.Sprintf("cp-%d", idx) }
 
-// seenPrefix is the first state hash that a node showed at some log prefix.
-type seenPrefix struct {
-	hash uint64
-	node int
-}
-
 // sim is the state of one run.
 type sim struct {
 	cfg      Config
@@ -93,8 +88,8 @@ type sim struct {
 	failures []Failure
 	byProp   map[string]int // property -> index in failures
 
-	holders  map[uint64]int // writer epoch -> node that held it
-	prefixes map[runtime.LogPosition]seenPrefix
+	holders  check.Holders[int]    // writer epoch -> node that held it
+	prefixes check.Prefixes[int]   // log prefix -> first state hash that a node showed
 	applied  []runtime.LogPosition // last applied slot seen for each node
 	fresh    []bool                // the node has a new incarnation, so its hash must be checked again
 
@@ -159,8 +154,7 @@ func newSim(cfg Config) (*sim, error) {
 	cfg.Scenario = sc.Name
 	s := &sim{
 		cfg: cfg, scenario: sc, rand: rng.New(cfg.Seed), faults: sc.Faults, bug: cfg.Bug,
-		byProp: map[string]int{}, holders: map[uint64]int{}, prefixes: map[runtime.LogPosition]seenPrefix{},
-		applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
+		byProp: map[string]int{}, applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
 		hash: trace.New(),
 	}
 	s.sched = sched.New(s.rand)
@@ -205,15 +199,13 @@ func (s *sim) violation(property, format string, args ...any) {
 	s.env.Always(false, runtime.PropertyID("sim: "+property), runtime.ContextPair{Key: "detail", Value: fmt.Sprintf(format, args...)})
 }
 
+// check returns the checker that records verdicts as "sim: ..." properties.
+func (s *sim) check() check.Checker { return check.Checker{Log: s.env.log, Prefix: "sim: "} }
+
 // verdict records a check. It returns ok, so the caller can skip work after a failure.
 // Callers on a hot path test the condition first and call violation themselves.
 func (s *sim) verdict(ok bool, property, format string, args ...any) bool {
-	if ok {
-		s.env.Always(true, runtime.PropertyID("sim: "+property))
-		return true
-	}
-	s.violation(property, format, args...)
-	return false
+	return s.check().Verdict(ok, property, format, args...)
 }
 
 func (s *sim) noteBoot(n *simNode) {
@@ -246,10 +238,8 @@ func (s *sim) checkNode(n *simNode) {
 		return
 	}
 	if e := r.Epoch(); e > 0 {
-		if first, seen := s.holders[e]; seen && first != n.idx {
+		if first, ok := s.holders.Note(e, n.idx); !ok {
 			s.violation("one writer per epoch", "epoch %d is held by cp-%d and by cp-%d", e, first, n.idx)
-		} else {
-			s.holders[e] = n.idx
 		}
 	}
 	applied := r.Applied()
@@ -258,11 +248,7 @@ func (s *sim) checkNode(n *simNode) {
 	}
 	s.applied[n.idx], s.fresh[n.idx] = applied, false
 	h := r.Metadata().StateHash()
-	prev, seen := s.prefixes[applied]
-	switch {
-	case !seen:
-		s.prefixes[applied] = seenPrefix{hash: h, node: n.idx}
-	case prev.hash != h:
-		s.violation("replicas agree on every slot", "after %d slots, cp-%d has state %x but cp-%d had %x", applied, n.idx, h, prev.node, prev.hash)
+	if prevHash, prevNode, ok := s.prefixes.Note(check.Slot(applied), h, n.idx); !ok {
+		s.violation("replicas agree on every slot", "after %d slots, cp-%d has state %x but cp-%d had %x", applied, n.idx, h, prevNode, prevHash)
 	}
 }
