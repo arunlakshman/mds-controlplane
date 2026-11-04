@@ -151,7 +151,7 @@ func (n *simNode) exec(acts []runtime.Action) {
 			n.crash("shutdown")
 			return
 		case runtime.IOCall:
-			n.s.store.dispatch(n, a)
+			_ = n.s.store.Handle(n.engineContext(), a) // storage takes every IOCall
 		default:
 			n.s.violation("known action", "node %s returned %T", n.name(), a)
 		}

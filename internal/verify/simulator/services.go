@@ -6,6 +6,9 @@ import (
 	"sort"
 
 	"github.com/manifesterio/dst/check"
+	"github.com/manifesterio/dst/eng"
+	"github.com/manifesterio/dst/rng"
+	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
@@ -73,10 +76,10 @@ func newStorage(s *sim) *storage {
 	}
 }
 
-func (st *storage) netDelay() runtime.Duration {
-	d := runtime.Duration(st.s.rand.Between(int64(netMin), int64(netMax)))
-	if st.s.rand.Chance(st.s.faults.Slow) {
-		d += runtime.Duration(st.s.rand.Between(int64(50*runtime.Millisecond), int64(400*runtime.Millisecond)))
+func (st *storage) netDelay(r *rng.Rand) runtime.Duration {
+	d := runtime.Duration(r.Between(int64(netMin), int64(netMax)))
+	if r.Chance(st.s.faults.Slow) {
+		d += runtime.Duration(r.Between(int64(50*runtime.Millisecond), int64(400*runtime.Millisecond)))
 	}
 	return d
 }
@@ -89,12 +92,11 @@ func isWrite(call runtime.IOCall) bool {
 	return false
 }
 
-func (st *storage) decide(call runtime.IOCall) callMode {
+func (st *storage) decide(r *rng.Rand, call runtime.IOCall) callMode {
 	f := st.s.faults
 	if st.s.quiet {
 		return callOK
 	}
-	r := st.s.rand
 	if r.Chance(f.Fail) {
 		return callFail
 	}
@@ -107,19 +109,37 @@ func (st *storage) decide(call runtime.IOCall) callMode {
 	return callOK
 }
 
-// dispatch sends call from node n. The reply is delivered to the incarnation
-// that sent it; a dead incarnation drops it.
-func (st *storage) dispatch(n *simNode, call runtime.IOCall) {
-	inc := n.inst.Inc
-	st.s.after(st.netDelay(), "io-exec", func() {
-		res, back := st.execute(n, call)
-		st.s.after(back, "io-done", func() { n.deliver(inc, res) })
-	})
+// storage is a dst engine (eng.Engine). A process hands it an IOCall as an
+// outbound value. The call reaches the storage after a delay, takes effect at
+// one instant, and the reply goes back to the caller with another delay.
+var _ eng.Engine = (*storage)(nil)
+
+// ID implements eng.Engine.
+func (st *storage) ID() eng.ID { return "storage" }
+
+// StateHash implements eng.Engine. The oracle reads the history, not the hash.
+func (st *storage) StateHash() uint64 { return 0 }
+
+// Handle implements eng.Engine: it takes an IOCall and queues its effect.
+func (st *storage) Handle(cx eng.Context, act any) error {
+	call, ok := act.(runtime.IOCall)
+	if !ok {
+		return eng.ErrNotMine
+	}
+	cx.Self(sched.TimeNs(st.netDelay(cx.Rand())), call)
+	return nil
+}
+
+// OnSelf implements eng.Engine: the call arrives at the storage.
+func (st *storage) OnSelf(cx eng.Context, body any) {
+	res, back := st.execute(cx, body.(runtime.IOCall))
+	cx.Deliver(cx.From(), sched.TimeNs(back), res)
 }
 
 // execute takes the effect of call (or not) and returns the reply with the
 // delay after which it arrives.
-func (st *storage) execute(n *simNode, call runtime.IOCall) (runtime.IOResult, runtime.Duration) {
+func (st *storage) execute(cx eng.Context, call runtime.IOCall) (runtime.IOResult, runtime.Duration) {
+	n := st.s.nodeOf(cx.From())
 	timeoutReply := func() (runtime.IOResult, runtime.Duration) {
 		out := runtime.NotApplied
 		if isWrite(call) {
@@ -131,10 +151,10 @@ func (st *storage) execute(n *simNode, call runtime.IOCall) (runtime.IOResult, r
 		st.s.stats.CutCalls++
 		return timeoutReply()
 	}
-	switch st.decide(call) {
+	switch st.decide(cx.Rand(), call) {
 	case callFail:
 		st.s.stats.FailedCalls++
-		return errorReply(call, runtime.ErrUnavailable, runtime.NotApplied), st.netDelay()
+		return errorReply(call, runtime.ErrUnavailable, runtime.NotApplied), st.netDelay(cx.Rand())
 	case callTimeout:
 		st.s.stats.FailedCalls++
 		return timeoutReply()
@@ -143,7 +163,7 @@ func (st *storage) execute(n *simNode, call runtime.IOCall) (runtime.IOResult, r
 		st.apply(call)
 		return timeoutReply()
 	}
-	return st.apply(call), st.netDelay()
+	return st.apply(call), st.netDelay(cx.Rand())
 }
 
 // errorReply is the failure completion that matches call.

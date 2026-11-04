@@ -111,7 +111,7 @@ func (p *clientPool) reply(n *simNode, a runtime.ControlPlaneReply) {
 		return
 	}
 	prefix := n.replica().Applied()
-	p.s.after(p.s.store.netDelay(), "client-reply", func() { c.receive(a.Done, prefix) })
+	p.s.after(p.s.store.netDelay(p.s.rand), "client-reply", func() { c.receive(a.Done, prefix) })
 }
 
 // issue starts the next random operation, unless the quiet tail has started.
@@ -149,7 +149,7 @@ func (c *client) attempt() {
 	op.snap = p.s.oracle.snapshotFor(op.op)
 	node := p.s.nodes[op.node]
 	deliver := runtime.ControlPlaneDeliver{From: c.from, Req: req, Op: op.op}
-	p.s.after(p.s.store.netDelay(), "client-request", func() { node.deliverNow(deliver) })
+	p.s.after(p.s.store.netDelay(p.s.rand), "client-request", func() { node.deliverNow(deliver) })
 	p.s.after(clientTimeout, "client-timeout", func() {
 		if c.cur == op && op.req == req {
 			c.answered(runtime.ControlPlaneDone{Req: req, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}, 0)
