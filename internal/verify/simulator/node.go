@@ -2,15 +2,22 @@ package simulator
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/manifesterio/dst/eng"
+	"github.com/manifesterio/dst/sched"
+	dstsim "github.com/manifesterio/dst/sim"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// simNode wraps one replica machine. It feeds events to Step like the real run
-// loop does (At and Wall are stamped when the event is taken), runs the
-// actions that Step returns through the simulated services, and can crash, pause
-// and restart.
+// simNode is one replica of the simulation. It lives for the whole run. Each
+// boot gives it a new dst process (nodeProc) and a new incarnation, so nothing
+// of the old boot reaches the new one. The node feeds events to the replica
+// machine like the real run loop does, and turns the actions that Step returns
+// into dst values: timers, calls to the storage, replies to clients. It can
+// crash, pause and restart.
 type simNode struct {
 	s       *sim
 	idx     int
@@ -20,12 +27,35 @@ type simNode struct {
 
 	up     bool
 	paused bool
-	cut    bool // cut off from the log and the object store
-	held   []func()
+	cut    bool  // cut off from the log and the object store
+	held   []any // inbox values that wait while the node is paused
 
-	timers map[runtime.TimerID]uint64 // timer id -> token of the live timer
-	tokens uint64
-	boots  int
+	boots int
+}
+
+// nodeProc is the dst process of one incarnation of a node.
+type nodeProc struct{ n *simNode }
+
+func (p *nodeProc) ID() dstsim.ProcessID { return nodeID(p.n.idx) }
+
+func (p *nodeProc) StateHash() uint64 {
+	if p.n.m == nil {
+		return 0
+	}
+	return p.n.m.StateHash()
+}
+
+func (p *nodeProc) Step(cx dstsim.Context, inbox any) []any { return p.n.step(cx, inbox) }
+
+func nodeID(idx int) dstsim.ProcessID { return dstsim.ProcessID(fmt.Sprintf("cp-%d", idx)) }
+
+// nodeOf finds the node of an actor id such as "cp-2".
+func (s *sim) nodeOf(a eng.ActorID) *simNode {
+	i, err := strconv.Atoi(strings.TrimPrefix(string(a), "cp-"))
+	if err != nil || i < 0 || i >= len(s.nodes) {
+		panic("simulator: unknown actor " + string(a))
+	}
+	return s.nodes[i]
 }
 
 func newNode(s *sim, idx int, factory runtime.MachineFactory) *simNode {
@@ -43,21 +73,22 @@ func (n *simNode) replica() *replica.Replica {
 	return r
 }
 
-// boot starts a new incarnation with a fresh boot number. All memory of the old
-// one is gone.
-func (n *simNode) boot() {
+// boot asks the controller to start a new incarnation, unless the node is up.
+func (n *simNode) boot() { n.s.runner.Inject(ctlID, 0, bootNode{idx: n.idx}) }
+
+// up starts a new incarnation with a fresh boot number. All memory of the old
+// one is gone. The controller calls it.
+func (n *simNode) start() {
 	n.boots++
 	n.inst.Inc = runtime.BootNumber(n.s.env.NewID())
 	n.m = n.factory(n.s.env, n.inst)
 	n.up, n.paused, n.held = true, false, nil
-	n.timers = map[runtime.TimerID]uint64{}
 	n.s.noteBoot(n)
-	n.step(runtime.NodeStarted{Self: n.inst})
 }
 
-// crash kills the incarnation. Events that are on their way to it are dropped
-// when they arrive.
-func (n *simNode) crash(why string) {
+// down marks the incarnation dead. Events that are on their way to it are
+// dropped when they arrive.
+func (n *simNode) down(why string) {
 	if !n.up {
 		return
 	}
@@ -66,13 +97,13 @@ func (n *simNode) crash(why string) {
 	n.up, n.paused, n.held, n.m = false, false, nil, nil
 }
 
-// restartAfter boots the node again after d, unless it is already up.
-func (n *simNode) restartAfter(d runtime.Duration) {
-	n.s.after(d, "restart", func() {
-		if !n.up {
-			n.boot()
-		}
-	})
+// crash kills the node from outside (the nemesis) and restarts it after d.
+func (n *simNode) crash(why string, d runtime.Duration) {
+	if !n.up {
+		return
+	}
+	n.down(why)
+	n.s.runner.Inject(ctlID, 0, killNode{idx: n.idx, why: why, restartIn: d})
 }
 
 // pause stops the node from taking events. They wait and run in order when it resumes.
@@ -90,81 +121,122 @@ func (n *simNode) resume() {
 	n.paused = false
 	held := n.held
 	n.held = nil
-	for _, fn := range held {
-		n.s.after(0, "resume", func() { n.run(fn) })
+	for _, body := range held {
+		n.s.runner.Inject(nodeID(n.idx), 0, body)
 	}
-}
-
-// run calls fn now, or keeps it for later while the node is paused.
-func (n *simNode) run(fn func()) {
-	if n.paused {
-		n.held = append(n.held, fn)
-		return
-	}
-	fn()
-}
-
-// deliver gives body to the incarnation inc. A node that is down, or has a newer
-// incarnation, drops it.
-func (n *simNode) deliver(inc runtime.BootNumber, body runtime.EventData) {
-	if !n.up || n.inst.Inc != inc {
-		return
-	}
-	n.run(func() {
-		if n.up && n.inst.Inc == inc {
-			n.step(body)
-		}
-	})
 }
 
 // deliverNow gives body to whatever incarnation is up (a client request).
 func (n *simNode) deliverNow(body runtime.EventData) {
 	if n.up {
-		n.deliver(n.inst.Inc, body)
+		n.s.runner.Inject(nodeID(n.idx), 0, body)
 	}
 }
 
-func (n *simNode) step(body runtime.EventData) {
-	ev := runtime.Event{At: n.s.mono(), Wall: n.s.wall(), Body: body}
+// step is one Step of the replica: it runs when the node is up and not paused.
+func (n *simNode) step(cx dstsim.Context, body any) []any {
+	if !n.up {
+		return nil
+	}
+	if n.paused {
+		n.held = append(n.held, body)
+		return nil
+	}
+	ev := runtime.Event{At: runtime.NodeTime(cx.Now()), Wall: runtime.RealTime(cx.Wall()), Body: body.(runtime.EventData)}
 	acts := n.m.Step(ev)
-	n.s.observe(n, body, acts)
-	n.exec(acts)
+	n.s.observe(n, ev.Body, acts)
+	return n.outbound(acts)
 }
 
-// exec starts the actions in order, as the run loop does. StopForRestart ends
-// the incarnation and nothing after it runs.
-func (n *simNode) exec(acts []runtime.Action) {
+// clientReply is the answer of a node to a client. The client pool takes it.
+type clientReply struct {
+	node  int
+	reply runtime.ControlPlaneReply
+}
+
+// outbound turns the actions of one Step into dst values, in order.
+// StopForRestart and ShutdownDone end the incarnation and nothing after them runs.
+func (n *simNode) outbound(acts []runtime.Action) []any {
+	var out []any
 	for _, a := range acts {
 		switch a := a.(type) {
 		case runtime.SetTimer:
-			n.setTimer(a)
+			out = append(out, dstsim.SetTimer{ID: uint64(a.ID), After: sched.TimeNs(a.After), Body: runtime.TimerFired{ID: a.ID, Gen: a.Gen}})
 		case runtime.CancelTimer:
-			delete(n.timers, a.ID)
+			out = append(out, dstsim.CancelTimer{ID: uint64(a.ID)})
 		case runtime.ControlPlaneReply:
-			n.s.clients.reply(n, a)
+			out = append(out, clientReply{node: n.idx, reply: a})
 		case runtime.StopForRestart:
 			n.s.stats.Trips++
-			n.crash("stop for restart: " + a.Cause)
-			n.restartAfter(runtime.Duration(n.s.rand.Between(int64(100*runtime.Millisecond), int64(500*runtime.Millisecond))))
-			return
+			n.down("stop for restart: " + a.Cause)
+			d := runtime.Duration(n.s.rand.Between(int64(100*runtime.Millisecond), int64(500*runtime.Millisecond)))
+			return append(out, dstsim.Crash{Cause: a.Cause}, dstsim.Send{To: ctlID, Body: bootLater{idx: n.idx, in: d}})
 		case runtime.ShutdownDone:
-			n.crash("shutdown")
-			return
+			n.down("shutdown")
+			return append(out, dstsim.Exit{})
 		case runtime.IOCall:
-			_ = n.s.store.Handle(n.engineContext(), a) // storage takes every IOCall
+			out = append(out, a)
 		default:
 			n.s.violation("known action", "node %s returned %T", n.name(), a)
 		}
 	}
+	return out
 }
 
-func (n *simNode) setTimer(a runtime.SetTimer) {
-	n.tokens++
-	token, inc := n.tokens, n.inst.Inc
-	n.timers[a.ID] = token
-	n.s.after(a.After, "timer", func() {
-		if n.up && n.inst.Inc == inc && n.timers[a.ID] == token {
-			n.deliver(inc, runtime.TimerFired{ID: a.ID, Gen: a.Gen})
+// ctlID is the controller: the process that starts, kills and restarts nodes.
+const ctlID dstsim.ProcessID = "sim-ctl"
+
+// Messages to the controller.
+type (
+	bootNode  struct{ idx int } // start a new incarnation now
+	bootLater struct {
+		idx int
+		in  runtime.Duration
+	} // start one after a delay
+	killNode struct {
+		idx       int
+		why       string
+		restartIn runtime.Duration
+	} // the nemesis killed the node
+)
+
+type controller struct{ s *sim }
+
+func (controller) ID() dstsim.ProcessID { return ctlID }
+func (controller) StateHash() uint64    { return 0 }
+
+func (c controller) Step(_ dstsim.Context, inbox any) []any {
+	s := c.s
+	switch m := inbox.(type) {
+	case bootNode:
+		n := s.nodes[m.idx]
+		if n.up {
+			return nil
 		}
-	})
+		n.start()
+		return []any{dstsim.Restart{Who: nodeID(m.idx), New: &nodeProc{n: n}, Boot: runtime.NodeStarted{Self: n.inst}}}
+	case bootLater:
+		return []any{dstsim.SetTimer{ID: uint64(m.idx), After: sched.TimeNs(m.in), Body: bootNode{idx: m.idx}}}
+	case killNode:
+		return []any{
+			dstsim.Crash{Who: nodeID(m.idx), Cause: m.why},
+			dstsim.SetTimer{ID: uint64(m.idx), After: sched.TimeNs(m.restartIn), Body: bootNode{idx: m.idx}},
+		}
+	}
+	return nil
+}
+
+// replyEngine hands node replies to the client pool.
+type replyEngine struct{ s *sim }
+
+func (replyEngine) ID() eng.ID              { return "client-replies" }
+func (replyEngine) StateHash() uint64       { return 0 }
+func (replyEngine) OnSelf(eng.Context, any) {}
+func (e replyEngine) Handle(_ eng.Context, act any) error {
+	r, ok := act.(clientReply)
+	if !ok {
+		return eng.ErrNotMine
+	}
+	e.s.clients.reply(e.s.nodes[r.node], r.reply)
+	return nil
 }

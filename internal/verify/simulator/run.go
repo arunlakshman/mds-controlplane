@@ -48,15 +48,16 @@ func (s *sim) boot() {
 
 // runUntil takes events until stop says so, the queue is empty or the run is too long.
 func (s *sim) runUntil(stop func() bool) {
-	for !stop() {
+	s.runner.RunUntil(func() bool {
+		if stop() {
+			return true
+		}
 		if s.steps() >= maxSteps {
 			s.violation("run ends", "more than %d steps", maxSteps)
-			return
+			return true
 		}
-		if !s.sched.Next() {
-			return
-		}
-	}
+		return false
+	})
 }
 
 // faultPhase runs the workload with the faults on.

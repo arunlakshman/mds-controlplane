@@ -151,8 +151,7 @@ func (s *sim) crashOne() {
 	if !n.up {
 		return
 	}
-	n.crash("nemesis")
-	n.restartAfter(runtime.Duration(s.rand.Between(int64(200*runtime.Millisecond), int64(3*second))))
+	n.crash("nemesis", runtime.Duration(s.rand.Between(int64(200*runtime.Millisecond), int64(3*second))))
 }
 
 func (s *sim) pauseOne() {

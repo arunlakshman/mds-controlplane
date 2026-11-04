@@ -8,6 +8,7 @@ import (
 	dstclock "github.com/manifesterio/dst/clock"
 	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/dst/sched"
+	dstsim "github.com/manifesterio/dst/sim"
 	"github.com/manifesterio/dst/trace"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -70,6 +71,7 @@ func nodeWriter(idx int) string { return fmt.Sprintf("cp-%d", idx) }
 type sim struct {
 	cfg      Config
 	scenario Scenario
+	runner   *dstsim.Runner // runs the node processes and the storage engine
 	rand     *rng.Rand
 	sched    *sched.Scheduler // shares its event heap with clock
 	clock    *dstclock.Clock
@@ -153,14 +155,18 @@ func newSim(cfg Config) (*sim, error) {
 	}
 	cfg.Scenario = sc.Name
 	s := &sim{
-		cfg: cfg, scenario: sc, rand: rng.New(cfg.Seed), faults: sc.Faults, bug: cfg.Bug,
+		cfg: cfg, scenario: sc, faults: sc.Faults, bug: cfg.Bug,
 		byProp: map[string]int{}, applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
 		hash: trace.New(),
 	}
-	s.sched = sched.New(s.rand)
+	s.runner = dstsim.New(dstsim.Config{Seed: cfg.Seed, WallStart: sched.TimeNs(wallStart), MaxPops: maxSteps + 1})
+	s.rand, s.sched = s.runner.Rand(), s.runner.Sched()
 	s.clock = dstclock.New(s.sched, sched.TimeNs(wallStart))
 	s.env = newEnv(s.rand, s.addFailure)
 	s.store = newStorage(s)
+	s.runner.Register(s.store)
+	s.runner.Register(replyEngine{s})
+	s.runner.Spawn(controller{s})
 	s.oracle = newOracle(s)
 	s.clients = newClientPool(s, 3)
 	for i := range cfg.Nodes {
@@ -176,7 +182,6 @@ const wallStart = int64(1767225600) * int64(runtime.Second)
 // directly so a node's CancelTimer stays a local token check.
 
 func (s *sim) mono() runtime.NodeTime { return runtime.NodeTime(s.clock.Mono()) }
-func (s *sim) wall() runtime.RealTime { return runtime.RealTime(s.clock.Wall()) }
 func (s *sim) now() int64             { return int64(s.clock.Mono()) }
 func (s *sim) steps() int             { return s.sched.Steps() }
 
