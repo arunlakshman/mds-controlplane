@@ -11,8 +11,8 @@ import (
 )
 
 // Group commands (slice 4a). The fold of GroupInstall, GroupAssign,
-// GroupRemove and OffsetCommit. The rules are in internal/verify/speccheck
-// (groups.go), which is the oracle. Every command is checked first and
+// GroupRemove and OffsetCommit. The rules are in internal/spec
+// (groups.go), which is the reference model. Every command is checked first and
 // written after, so an error writes nothing.
 
 // maxGroupCommand is the largest group command, by the size rule below.

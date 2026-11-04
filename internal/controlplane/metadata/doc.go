@@ -1,8 +1,8 @@
 // Package metadata is the kernel of the replicated control-plane state (decision
 // 49). It was called stateupdater before. It is the production state machine of
-// design A: the same semantics as speccheck.ControlPlane, on an embedded ordered
-// KV store instead of in-memory maps. speccheck stays the independent oracle
-// (decision 21); this package is tested against it in lockstep.
+// design A: the same semantics as spec.ControlPlane, on an embedded ordered
+// KV store instead of in-memory maps. internal/spec stays the independent
+// reference model (decision 21); this package is tested against it.
 //
 // The kernel holds a list of modules (module.Module): topics for topics and
 // segments, and groups/storage for consumer groups. Each module owns its own

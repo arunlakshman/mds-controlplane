@@ -1,7 +1,7 @@
 // Package storage keeps consumer group state in the ordered key-value store: the
 // fold of the four group writes and the three group reads. The keys are G
 // (group header), M (member) and O (committed offset). The rules are in
-// internal/verify/speccheck (groups.go), which is the oracle.
+// internal/spec (groups.go), which is the reference model.
 //
 // Layout (all keys are prefix-free per kind):
 //

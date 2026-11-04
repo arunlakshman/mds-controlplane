@@ -1,6 +1,6 @@
 // Package s3store is the S3 adapter: a system.ObjectStore over the AWS SDK and
-// the system.ErrorClassifier for Obj* actions. It behaves like speccheck.ObjectStore
-// (conformance C3), so a range outside the object is ErrInvalid and deleting
+// the system.ErrorClassifier for Obj* actions. It follows the object store rules in
+// conform_test.go, so a range outside the object is ErrInvalid and deleting
 // an absent key is ErrNotFound.
 package s3store
 

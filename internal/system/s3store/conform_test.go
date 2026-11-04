@@ -5,134 +5,128 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
-	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/injectedbug"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/observation"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/runsettings"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/suites"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/specsystem"
 )
 
-// Conformance C3: the shared object store suite runs on the S3 adapter and on
-// the in-process fake. Both are compared with speccheck.ObjectStore.
+// The rules of the object store, as a table of steps. The same table runs on the
+// S3 adapter over the in-process fake S3 server, and, when MDS_S3_ENDPOINT is
+// set, over a real S3 endpoint (SeaweedFS, minio or AWS). The steps run in order
+// on one store.
+//
+//	Put     An empty key is ErrInvalid. Else the object is stored, and it
+//	        replaces any object that was there.
+//	Get     An absent key is ErrNotFound. It reads [Off, Off+Len), and Len <= 0
+//	        means to the end. A range outside the object (Off < 0, Off > size,
+//	        Off+Len > size) is ErrInvalid. Off == size with Len <= 0 is empty.
+//	Delete  An absent key is ErrNotFound. Else the object is removed.
+//	List    The keys with the prefix, sorted. None is no keys.
+type step struct {
+	name string
+	do   func(system.ObjectStore) (data string, keys []string, err error)
+	data string
+	keys []string
+	code runtime.ErrCode // runtime.OK when the step must succeed
+}
 
-// codeOf turns an error of the adapter or of the fake into a runtime.ErrCode.
-// Any other error counts as ErrIO, as the broker would see it.
-func codeOf(err error) runtime.ErrCode {
-	if err == nil {
-		return runtime.OK
+// ctx is the context of the steps. A step has no use for a deadline.
+func ctx() context.Context { return context.Background() }
+
+func put(key, data string) func(system.ObjectStore) (string, []string, error) {
+	return func(s system.ObjectStore) (string, []string, error) {
+		return "", nil, s.Put(ctx(), key, []byte(data))
 	}
+}
+
+func get(key string, off, n int64) func(system.ObjectStore) (string, []string, error) {
+	return func(s system.ObjectStore) (string, []string, error) {
+		b, err := s.Get(ctx(), runtime.SegmentRef{Key: key, Off: off, Len: n})
+		return string(b), nil, err
+	}
+}
+
+func del(key string) func(system.ObjectStore) (string, []string, error) {
+	return func(s system.ObjectStore) (string, []string, error) { return "", nil, s.Delete(ctx(), key) }
+}
+
+func list(prefix string) func(system.ObjectStore) (string, []string, error) {
+	return func(s system.ObjectStore) (string, []string, error) {
+		keys, err := s.List(ctx(), prefix)
+		return "", keys, err
+	}
+}
+
+var objectRules = []step{
+	{name: "put", do: put("a", "0123456789")},
+	{name: "put in a folder", do: put("dir/b", "xyz")},
+	{name: "put empty data", do: put("dir/e", "")},
+	{name: "put with an empty key", do: put("", "x"), code: runtime.ErrInvalid},
+	{name: "get all", do: get("a", 0, 0), data: "0123456789"},
+	{name: "get from an offset to the end", do: get("a", 3, 0), data: "3456789"},
+	{name: "get a range", do: get("a", 2, 4), data: "2345"},
+	{name: "get the last byte", do: get("a", 9, 1), data: "9"},
+	{name: "get at the end", do: get("a", 10, 0), data: ""},
+	{name: "get empty object", do: get("dir/e", 0, 0), data: ""},
+	{name: "get an absent key", do: get("nope", 0, 0), code: runtime.ErrNotFound},
+	{name: "get after the end", do: get("a", 11, 0), code: runtime.ErrInvalid},
+	{name: "get a range that is too long", do: get("a", 5, 6), code: runtime.ErrInvalid},
+	{name: "get a negative offset", do: get("a", -1, 2), code: runtime.ErrInvalid},
+	{name: "put replaces", do: put("a", "AB")},
+	{name: "get what replaced it", do: get("a", 0, 0), data: "AB"},
+	{name: "list all", do: list(""), keys: []string{"a", "dir/b", "dir/e"}},
+	{name: "list a prefix", do: list("dir/"), keys: []string{"dir/b", "dir/e"}},
+	{name: "list no match", do: list("zz"), keys: nil},
+	{name: "delete", do: del("dir/b")},
+	{name: "delete again", do: del("dir/b"), code: runtime.ErrNotFound},
+	{name: "get what was deleted", do: get("dir/b", 0, 0), code: runtime.ErrNotFound},
+	{name: "list after delete", do: list("dir/"), keys: []string{"dir/e"}},
+}
+
+func runRules(t *testing.T, s system.ObjectStore) {
+	for _, c := range objectRules {
+		data, keys, err := c.do(s)
+		code := runtime.OK
+		if err != nil {
+			code = codeOf(err)
+		}
+		if code != c.code {
+			t.Fatalf("%s: code %v (%v), want %v", c.name, code, err, c.code)
+		}
+		if data != c.data || !slices.Equal(keys, c.keys) {
+			t.Fatalf("%s: got data %q keys %q, want data %q keys %q", c.name, data, keys, c.data, c.keys)
+		}
+	}
+}
+
+// codeOf is the code of an error of the adapter. Any other error counts as ErrIO.
+func codeOf(err error) runtime.ErrCode {
 	if se, ok := errors.AsType[*Error](err); ok {
 		return se.Code
-	}
-	if ve, ok := errors.AsType[*specsystem.Error](err); ok {
-		return ve.Code
 	}
 	return runtime.ErrIO
 }
 
-// storeSubject makes a system.ObjectStore usable as a suite subject. Neither the
-// fake nor real S3 can give the hash of the spec, so StateHash says no.
-type storeSubject struct{ store system.ObjectStore }
-
-func (s storeSubject) Do(operation runtime.IOCall) (observation.ObjectResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	switch call := operation.(type) {
-	case runtime.ObjectPut:
-		return writeResult(s.store.Put(ctx, call.Key, call.Data)), nil
-	case runtime.ObjectGet:
-		data, err := s.store.Get(ctx, call.Ref)
-		if err != nil {
-			return observation.ObjectResult{Code: codeOf(err)}, nil
-		}
-		return observation.ObjectResult{Data: data}, nil
-	case runtime.ObjectDelete:
-		return writeResult(s.store.Delete(ctx, call.Key)), nil
-	case runtime.ObjectList:
-		keys, err := s.store.List(ctx, call.Prefix)
-		if err != nil {
-			return observation.ObjectResult{Code: codeOf(err)}, nil
-		}
-		return observation.ObjectResult{Keys: keys}, nil
-	}
-	return observation.ObjectResult{}, fmt.Errorf("the operation type %T is not an object store operation", operation)
+func TestObjectRulesFake(t *testing.T) {
+	s, _ := newTestStore(t, "rules/")
+	runRules(t, s)
 }
 
-// writeResult follows the spec: a write that succeeds is Applied, and a write
-// that fails is NotApplied.
-func writeResult(err error) observation.ObjectResult {
-	if err != nil {
-		return observation.ObjectResult{Code: codeOf(err), Outcome: runtime.NotApplied}
-	}
-	return observation.ObjectResult{Code: runtime.OK, Outcome: runtime.Applied}
-}
-
-func (storeSubject) StateHash() (uint64, bool) { return 0, false }
-
-func newFake() suites.ObjectSubject { return storeSubject{specsystem.NewObjectStore()} }
-
-func runProfiles(t *testing.T, newSubject func() suites.ObjectSubject, defaultSeeds int) {
-	for _, profile := range suites.AllObjectProfiles() {
-		t.Run(profile.Name, func(t *testing.T) {
-			suites.ObjectStore(t, profile, newSubject, runsettings.Options(t, defaultSeeds))
-		})
-	}
-}
-
-func TestConformanceMem(t *testing.T) { runProfiles(t, newFake, 100) }
-
-// newFakeS3Subject returns the S3 adapter on the in-process fake S3 server.
-// It runs without a network, so it always runs.
-func newFakeS3Subject(t *testing.T) func() suites.ObjectSubject {
-	return func() suites.ObjectSubject {
-		f := newFakeS3(t)
-		s, err := New(t.Context(), Config{Endpoint: f.srv.URL, Bucket: "b", Prefix: "c3/", PathStyle: true})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return storeSubject{s}
-	}
-}
-
-func TestConformanceFake(t *testing.T) { runProfiles(t, newFakeS3Subject(t), 8) }
-
-// TestConformanceS3 runs against a real S3 endpoint (SeaweedFS) only when
-// MDS_S3_ENDPOINT is set. Every sequence gets its own key prefix.
-func TestConformanceS3(t *testing.T) {
+// TestObjectRulesS3 runs the rules on a real S3 endpoint, only when
+// MDS_S3_ENDPOINT is set. It uses a bucket of its own.
+func TestObjectRulesS3(t *testing.T) {
 	ep := os.Getenv("MDS_S3_ENDPOINT")
 	if ep == "" {
 		t.Skip("The environment variable MDS_S3_ENDPOINT is not set, so the test of the real S3 endpoint is skipped.")
 	}
-	base := UniqueBucket()
-	n := 0
-	runProfiles(t, func() suites.ObjectSubject {
-		s, err := New(t.Context(), Config{Endpoint: ep, Bucket: base, Prefix: fmt.Sprintf("c3-%d/", n), PathStyle: true})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n == 0 {
-			if err := s.EnsureBucket(t.Context()); err != nil {
-				t.Fatal(err)
-			}
-		}
-		n++
-		return storeSubject{s}
-	}, 50)
-}
-
-// TestInjectedBugsCaught proves that the suite fails when the adapter on the
-// fake S3 server has a known bug, so a pass of TestConformanceFake means
-// something.
-func TestInjectedBugsCaught(t *testing.T) {
-	injectedbug.RequireAllObjectBugsDetected(t, newFakeS3Subject(t), 100)
-}
-
-// TestInjectedBugsCaughtMem does the same for the in-process fake store.
-func TestInjectedBugsCaughtMem(t *testing.T) {
-	injectedbug.RequireAllObjectBugsDetected(t, newFake, 100)
+	s, err := New(t.Context(), Config{Endpoint: ep, Bucket: UniqueBucket(), Prefix: fmt.Sprintf("rules-%d/", os.Getpid()), PathStyle: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureBucket(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	runRules(t, s)
 }

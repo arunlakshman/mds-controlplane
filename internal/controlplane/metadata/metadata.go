@@ -76,7 +76,7 @@ func (a *Store) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPl
 	return d, err
 }
 
-// Exec runs one ControlPlaneCall like speccheck.ControlPlane.Exec. For a CommitSegment the
+// Exec runs one ControlPlaneCall like spec.ControlPlane.Apply. For a CommitSegment the
 // call's Req is the log slot (it orders the idempotency window for Trim). A
 // store failure panics.
 func (a *Store) Exec(act runtime.IOCall) runtime.IOResult {
