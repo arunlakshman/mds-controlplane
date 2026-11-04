@@ -2,7 +2,7 @@
 
 The control plane of MDS: metadata, topics, consumer groups, and the replicated log that stores them.
 
-Extracted from `github.com/manifesterio/mds` (branch `refactor/controlplane-ddd`, PR #34).
+It was extracted from the MDS broker repository. It talks to the broker only through its API.
 
 ## Build
 
