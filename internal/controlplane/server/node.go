@@ -17,7 +17,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/live"
@@ -138,15 +137,17 @@ func (n *Node) Start(ctx context.Context) error {
 		Shutdown:  n.shutdown,
 		Inject:    n.inject,
 		Exec: func(out any) error {
-			call, ok := out.(runtime.IOCall)
-			if !ok {
-				return fmt.Errorf("controlplane/server: the replica returned %T, which no executor takes", out)
+			switch v := out.(type) {
+			case runtime.IOCall:
+				ex.Execute(v)
+			case runtime.ControlPlaneReply:
+				n.reply(v)
+			default:
+				return fmt.Errorf("controlplane/server: the replica returned %T, which nothing takes", out)
 			}
-			ex.Execute(call)
 			return nil
 		},
 		AfterStep: func() {
-			n.flushAnswers(m)
 			n.epoch.Store(m.Epoch())
 			n.stepDowns.Store(m.StepDowns())
 		},
@@ -255,9 +256,7 @@ func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []any) er
 			runErr = errors.New("controlplane/server: machine not started")
 			return nil
 		}
-		acts := fn(m)
-		n.flushAnswers(m)
-		return acts
+		return fn(m)
 	}:
 	case <-ctx.Done():
 		return ctx.Err()
@@ -270,19 +269,14 @@ func (n *Node) onLoop(ctx context.Context, fn func(m *replica.Replica) []any) er
 	}
 }
 
-func (n *Node) flushAnswers(m *replica.Replica) {
-	for _, a := range m.TakeAnswers() {
-		n.mu.Lock()
-		ch := n.waiters[a.Req]
-		delete(n.waiters, a.Req)
-		n.mu.Unlock()
-		if ch != nil {
-			ch <- a.Done
-		}
-	}
-}
+// serverFrom is who the node is when it talks to its own replica: the reply to
+// a request goes back to it, and the reply sink hands it to the waiting RPC.
+var serverFrom = runtime.NodeInstance{Node: "server"}
 
-func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (runtime.ControlPlaneDone, error) {
+// ask sends one request to the replica as an inbox value and waits for its
+// reply. A request that ends with its context may have been applied if it is a
+// command (maybeApplied), so its answer says MaybeApplied.
+func (n *Node) ask(ctx context.Context, maybeApplied bool, body func(request runtime.RequestID) runtime.EventData) (runtime.ControlPlaneDone, error) {
 	request := n.allocReq()
 	ch := make(chan runtime.ControlPlaneDone, 1)
 	n.mu.Lock()
@@ -293,59 +287,30 @@ func (n *Node) offer(ctx context.Context, cmd metadata.Entry) (runtime.ControlPl
 		delete(n.waiters, request)
 		n.mu.Unlock()
 	}()
-
-	err := n.onLoop(ctx, func(m *replica.Replica) []any {
-		return m.Offer(replica.ClientOperation{Req: request, Cmd: cmd})
-	})
-	if err != nil {
-		return runtime.ControlPlaneDone{}, err
-	}
-	// Offer may have answered synchronously (standby / queue full).
+	n.inbox.Deliver(body(request))
 	select {
 	case d := <-ch:
 		return d, nil
-	default:
-	}
-	for {
-		select {
-		case d := <-ch:
-			return d, nil
-		case <-ctx.Done():
-			return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied}, ctx.Err()
-		case n.inject <- func() []any {
-			m := n.m.Load()
-			if m != nil {
-				n.flushAnswers(m)
-			}
-			return nil
-		}:
+	case <-ctx.Done():
+		outcome := runtime.NotApplied
+		if maybeApplied {
+			outcome = runtime.MaybeApplied
 		}
+		return runtime.ControlPlaneDone{Req: request, Err: runtime.ErrTimeout, Outcome: outcome}, ctx.Err()
+	case <-n.loopDone:
+		return runtime.ControlPlaneDone{}, errors.New("controlplane/server: the run loop has ended")
 	}
 }
 
-func (n *Node) read(ctx context.Context, fn func(m *replica.Replica) (runtime.ControlPlaneDone, error)) (runtime.ControlPlaneDone, error) {
-	type result struct {
-		d   runtime.ControlPlaneDone
-		err error
-	}
-	ch := make(chan result, 1)
-	err := n.onLoop(ctx, func(m *replica.Replica) []any {
-		if !m.Ready() {
-			ch <- result{d: runtime.ControlPlaneDone{Err: runtime.ErrUnavailable}}
-			return nil
-		}
-		d, e := fn(m)
-		ch <- result{d: d, err: e}
-		return nil
-	})
-	if err != nil {
-		return runtime.ControlPlaneDone{}, err
-	}
-	select {
-	case r := <-ch:
-		return r.d, r.err
-	case <-ctx.Done():
-		return runtime.ControlPlaneDone{Err: runtime.ErrTimeout, Outcome: runtime.NotApplied}, ctx.Err()
+// reply is the reply sink of the run loop: it gives the answer of the replica
+// to the RPC that waits for it.
+func (n *Node) reply(r runtime.ControlPlaneReply) {
+	n.mu.Lock()
+	ch := n.waiters[r.Done.Req]
+	delete(n.waiters, r.Done.Req)
+	n.mu.Unlock()
+	if ch != nil && r.To == serverFrom {
+		ch <- r.Done
 	}
 }
 

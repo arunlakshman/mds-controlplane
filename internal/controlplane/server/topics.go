@@ -7,7 +7,6 @@ import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wireboundary"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -25,15 +24,21 @@ func isCommand(operation runtime.ControlPlaneOperation) bool {
 }
 
 // Exec runs one operation and is the only place that splits commands from reads.
-// A command is offered to the log. A read is answered by the fold of this node.
+// A command is sent to the replica as a ControlPlaneDeliver and answered after
+// its slot applies. A read is sent as a LocalRead and answered at once by the
+// fold of this node.
 // A business error is the Err of the answer; the error result is for the run
 // loop and the context. Node is the log and read side of the group coordinator
 // (through nodeGroups) and of every topics RPC.
 func (n *Node) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
-	if entry, logged := metadata.EntryOf(operation); logged {
-		return n.offer(ctx, entry)
+	if _, logged := metadata.EntryOf(operation); logged {
+		return n.ask(ctx, true, func(request runtime.RequestID) runtime.EventData {
+			return runtime.ControlPlaneDeliver{From: serverFrom, Req: request, Op: operation}
+		})
 	}
-	return n.read(ctx, func(m *replica.Replica) (runtime.ControlPlaneDone, error) { return m.Metadata().Read(operation) })
+	return n.ask(ctx, false, func(request runtime.RequestID) runtime.EventData {
+		return runtime.LocalRead{From: serverFrom, Req: request, Op: operation}
+	})
 }
 
 var _ runtime.OperationRunner = (*Node)(nil)
