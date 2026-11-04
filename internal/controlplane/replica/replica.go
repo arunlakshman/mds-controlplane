@@ -372,7 +372,7 @@ func (m *Replica) armCatchUp() []any {
 		return nil
 	}
 	m.timerGen++
-	return []any{runtime.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
+	return []any{arm(timerCatchUp, m.timerGen, m.config.CatchUpEvery)}
 }
 
 // arm returns the dst value that starts timer id. The generation goes back to
