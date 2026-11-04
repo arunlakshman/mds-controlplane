@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/arunlakshman/dst/mutant"
 )
 
 func mustRun(t *testing.T, cfg Config) Result {
@@ -108,37 +110,38 @@ func TestFaultsAreInjected(t *testing.T) {
 // is planted, some seed in a few hundred must fail. The bug is in the replica
 // (writer-offsets) or in the fake log (the other two).
 func TestPlantedBugsAreFound(t *testing.T) {
-	bugs := []struct {
-		bug      Bug
-		scenario string
-	}{
-		{BugWriterOffsets, "basic"},
-		{BugLogOverwrite, "chaos"},
-		{BugClaimAlwaysWins, "leader-fencing"},
+	scenario := map[mutant.Bug]string{
+		mutant.Bug(BugWriterOffsets):   "basic",
+		mutant.Bug(BugLogOverwrite):    "chaos",
+		mutant.Bug(BugClaimAlwaysWins): "leader-fencing",
 	}
-	for _, b := range bugs {
-		t.Run(string(b.bug), func(t *testing.T) {
-			for seed := uint64(1); seed <= 300; seed++ {
-				if res := mustRun(t, Config{Scenario: b.scenario, Seed: seed, Bug: b.bug}); !res.OK() {
-					t.Logf("found at seed %d: %s: %s", seed, res.Failures[0].Property, res.Failures[0].Detail)
-					return
-				}
-			}
-			t.Fatalf("bug %s was not found in 300 seeds of %s", b.bug, b.scenario)
-		})
+	bugs := []mutant.Bug{
+		mutant.Bug(BugWriterOffsets),
+		mutant.Bug(BugLogOverwrite),
+		mutant.Bug(BugClaimAlwaysWins),
 	}
+	mutant.Require(t, bugs, 300, func(bug mutant.Bug, seed uint64) bool {
+		res := mustRun(t, Config{Scenario: scenario[bug], Seed: seed, Bug: Bug(bug)})
+		if res.OK() {
+			return false
+		}
+		t.Logf("found at seed %d: %s: %s", seed, res.Failures[0].Property, res.Failures[0].Detail)
+		return true
+	})
 }
 
 // TestCleanRunHasNoFalseAlarm is the other side of the planted bug test: with no
 // bug, the same seeds that find a bug must pass.
 func TestCleanRunHasNoFalseAlarm(t *testing.T) {
-	for seed := uint64(1); seed <= uint64(seedCount(10, 60)); seed++ {
+	mutant.RequireClean(t, seedCount(10, 60), func(seed uint64) bool {
 		for _, sc := range []string{"chaos", "leader-fencing"} {
 			if res := mustRun(t, Config{Scenario: sc, Seed: seed}); !res.OK() {
-				t.Fatal(Report(res))
+				t.Log(Report(res))
+				return true
 			}
 		}
-	}
+		return false
+	})
 }
 
 func TestUnknownScenario(t *testing.T) {

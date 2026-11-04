@@ -1,17 +1,15 @@
 // Package campaign runs many seeds of the simulator on several goroutines and
-// sums up the results. The goroutines and the wall clock live here, outside the
-// deterministic engine: every run is still one goroutine and no real time.
+// sums up the results. Parallelism and fold live in dst/campaign; each run is
+// still one goroutine and no real time.
 package campaign
 
 import (
 	"fmt"
-	goruntime "runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	dstcampaign "github.com/arunlakshman/dst/campaign"
 	"github.com/manifesterio/mds-controlplane/internal/verify/simulator"
 )
 
@@ -36,49 +34,43 @@ func RunCampaign(cfg simulator.Config, first uint64, seeds int) (Campaign, error
 	if _, ok := simulator.ScenarioByName(cfg.Scenario); !ok {
 		return Campaign{}, fmt.Errorf("unknown scenario %q (have %v)", cfg.Scenario, simulator.ScenarioNames())
 	}
-	start := time.Now() // wall time is only used to report how long the campaign took
-	results := make([]simulator.Result, seeds)
-	var wg sync.WaitGroup
-	jobs := make(chan int)
-	for range min(goruntime.GOMAXPROCS(0), max(seeds, 1)) {
-		wg.Go(func() {
-			for i := range jobs {
-				c := cfg
-				c.Seed = first + uint64(i)
-				results[i], _ = simulator.Run(c)
-			}
-		})
+	results := make([]simulator.Result, max(seeds, 0))
+	sum := dstcampaign.Run(first, seeds, 0, func(seed uint64) dstcampaign.Result {
+		c := cfg
+		c.Seed = seed
+		r, _ := simulator.Run(c)
+		results[int(seed-first)] = r
+		cov := make(map[string]dstcampaign.Coverage, len(r.Coverage))
+		for k, v := range r.Coverage {
+			cov[k] = dstcampaign.Coverage{Kind: string(v.Kind), Checks: v.Checks, Passes: v.Passes}
+		}
+		return dstcampaign.Result{
+			Hash:      r.Hash,
+			OK:        r.OK(),
+			Reproduce: r.Reproduce(),
+			Coverage:  cov,
+		}
+	})
+	out := Campaign{
+		Scenario: cfg.Scenario,
+		Seeds:    seeds,
+		Runs:     seeds,
+		Hash:     sum.Hash,
+		Elapsed:  sum.Elapsed,
+		Coverage: make(map[string]simulator.Coverage, len(sum.Coverage)),
 	}
-	for i := range seeds {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
-	out := Campaign{Scenario: cfg.Scenario, Seeds: seeds, Runs: seeds, Coverage: map[string]simulator.Coverage{}}
-	h := runtime.NewHasher()
 	for _, r := range results {
-		h.Uint64Value(r.Hash)
 		out.Steps += r.Steps
 		out.Slots += r.Stats.LogSlots
 		out.Acked += r.Stats.Acked
 		if !r.OK() {
 			out.Failed = append(out.Failed, r)
 		}
-		addCoverage(out.Coverage, r.Coverage)
 	}
-	out.Hash = h.Sum()
-	out.Elapsed = time.Since(start)
+	for k, c := range sum.Coverage {
+		out.Coverage[k] = simulator.Coverage{Kind: c.Kind, Checks: c.Checks, Passes: c.Passes}
+	}
 	return out, nil
-}
-
-func addCoverage(into, from map[string]simulator.Coverage) {
-	for k, c := range from { //determinismcheck:ok sums into a map; order does not matter
-		t := into[k]
-		t.Kind = c.Kind
-		t.Checks += c.Checks
-		t.Passes += c.Passes
-		into[k] = t
-	}
 }
 
 // Line is the one-line summary of the campaign.
@@ -99,7 +91,13 @@ func (s *Summary) Add(c Campaign) {
 	if s.cov == nil {
 		s.cov = map[string]simulator.Coverage{}
 	}
-	addCoverage(s.cov, c.Coverage)
+	for k, c := range c.Coverage {
+		t := s.cov[k]
+		t.Kind = c.Kind
+		t.Checks += c.Checks
+		t.Passes += c.Passes
+		s.cov[k] = t
+	}
 }
 
 // Coverage lists the replica paths that no run reached. The replica says which
