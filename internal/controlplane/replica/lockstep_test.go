@@ -69,7 +69,7 @@ func queryDigest(exec func(runtime.ControlPlaneOperation) runtime.ControlPlaneDo
 func feedContiguous(t *testing.T, m *replica.Replica, entries []metadata.Entry) []runtime.ControlPlaneDone {
 	t.Helper()
 	acts := step(m, runtime.NodeStarted{})
-	timer := acts[0].(runtime.SetTimer)
+	timer := mustTimer(t, acts[0])
 	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
 	n := runtime.LogPosition(len(entries))

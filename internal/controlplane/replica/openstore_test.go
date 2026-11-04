@@ -2,6 +2,7 @@ package replica_test
 
 import (
 	"errors"
+	"github.com/manifesterio/dst/sim"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
@@ -42,7 +43,7 @@ func driveToTomb(t *testing.T, m *replica.Replica) []any {
 	acts := step(m, runtime.NodeStarted{})
 	list := acts[0].(runtime.ObjectList)
 	acts = step(m, runtime.ObjectListDone{Req: list.Req})
-	timer := acts[0].(runtime.SetTimer)
+	timer := mustTimer(t, acts[0])
 	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
 	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})
@@ -87,9 +88,9 @@ func TestOpenStoreFailureAfterRestoreStopsTheNode(t *testing.T) {
 	src := &storeSource{failOn: 2}
 	m := newMachine(t, tombConfig(src))
 	acts := driveToTomb(t, m)
-	stop, ok := acts[len(acts)-1].(runtime.StopForRestart)
+	stop, ok := acts[len(acts)-1].(sim.Crash)
 	if !ok {
-		t.Fatalf("acts = %#v, want StopForRestart last", acts)
+		t.Fatalf("acts = %#v, want Crash last", acts)
 	}
 	if stop.Cause != "disk is full" {
 		t.Errorf("cause = %q, want the open error", stop.Cause)
@@ -99,8 +100,8 @@ func TestOpenStoreFailureAfterRestoreStopsTheNode(t *testing.T) {
 func TestOpenStoreFailureAtBuildStopsOnStart(t *testing.T) {
 	m := newMachine(t, tombConfig(&storeSource{failOn: 1}))
 	acts := step(m, runtime.NodeStarted{})
-	stop, ok := acts[0].(runtime.StopForRestart)
+	stop, ok := acts[0].(sim.Crash)
 	if !ok || stop.Cause != "disk is full" {
-		t.Fatalf("acts = %#v, want StopForRestart with the open error", acts)
+		t.Fatalf("acts = %#v, want Crash with the open error", acts)
 	}
 }

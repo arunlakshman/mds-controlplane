@@ -3,6 +3,8 @@ package replica
 import (
 	"bytes"
 
+	"github.com/manifesterio/dst/sched"
+	"github.com/manifesterio/dst/sim"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -373,20 +375,28 @@ func (m *Replica) armCatchUp() []any {
 	return []any{runtime.SetTimer{ID: timerCatchUp, Gen: m.timerGen, After: m.config.CatchUpEvery}}
 }
 
-func (m *Replica) trip(err error) []any {
-	m.exited = true
-	return []any{runtime.StopForRestart{Cause: err.Error()}}
+// arm returns the dst value that starts timer id. The generation goes back to
+// the machine inside the TimerFired value, so a stale timer is ignored.
+func arm(id runtime.TimerID, gen runtime.TimerVersion, after runtime.Duration) sim.SetTimer {
+	return sim.SetTimer{ID: uint64(id), After: sched.TimeNs(after), Body: runtime.TimerFired{ID: id, Gen: gen}}
 }
 
-// stop marks the machine shutting down and emits ShutdownDone. With no in-flight work
-// yet that must drain, ShutdownDone is immediate (decision 8).
+// trip ends the machine: its memory can not be trusted any more, so the
+// runner must start a new incarnation.
+func (m *Replica) trip(err error) []any {
+	m.exited = true
+	return []any{sim.Crash{Cause: err.Error()}}
+}
+
+// stop marks the machine shutting down and emits Exit. With no in-flight work
+// yet that must drain, Exit is immediate (decision 8).
 func (m *Replica) stop() []any {
 	if m.stopping {
 		return nil
 	}
 	m.stopping = true
 	m.exited = true
-	return []any{runtime.ShutdownDone{}}
+	return []any{sim.Exit{}}
 }
 
 // StateHash folds every field that influences behaviour, including the applied

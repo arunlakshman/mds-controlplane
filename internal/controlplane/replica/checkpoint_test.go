@@ -59,7 +59,7 @@ func TestRestoreOnStartedThenReady(t *testing.T) {
 	if m.Ready() {
 		t.Fatal("Ready before catch-up")
 	}
-	timer := acts[0].(runtime.SetTimer)
+	timer := mustTimer(t, acts[0])
 	acts = m.Step(runtime.Event{At: 0, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
 	tail := acts[0].(runtime.LogGetEnd)
 	m.Step(runtime.Event{At: 0, Body: runtime.LogGetEndDone{
@@ -87,7 +87,7 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	// NodeStarted, empty list, catch-up, Ready, claim, fence entry, active (rank 0).
 	list := startRestore(t, m)
 	acts := m.Step(runtime.Event{At: 0, Body: runtime.ObjectListDone{Req: list.Req}})
-	timer := acts[0].(runtime.SetTimer)
+	timer := mustTimer(t, acts[0])
 	acts = m.Step(runtime.Event{At: 0, Body: runtime.TimerFired{ID: timer.ID, Gen: timer.Gen}})
 	tail := acts[0].(runtime.LogGetEnd)
 	acts = m.Step(runtime.Event{At: 0, Body: runtime.LogGetEndDone{
@@ -166,7 +166,7 @@ func TestRestoreMissFallsThroughToCatchUp(t *testing.T) {
 	})
 	list := startRestore(t, m)
 	acts := m.Step(runtime.Event{Body: runtime.ObjectListDone{Req: list.Req}})
-	if _, ok := acts[0].(runtime.SetTimer); !ok {
+	if _, ok := asTimer(acts[0]); !ok {
 		t.Fatalf("after an empty list = %v, want catch-up SetTimer", acts)
 	}
 	if m.Applied() != 0 {

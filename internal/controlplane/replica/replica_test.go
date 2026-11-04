@@ -1,6 +1,7 @@
 package replica_test
 
 import (
+	"github.com/manifesterio/dst/sim"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
@@ -48,6 +49,36 @@ func (e *testEnv) Sometimes(bool, runtime.PropertyID)                           
 func (e *testEnv) Reachable(runtime.PropertyID)                                         {}
 func (e *testEnv) Unreachable(runtime.PropertyID, ...runtime.ContextPair)               {}
 
+// timerView is what a test reads from a timer request: which timer, its
+// generation, and when it fires.
+type timerView struct {
+	ID    runtime.TimerID
+	Gen   runtime.TimerVersion
+	After runtime.Duration
+}
+
+// asTimer reads a timer request. The replica is moving from runtime.SetTimer
+// to dst's sim.SetTimer one concern at a time, so both are read for now.
+func asTimer(a any) (timerView, bool) {
+	switch st := a.(type) {
+	case sim.SetTimer:
+		fired, _ := st.Body.(runtime.TimerFired)
+		return timerView{ID: fired.ID, Gen: fired.Gen, After: runtime.Duration(st.After)}, true
+	case runtime.SetTimer:
+		return timerView{ID: st.ID, Gen: st.Gen, After: st.After}, true
+	}
+	return timerView{}, false
+}
+
+func mustTimer(t *testing.T, a any) timerView {
+	t.Helper()
+	tv, ok := asTimer(a)
+	if !ok {
+		t.Fatalf("%T is not a timer request", a)
+	}
+	return tv
+}
+
 func newMachine(t *testing.T, config replica.Config) *replica.Replica {
 	t.Helper()
 	m, _ := newMachineEnv(t, config)
@@ -78,8 +109,8 @@ func TestStartedAndStop(t *testing.T) {
 	if len(acts) != 1 {
 		t.Fatalf("Stop actions = %v, want [Exit]", acts)
 	}
-	if _, ok := acts[0].(runtime.ShutdownDone); !ok {
-		t.Fatalf("Stop action = %T, want runtime.ShutdownDone", acts[0])
+	if _, ok := acts[0].(sim.Exit); !ok {
+		t.Fatalf("Stop action = %T, want sim.Exit", acts[0])
 	}
 	if m.StateHash() == beforeStop {
 		t.Fatal("Stop left StateHash unchanged")
@@ -146,7 +177,7 @@ func TestCatchUpAppliesContiguousReads(t *testing.T) {
 	if len(acts) != 1 {
 		t.Fatalf("Started actions = %v, want [SetTimer]", acts)
 	}
-	timer, ok := acts[0].(runtime.SetTimer)
+	timer, ok := asTimer(acts[0])
 	if !ok || timer.ID == 0 {
 		t.Fatalf("Started action = %T %#v, want SetTimer", acts[0], acts[0])
 	}
@@ -179,7 +210,7 @@ func TestCatchUpAppliesContiguousReads(t *testing.T) {
 	if len(acts) != 1 {
 		t.Fatalf("ReadDone actions = %v, want [SetTimer]", acts)
 	}
-	if _, ok := acts[0].(runtime.SetTimer); !ok {
+	if _, ok := asTimer(acts[0]); !ok {
 		t.Fatalf("ReadDone action = %T, want SetTimer", acts[0])
 	}
 	if m.Applied() != 2 {

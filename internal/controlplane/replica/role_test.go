@@ -9,13 +9,13 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func findTimer(acts []any, id runtime.TimerID) (runtime.SetTimer, bool) {
+func findTimer(acts []any, id runtime.TimerID) (timerView, bool) {
 	for _, a := range acts {
-		if st, ok := a.(runtime.SetTimer); ok && st.ID == id {
+		if st, ok := asTimer(a); ok && st.ID == id {
 			return st, true
 		}
 	}
-	return runtime.SetTimer{}, false
+	return timerView{}, false
 }
 
 func findAppend(acts []any) (runtime.LogAppend, bool) {
@@ -41,7 +41,7 @@ func findClaim(acts []any) (runtime.LogClaimEpoch, bool) {
 func bootEmpty(t *testing.T, m *replica.Replica, at runtime.NodeTime) []any {
 	t.Helper()
 	acts := m.Step(runtime.Event{At: at, Body: runtime.NodeStarted{}})
-	timer, ok := acts[0].(runtime.SetTimer)
+	timer, ok := asTimer(acts[0])
 	if !ok {
 		t.Fatalf("Started = %v, want SetTimer", acts)
 	}

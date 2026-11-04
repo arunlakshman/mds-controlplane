@@ -19,7 +19,7 @@ func TestMissingNextSlotRestoresFromCheckpoint(t *testing.T) {
 	acts := step(m, runtime.NodeStarted{})
 	list := acts[0].(runtime.ObjectList)
 	acts = step(m, runtime.ObjectListDone{Req: list.Req})
-	timer := acts[0].(runtime.SetTimer)
+	timer := mustTimer(t, acts[0])
 	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
 	tail := acts[0].(runtime.LogGetEnd)
 	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})

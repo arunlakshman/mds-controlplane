@@ -31,7 +31,7 @@ func writeOp(t *testing.T, m *replica.Replica, request runtime.RequestID, operat
 // readOp sends one read op from a broker on a ready machine. A read waits for
 // a tail check that starts after it, so this runs catch-up rounds until the
 // reply comes out. It returns the reply and the catch-up timer to use next.
-func readOp(t *testing.T, m *replica.Replica, timer runtime.SetTimer, request runtime.RequestID, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, runtime.SetTimer) {
+func readOp(t *testing.T, m *replica.Replica, timer timerView, request runtime.RequestID, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, timerView) {
 	t.Helper()
 	if acts := m.Step(runtime.Event{Body: runtime.ControlPlaneDeliver{From: brokerFrom, Req: request, Op: operation}}); len(acts) != 0 {
 		t.Fatalf("read answered at once: %v", acts)

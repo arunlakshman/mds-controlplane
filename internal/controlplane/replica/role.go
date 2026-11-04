@@ -92,7 +92,7 @@ func (m *Replica) armRole() []any {
 		return nil
 	}
 	m.roleGen++
-	return []any{runtime.SetTimer{ID: timerRole, Gen: m.roleGen, After: every}}
+	return []any{arm(timerRole, m.roleGen, every)}
 }
 
 func (m *Replica) onRoleTimer(e runtime.TimerFired) []any {

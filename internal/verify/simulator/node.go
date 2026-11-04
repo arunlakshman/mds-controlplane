@@ -160,6 +160,13 @@ func (n *simNode) outbound(acts []any) []any {
 			out = append(out, dstsim.SetTimer{ID: uint64(a.ID), After: sched.TimeNs(a.After), Body: runtime.TimerFired{ID: a.ID, Gen: a.Gen}})
 		case runtime.CancelTimer:
 			out = append(out, dstsim.CancelTimer{ID: uint64(a.ID)})
+		case dstsim.SetTimer, dstsim.CancelTimer:
+			out = append(out, a) // the replica speaks dst already
+		case dstsim.Crash: // the replica tripped
+			d := runtime.Duration(n.s.rand.Between(int64(100*runtime.Millisecond), int64(500*runtime.Millisecond)))
+			return append(out, a, dstsim.Send{To: ctlID, Body: tripped{idx: n.idx, cause: a.Cause, in: d}})
+		case dstsim.Exit: // the replica ended on purpose
+			return append(out, a, dstsim.Send{To: ctlID, Body: shutDown{idx: n.idx}})
 		case runtime.ControlPlaneReply:
 			out = append(out, clientReply{node: n.idx, reply: a})
 		case runtime.StopForRestart:
