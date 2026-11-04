@@ -43,6 +43,7 @@ func Start(t testing.TB, config replica.Config, log executor.Log, objs executor.
 	if err := n.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	waitWriter(t, n, config)
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -66,4 +67,25 @@ func Start(t testing.TB, config replica.Config, log executor.Log, objs executor.
 		Addr: ln.Addr().String(), Client: cli,
 		API: cpv1.NewControlPlaneClient(conn), stop: stop,
 	}
+}
+
+// waitWriter waits until a rank 0 node with roles is the active writer. Start
+// returns when the node is Ready, but a node commits only when it is also active
+// (it has claimed the epoch and applied its fence entry), and a write in that
+// gap is refused with ErrUnavailable (real clients retry it). A test that writes
+// right after Start must not see that gap. A node that is not rank 0, or has no
+// roles, never waits.
+func waitWriter(t testing.TB, n *server.Node, config replica.Config) {
+	t.Helper()
+	if config.Rank != 0 || (config.Heartbeat <= 0 && config.TakeoverAfter <= 0) {
+		return
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, err := n.GetStatus(t.Context(), &cpv1.GetStatusRequest{}); err == nil && st.GetRole() == "active" {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("controlplanetest: the node did not become the active writer within 10s")
 }
