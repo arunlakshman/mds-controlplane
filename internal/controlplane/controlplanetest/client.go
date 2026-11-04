@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"google.golang.org/grpc"
@@ -25,6 +26,7 @@ import (
 type Client struct {
 	addrs []string
 	cur   atomic.Int32
+	mu    sync.Mutex // guards conns: tests call the client from several goroutines
 	conns []*grpc.ClientConn
 }
 
@@ -59,6 +61,8 @@ func NewClient(target string) *Client {
 
 // Close closes all connections.
 func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var err error
 	for i, conn := range c.conns {
 		if conn != nil {
@@ -70,6 +74,8 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) api(i int) (cpv1.ControlPlaneClient, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.conns[i] == nil {
 		conn, err := grpc.NewClient(c.addrs[i], grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
