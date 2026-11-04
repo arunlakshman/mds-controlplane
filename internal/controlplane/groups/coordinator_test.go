@@ -56,7 +56,7 @@ type harness struct {
 	t         *testing.T
 	c         *Coordinator
 	store     *metadatastore.Store
-	clock     *fakeclock.Clock
+	clock     fakeclock.Clock
 	next      *atomic.Int64
 	session   int32 // session timeout of the members joined by join
 	rebalance int32 // rebalance timeout; 0 means the session timeout

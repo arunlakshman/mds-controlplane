@@ -61,7 +61,7 @@
 //
 // Time: all time comes from one interface, runtime.Clock (Mono, Wall, AfterFunc).
 // system/realclock is the production clock and system/fakeclock is the one for
-// tests and simulation. The domain and server packages may not call time.Now,
+// tests (the simulator uses dst/clock on its own scheduler). The domain and server packages may not call time.Now,
 // time.AfterFunc and the like (TestControlPlaneTimeComesFromClock).
 //
 // How they fit together, from the imports:

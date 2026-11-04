@@ -1,113 +1,38 @@
-// Package fakeclock is the test and simulation implementation of runtime.Clock.
-// It is a thin runtime.Clock façade over dst/clock (and the sched that clock
-// sits on), not a second timer heap. Time moves only when the caller calls
-// Advance. A mutex serializes Advance against AfterFunc from a run-loop
-// goroutine; this package is not in the determinism gate.
+// Package fakeclock is the test implementation of runtime.Clock. It only
+// converts types: the timers, the lock and Advance are dst/clock.Sync. Time
+// moves only when the caller calls Advance. Do not use it inside the simulator
+// (internal/verify/simulator), which has its own single-goroutine dst/clock.
 package fakeclock
 
 import (
-	"sync"
 	"time"
 
 	dstclock "github.com/arunlakshman/dst/clock"
-	"github.com/arunlakshman/dst/rng"
 	"github.com/arunlakshman/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Clock is a runtime.Clock that moves only on Advance.
-type Clock struct {
-	mu      sync.Mutex
-	s       *sched.Scheduler
-	inner   *dstclock.Clock
-	pending int
-}
+type Clock struct{ *dstclock.Sync }
 
-type timer struct {
-	clock *Clock
-	inner *dstclock.Timer
-}
-
-var _ runtime.Clock = (*Clock)(nil)
+var _ runtime.Clock = Clock{}
 
 // New returns a Clock whose Wall time starts at wall. Mono starts at one
 // second, so that zero can mean "not set" in the code under test.
-func New(wall time.Time) *Clock {
-	monoStart := sched.TimeNs(time.Second)
-	// wallStart + Mono == wall.UnixNano() at construction.
-	wallStart := sched.TimeNs(wall.UnixNano()) - monoStart
-	s := sched.New(rng.New(1))
-	s.Jump(monoStart)
-	return &Clock{s: s, inner: dstclock.New(s, wallStart)}
+func New(wall time.Time) Clock {
+	return Clock{dstclock.NewSync(sched.TimeNs(wall.UnixNano()), sched.TimeNs(time.Second))}
 }
 
 // Mono returns the node-local time.
-func (c *Clock) Mono() runtime.NodeTime {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return runtime.NodeTime(c.inner.Mono())
-}
+func (c Clock) Mono() runtime.NodeTime { return runtime.NodeTime(c.Sync.Mono()) }
 
 // Wall returns the UTC time.
-func (c *Clock) Wall() runtime.RealTime {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return runtime.RealTime(c.inner.Wall())
-}
+func (c Clock) Wall() runtime.RealTime { return runtime.RealTime(c.Sync.Wall()) }
 
 // AfterFunc schedules f for d after now. It runs inside a later Advance.
-func (c *Clock) AfterFunc(d runtime.Duration, f func()) runtime.Timer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.pending++
-	tm := &timer{clock: c}
-	tm.inner = c.inner.AfterFunc(sched.TimeNs(d), func() {
-		c.mu.Lock()
-		c.pending--
-		c.mu.Unlock()
-		f()
-	})
-	return tm
+func (c Clock) AfterFunc(d runtime.Duration, f func()) runtime.Timer {
+	return c.Sync.AfterFunc(sched.TimeNs(d), f)
 }
 
-func (t *timer) Stop() bool {
-	t.clock.mu.Lock()
-	defer t.clock.mu.Unlock()
-	if !t.inner.Stop() {
-		return false
-	}
-	t.clock.pending--
-	return true
-}
-
-// Advance moves time forward by d and fires every timer that is due, in time
-// order. A timer may start new timers; they fire in the same call if they are due.
-// sched is driven under mu via Take so callbacks can call AfterFunc without deadlock.
-func (c *Clock) Advance(d time.Duration) {
-	c.mu.Lock()
-	target := c.s.Mono() + sched.TimeNs(d)
-	for {
-		at, ok := c.s.Peek()
-		if !ok || at > target {
-			c.s.Jump(target)
-			c.mu.Unlock()
-			return
-		}
-		run, ok := c.s.Take()
-		if !ok {
-			c.s.Jump(target)
-			c.mu.Unlock()
-			return
-		}
-		c.mu.Unlock()
-		run()
-		c.mu.Lock()
-	}
-}
-
-// Pending counts the timers that were not stopped and did not fire yet.
-func (c *Clock) Pending() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pending
-}
+// Advance moves time forward by d and fires every timer that is due.
+func (c Clock) Advance(d time.Duration) { c.Sync.Advance(sched.TimeNs(d)) }
