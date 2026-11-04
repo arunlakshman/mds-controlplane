@@ -35,7 +35,7 @@ func bodyText(b runtime.EventData) string {
 // tracef writes a note about something that is not a step (a crash, a partition).
 func (s *sim) tracef(format string, args ...any) {
 	if s.cfg.Trace != nil {
-		s.cfg.Trace(fmt.Sprintf("t=%dms %s", s.sched.now/int64(runtime.Millisecond), fmt.Sprintf(format, args...)))
+		s.cfg.Trace(fmt.Sprintf("t=%dms %s", s.sched.now()/int64(runtime.Millisecond), fmt.Sprintf(format, args...)))
 	}
 }
 

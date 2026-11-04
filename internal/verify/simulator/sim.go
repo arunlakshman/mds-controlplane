@@ -3,6 +3,7 @@ package simulator
 import (
 	"fmt"
 
+	"github.com/manifesterio/dst/trace"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -82,7 +83,7 @@ type sim struct {
 	quiet  bool
 	bug    Bug
 
-	hash     runtime.Hasher
+	hash     trace.Hash
 	stats    Stats
 	failures []Failure
 	byProp   map[string]int // property -> index in failures
@@ -112,7 +113,7 @@ func newSim(cfg Config) (*sim, error) {
 		cfg: cfg, scenario: sc, rand: NewRand(cfg.Seed), faults: sc.Faults, bug: cfg.Bug,
 		byProp: map[string]int{}, holders: map[uint64]int{}, prefixes: map[runtime.LogPosition]seenPrefix{},
 		applied: make([]runtime.LogPosition, cfg.Nodes), fresh: make([]bool, cfg.Nodes),
-		hash: runtime.NewHasher(),
+		hash: trace.New(),
 	}
 	s.sched = newScheduler(s.rand)
 	s.env = newEnv(s.rand, s.addFailure)
@@ -131,7 +132,7 @@ func (s *sim) addFailure(property, detail string) {
 		return
 	}
 	s.byProp[property] = len(s.failures)
-	s.failures = append(s.failures, Failure{Property: property, Detail: detail, Step: s.sched.steps, TimeMs: s.sched.now / int64(runtime.Millisecond)})
+	s.failures = append(s.failures, Failure{Property: property, Detail: detail, Step: s.sched.steps(), TimeMs: s.sched.now() / int64(runtime.Millisecond)})
 }
 
 // violation records a broken property. The run goes on.
@@ -160,11 +161,11 @@ func (s *sim) noteBoot(n *simNode) {
 // checks the properties that can be checked on one node.
 func (s *sim) observe(n *simNode, body runtime.EventData, acts []runtime.Action) {
 	h := &s.hash
-	h.Uint64Value(uint64(s.sched.now))
-	h.Uint64Value(uint64(n.idx))
-	h.Uint64Value(n.m.StateHash())
-	h.Uint64Value(uint64(len(acts)))
-	s.ring[s.rpos%traceRing] = traceLine{step: s.sched.steps, at: s.sched.now, node: n.idx, body: body, acts: len(acts)}
+	h.Uint64(uint64(s.sched.now()))
+	h.Uint64(uint64(n.idx))
+	h.Uint64(n.m.StateHash())
+	h.Uint64(uint64(len(acts)))
+	s.ring[s.rpos%traceRing] = traceLine{step: s.sched.steps(), at: s.sched.now(), node: n.idx, body: body, acts: len(acts)}
 	s.rpos++
 	if s.cfg.Trace != nil {
 		s.cfg.Trace(s.ring[(s.rpos-1)%traceRing].String())

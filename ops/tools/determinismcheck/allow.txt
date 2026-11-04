@@ -26,3 +26,6 @@ unicode/utf8
 
 # this module
 github.com/manifesterio/mds-controlplane/...
+
+# OSS deterministic simulation primitives (rng, sched, trace, assert, fault)
+github.com/manifesterio/dst/...

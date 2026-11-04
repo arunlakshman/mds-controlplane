@@ -48,7 +48,7 @@ func (s *sim) boot() {
 // runUntil takes events until stop says so, the queue is empty or the run is too long.
 func (s *sim) runUntil(stop func() bool) {
 	for !stop() {
-		if s.sched.steps >= maxSteps {
+		if s.sched.steps() >= maxSteps {
 			s.violation("run ends", "more than %d steps", maxSteps)
 			return
 		}
@@ -60,7 +60,7 @@ func (s *sim) runUntil(stop func() bool) {
 
 // faultPhase runs the workload with the faults on.
 func (s *sim) faultPhase() {
-	s.runUntil(func() bool { return s.sched.steps >= s.cfg.Steps })
+	s.runUntil(func() bool { return s.sched.steps() >= s.cfg.Steps })
 }
 
 // quietPhase stops all faults, heals the cluster, and lets it settle: every node
@@ -68,7 +68,7 @@ func (s *sim) faultPhase() {
 func (s *sim) quietPhase() {
 	s.tracef("quiet tail begins")
 	s.quiet, s.faults = true, Faults{}
-	s.env.quiet = true
+	s.env.setQuiet(true)
 	for _, n := range s.nodes {
 		n.cut = false
 		n.resume()
@@ -76,12 +76,12 @@ func (s *sim) quietPhase() {
 			n.boot()
 		}
 	}
-	start := s.sched.now
+	start := s.sched.now()
 	s.runUntil(func() bool {
-		waited := runtime.Duration(s.sched.now - start)
+		waited := runtime.Duration(s.sched.now() - start)
 		return waited >= maxQuiet || (waited >= minQuiet && !s.clients.busy() && s.converged())
 	})
-	s.stats.QuietMs = (s.sched.now - start) / int64(runtime.Millisecond)
+	s.stats.QuietMs = (s.sched.now() - start) / int64(runtime.Millisecond)
 	s.verdict(s.converged(), "live replicas converge", "after %dms of quiet the replicas did not reach the end of the log together: %s", s.stats.QuietMs, s.describeNodes())
 }
 
@@ -138,8 +138,8 @@ func (s *sim) checkSameState() {
 
 func (s *sim) result() Result {
 	r := Result{
-		Seed: s.cfg.Seed, Scenario: s.cfg.Scenario, Hash: s.finalHash(), Steps: s.sched.steps,
-		EndMs: s.sched.now / int64(runtime.Millisecond), Failures: s.failures, Stats: s.stats, Coverage: s.env.coverage(),
+		Seed: s.cfg.Seed, Scenario: s.cfg.Scenario, Hash: s.finalHash(), Steps: s.sched.steps(),
+		EndMs: s.sched.now() / int64(runtime.Millisecond), Failures: s.failures, Stats: s.stats, Coverage: s.env.coverage(),
 	}
 	if len(s.failures) > 0 {
 		r.Tail = s.tail()
@@ -151,10 +151,10 @@ func (s *sim) result() Result {
 // differ in what the oracle saw also differ in the hash.
 func (s *sim) finalHash() uint64 {
 	h := s.hash
-	h.Uint64Value(uint64(s.sched.steps))
-	h.Uint64Value(uint64(s.stats.Acked))
-	h.Uint64Value(uint64(s.stats.LogSlots))
-	h.Uint64Value(s.rand.Calls())
+	h.Uint64(uint64(s.sched.steps()))
+	h.Uint64(uint64(s.stats.Acked))
+	h.Uint64(uint64(s.stats.LogSlots))
+	h.Uint64(s.rand.Calls())
 	return h.Sum()
 }
 

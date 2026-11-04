@@ -1,17 +1,9 @@
 package simulator
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/manifesterio/dst/assert"
+	"github.com/manifesterio/dst/fault"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
-)
-
-// Assertion kinds, as they appear in Coverage.
-const (
-	kindAlways    = "always"
-	kindSometimes = "sometimes"
-	kindReachable = "reachable"
 )
 
 // Coverage counts how often one property was evaluated. A campaign adds the
@@ -26,18 +18,22 @@ type Coverage struct {
 // points, and the assertions. Assertions never panic: a false Always is
 // recorded as a failure and the run goes on.
 type env struct {
-	rand  *Rand
-	fail  func(property, detail string)
-	quiet bool // true in the quiet tail: Fault never fires
-	stats map[runtime.PropertyID]*Coverage
-	seen  map[string]bool // activation of Maybe sites, per run
+	rand *Rand
+	inj  *fault.Injector
+	log  *assert.Log
 }
 
 func newEnv(rand *Rand, fail func(property, detail string)) *env {
-	return &env{rand: rand, fail: fail, stats: map[runtime.PropertyID]*Coverage{}, seen: map[string]bool{}}
+	return &env{
+		rand: rand,
+		inj:  fault.New(rand.Rand),
+		log:  assert.New(fail),
+	}
 }
 
 var _ runtime.Environment = (*env)(nil)
+
+func (e *env) setQuiet(q bool) { e.inj.SetQuiet(q) }
 
 // Uint64 implements runtime.Rand.
 func (e *env) Uint64() uint64 { return e.rand.Uint64() }
@@ -48,84 +44,63 @@ func (e *env) Intn(n int) int { return e.rand.Intn(n) }
 // NewID implements runtime.Rand.
 func (e *env) NewID() runtime.ID { return e.rand.NewID() }
 
-// Maybe implements runtime.FaultInjector. A site is switched on for the whole
-// run with probability one half, and then fires on 5 percent of the calls.
+// Maybe implements runtime.FaultInjector.
 func (e *env) Maybe(site runtime.FaultPointID) bool {
-	on, known := e.seen[string(site)]
-	if !known {
-		on = e.rand.Chance(0.5)
-		e.seen[string(site)] = on
-	}
-	return on && e.rand.Chance(0.05)
+	return e.inj.Maybe(fault.Site(site))
 }
 
 // MaybeP implements runtime.FaultInjector.
-func (e *env) MaybeP(_ runtime.FaultPointID, p float64) bool { return e.rand.Chance(p) }
-
-// Fault implements runtime.FaultInjector. It never fires in the quiet tail.
-func (e *env) Fault(_ runtime.FaultPointID, p float64) bool {
-	return !e.quiet && e.rand.Chance(p)
+func (e *env) MaybeP(site runtime.FaultPointID, p float64) bool {
+	return e.inj.MaybeP(fault.Site(site), p)
 }
 
-func (e *env) stat(p runtime.PropertyID, kind string) *Coverage {
-	s := e.stats[p]
-	if s == nil {
-		s = &Coverage{Kind: kind}
-		e.stats[p] = s
-	}
-	return s
+// Fault implements runtime.FaultInjector.
+func (e *env) Fault(site runtime.FaultPointID, p float64) bool {
+	return e.inj.Fault(fault.Site(site), p)
 }
 
-func detailText(details []runtime.ContextPair) string {
-	var b strings.Builder
-	for _, d := range details {
-		fmt.Fprintf(&b, " %s=%v", d.Key, d.Value)
+func toPairs(details []runtime.ContextPair) []assert.Pair {
+	if len(details) == 0 {
+		return nil
 	}
-	return strings.TrimSpace(b.String())
+	out := make([]assert.Pair, len(details))
+	for i, d := range details {
+		out[i] = assert.Pair{Key: d.Key, Value: d.Value}
+	}
+	return out
 }
 
 // Always implements runtime.Assertions.
 func (e *env) Always(cond bool, p runtime.PropertyID, details ...runtime.ContextPair) {
-	s := e.stat(p, kindAlways)
-	s.Checks++
-	if cond {
-		s.Passes++
-		return
-	}
-	e.fail(string(p), detailText(details))
+	e.log.Always(cond, assert.Property(p), toPairs(details)...)
 }
 
 // AlwaysOrUnreachable implements runtime.Assertions.
 func (e *env) AlwaysOrUnreachable(cond bool, p runtime.PropertyID, details ...runtime.ContextPair) {
-	e.Always(cond, p, details...)
+	e.log.AlwaysOrUnreachable(cond, assert.Property(p), toPairs(details)...)
 }
 
 // Sometimes implements runtime.Assertions.
 func (e *env) Sometimes(cond bool, p runtime.PropertyID) {
-	s := e.stat(p, kindSometimes)
-	s.Checks++
-	if cond {
-		s.Passes++
-	}
+	e.log.Sometimes(cond, assert.Property(p))
 }
 
 // Reachable implements runtime.Assertions.
 func (e *env) Reachable(p runtime.PropertyID) {
-	s := e.stat(p, kindReachable)
-	s.Checks++
-	s.Passes++
+	e.log.Reachable(assert.Property(p))
 }
 
 // Unreachable implements runtime.Assertions.
 func (e *env) Unreachable(p runtime.PropertyID, details ...runtime.ContextPair) {
-	e.fail(string(p), "reached an Unreachable point "+detailText(details))
+	e.log.Unreachable(assert.Property(p), toPairs(details)...)
 }
 
 // coverage returns a copy of the stats. Callers sort the keys when they print.
 func (e *env) coverage() map[string]Coverage {
-	out := make(map[string]Coverage, len(e.stats))
-	for p, s := range e.stats { //determinismcheck:ok copy only; the order of a map copy is not observable
-		out[string(p)] = *s
+	src := e.log.Coverage()
+	out := make(map[string]Coverage, len(src))
+	for k, c := range src { //determinismcheck:ok copy only; the order of a map copy is not observable
+		out[k] = Coverage{Kind: c.Kind, Checks: c.Checks, Passes: c.Passes}
 	}
 	return out
 }
