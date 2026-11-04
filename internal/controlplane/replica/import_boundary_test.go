@@ -7,15 +7,11 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// Forbidden monorepo and I/O imports for controlplane/machine (decision 56).
+// Forbidden I/O and adapter imports for controlplane/machine (decision 56).
 var forbiddenImportPrefixes = []string{
-	"github.com/manifesterio/mds-controlplane/internal/broker",
-	"github.com/manifesterio/mds-controlplane/internal/verify/simulator",
 	"github.com/manifesterio/mds-controlplane/internal/system",
 	"github.com/manifesterio/mds-controlplane/cmd",
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck",
-	"github.com/manifesterio/mds-controlplane/internal/wire/kafkawire",
-	"github.com/manifesterio/mds-controlplane/internal/wire/segmentformat",
 	"net/http",
 	"github.com/cockroachdb/pebble",
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb",

@@ -20,10 +20,10 @@ https://www.amazon.science/publications/using-lightweight-formal-methods-to-vali
 
 - A spec is a small program in the same language as the code (the paper calls
   it a reference model). The paper's models are about 1% of the implementation.
-  Our three specs are about 400 lines of Go.
+  Our two specs are about 400 lines of Go.
 - Property-based testing: make random operations, run each on the spec and on
   the subject, compare the results, check invariants (`checker.SpecChecker`).
-- Split "correct" into separate checks, each with its own tool (C1 to C4 below).
+- Split "correct" into separate checks, each with its own tool (C2 and C3 below).
 - Shrink a failing sequence to a small one. The paper cut one failure from 61
   operations to 6.
 - Bias the random arguments only a little, and keep every case possible
@@ -33,40 +33,33 @@ https://www.amazon.science/publications/using-lightweight-formal-methods-to-vali
 - Run longer to find more (`MDS_SEEDS`, `MDS_CAMPAIGN`).
 - A pass is not a proof. Use small limits so that every code path is reached.
 
-**What we added:** injected bugs that every suite must catch, a second checker
-(the Kafka oracle) that never imports this package, and a whole-system
-simulator.
+**What we added:** injected bugs that every suite must catch.
 
 **What we did not do yet:** failure injection in the comparison (see section 8
 of `docs/speccheck-conformance-plan.md`), crash-state checks, concurrency model
 checking, and proofs of the specs themselves. Like the paper, we can miss bugs.
 
-## The three specs
+## The two specs
 
 | Spec | File | What it models | Real code it checks |
 | --- | --- | --- | --- |
 | `ObjectStore` | `objectstore.go` | S3: put, get a byte range, delete, list | S3 adapter, simulated object store |
 | `ControlPlane` | `controlplane.go` | commit a segment, lookup, describe topics | applier, memstore, gRPC client, simulated control plane |
-| `Partition` | `partition.go` | one Kafka partition: append, read | the broker |
 
 The rules of each spec are in the comment above its type. Read that first.
 
-## The four checks
+## The checks
 
 | Check | What is tested | Compared with | Real or simulated |
 | --- | --- | --- | --- |
-| C1 | broker answers: produce, fetch, ListOffsets | `Partition` | broker is real; storage and control plane are specs |
-| C2 | simulated object store and control plane, faults off | `ObjectStore`, `ControlPlane` | simulated |
+| C2 | in-process fakes of the object store and control plane, faults off | `ObjectStore`, `ControlPlane` | fakes |
 | C3 | S3 adapter and control-plane stores | `ObjectStore`, `ControlPlane` | real |
-| C4 | the Kafka oracle in `sim/kafka` | `Partition`, `ControlPlane` | simulation side |
 
 ## Run the tests
 
 ```bash
 go test ./internal/verify/speccheck/... -count=1            # specs and framework
-go test ./internal/broker ./internal/verify/simulator/fakeservices \
-        ./internal/system/s3store ./internal/controlplane/... -count=1   # C1, C2, C3
-go test ./internal/verify/simulator/kafka -run C4 -count=1      # C4
+go test ./internal/system/s3store ./internal/controlplane/... -count=1   # C2, C3
 ```
 
 The S3 test in C3 needs `MDS_S3_ENDPOINT`; without it, it skips.

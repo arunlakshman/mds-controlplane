@@ -3,7 +3,6 @@ package suites
 import (
 	"errors"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
 	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck/checker/generator"
@@ -29,16 +28,6 @@ type ObjectSubject interface {
 // spec.
 type ControlPlaneSubject interface {
 	Do(operation generator.ControlPlaneTestStep) (observation.ControlPlaneResult, error)
-	StateHash() (hash uint64, ok bool)
-}
-
-// PartitionSubject is a partition log under test. The methods have the same
-// rules as speccheck.Partition. StateHash returns ok = false when the subject
-// has no spec hash.
-type PartitionSubject interface {
-	Append(batch [][]byte) contract.Offset
-	Read(from contract.Offset, max int) ([]speccheck.StoredRecord, bool)
-	HighWatermark() contract.Offset
 	StateHash() (hash uint64, ok bool)
 }
 
@@ -80,23 +69,6 @@ func (s *specControlPlaneSubject) Do(operation generator.ControlPlaneTestStep) (
 }
 
 func (s *specControlPlaneSubject) StateHash() (uint64, bool) { return s.cp.StateHash(), true }
-
-type specPartitionSubject struct{ p *speccheck.Partition }
-
-// NewSpecPartitionSubject returns a fresh speccheck.Partition as a subject.
-func NewSpecPartitionSubject() PartitionSubject {
-	return &specPartitionSubject{p: &speccheck.Partition{}}
-}
-
-func (s *specPartitionSubject) Append(batch [][]byte) contract.Offset { return s.p.Append(batch) }
-
-func (s *specPartitionSubject) Read(from contract.Offset, max int) ([]speccheck.StoredRecord, bool) {
-	return s.p.Read(from, max)
-}
-
-func (s *specPartitionSubject) HighWatermark() contract.Offset { return s.p.HighWatermark() }
-
-func (s *specPartitionSubject) StateHash() (uint64, bool) { return s.p.StateHash(), true }
 
 // AllObjectProfiles returns every generator profile. A caller runs the object
 // store suite once for each profile, as a subtest named after the profile.

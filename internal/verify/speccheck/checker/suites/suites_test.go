@@ -39,10 +39,6 @@ func TestControlPlaneSpecVsSpec(t *testing.T) {
 	}
 }
 
-func TestPartitionSpecVsSpec(t *testing.T) {
-	suites.Partition(t, suites.NewSpecPartitionSubject, options(t, 60))
-}
-
 // recorder is a Reporter that keeps what the suite prints.
 type recorder struct{ errors, logs []string }
 

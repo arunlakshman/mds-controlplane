@@ -330,31 +330,83 @@ type GroupDescription struct {
 // DescribeGroupsResp has one entry per name asked, in request order.
 type DescribeGroupsResp struct{ Groups []GroupDescription }
 
-func (CommitSegment) IsControlPlaneOperation()  {}
-func (FindSegments) IsControlPlaneOperation()   {}
+// IsControlPlaneOperation marks CommitSegment as a control-plane operation.
+func (CommitSegment) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks FindSegments as a control-plane operation.
+func (FindSegments) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks DescribeTopics as a control-plane operation.
 func (DescribeTopics) IsControlPlaneOperation() {}
-func (CreateTopic) IsControlPlaneOperation()    {}
-func (GroupInstall) IsControlPlaneOperation()   {}
-func (GroupAssign) IsControlPlaneOperation()    {}
-func (GroupRemove) IsControlPlaneOperation()    {}
-func (OffsetCommit) IsControlPlaneOperation()   {}
-func (OffsetFetch) IsControlPlaneOperation()    {}
-func (DescribeGroup) IsControlPlaneOperation()  {}
-func (ListGroups) IsControlPlaneOperation()     {}
-func (GroupJoin) IsControlPlaneOperation()      {}
-func (GroupSync) IsControlPlaneOperation()      {}
+
+// IsControlPlaneOperation marks CreateTopic as a control-plane operation.
+func (CreateTopic) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupInstall as a control-plane operation.
+func (GroupInstall) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupAssign as a control-plane operation.
+func (GroupAssign) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupRemove as a control-plane operation.
+func (GroupRemove) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks OffsetCommit as a control-plane operation.
+func (OffsetCommit) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks OffsetFetch as a control-plane operation.
+func (OffsetFetch) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks DescribeGroup as a control-plane operation.
+func (DescribeGroup) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks ListGroups as a control-plane operation.
+func (ListGroups) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupJoin as a control-plane operation.
+func (GroupJoin) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupSync as a control-plane operation.
+func (GroupSync) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks GroupHeartbeat as a control-plane operation.
 func (GroupHeartbeat) IsControlPlaneOperation() {}
-func (GroupLeave) IsControlPlaneOperation()     {}
+
+// IsControlPlaneOperation marks GroupLeave as a control-plane operation.
+func (GroupLeave) IsControlPlaneOperation() {}
+
+// IsControlPlaneOperation marks DescribeGroups as a control-plane operation.
 func (DescribeGroups) IsControlPlaneOperation() {}
 
-func (CommitSegmentResp) IsControlPlaneResponse()  {}
-func (FindSegmentsResp) IsControlPlaneResponse()   {}
+// IsControlPlaneResponse marks CommitSegmentResp as a control-plane response.
+func (CommitSegmentResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks FindSegmentsResp as a control-plane response.
+func (FindSegmentsResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks DescribeTopicsResp as a control-plane response.
 func (DescribeTopicsResp) IsControlPlaneResponse() {}
-func (OffsetCommitResp) IsControlPlaneResponse()   {}
-func (OffsetFetchResp) IsControlPlaneResponse()    {}
-func (DescribeGroupResp) IsControlPlaneResponse()  {}
-func (ListGroupsResp) IsControlPlaneResponse()     {}
-func (GroupJoinResp) IsControlPlaneResponse()      {}
-func (GroupSyncResp) IsControlPlaneResponse()      {}
-func (GroupLeaveResp) IsControlPlaneResponse()     {}
+
+// IsControlPlaneResponse marks OffsetCommitResp as a control-plane response.
+func (OffsetCommitResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks OffsetFetchResp as a control-plane response.
+func (OffsetFetchResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks DescribeGroupResp as a control-plane response.
+func (DescribeGroupResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks ListGroupsResp as a control-plane response.
+func (ListGroupsResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks GroupJoinResp as a control-plane response.
+func (GroupJoinResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks GroupSyncResp as a control-plane response.
+func (GroupSyncResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks GroupLeaveResp as a control-plane response.
+func (GroupLeaveResp) IsControlPlaneResponse() {}
+
+// IsControlPlaneResponse marks DescribeGroupsResp as a control-plane response.
 func (DescribeGroupsResp) IsControlPlaneResponse() {}

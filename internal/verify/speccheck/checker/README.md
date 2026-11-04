@@ -113,14 +113,12 @@ MDS_SEED=17 go test -run '^TestMySuite$' -count=1 -v .
 Use the top-level test name. The shrunk sequence is Go source text. Paste it
 into a normal test to keep the case forever.
 
-## The four checks: real and simulated parts
+## The checks: real and simulated parts
 
 | Check | Real component | Simulated component or spec |
 | --- | --- | --- |
-| C1 broker vs Partition | The broker state machine (`internal/broker`). | The object store and the control plane are the specs `speccheck.ObjectStore` and `speccheck.ControlPlane`. The reference is `speccheck.Partition`. |
-| C2 simulated engines vs specs | None. | The simulated engines (`simulator/fakeservices`) run with all faults off. The reference is the spec. |
+| C2 fakes vs specs | None. | The in-process fakes run with all faults off. The reference is the spec. |
 | C3 adapters vs specs | The S3 adapter and the control-plane stores (in-memory store, gRPC client, applier on MemKV and on Pebble). The S3 test needs `MDS_S3_ENDPOINT`. | The reference is the spec. |
-| C4 Kafka oracle vs specs | None. | The oracle in `sim/kafka` is checked with histories built from `Partition` and `ControlPlane`. |
 
 C3 is the only check that runs the real code in `internal/system` and the real
 control-plane stores.
