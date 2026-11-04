@@ -1,7 +1,8 @@
 // Package fakeclock is the test and simulation implementation of runtime.Clock.
-// It wraps dst/clock over a private sched heap. Time moves only when the
-// caller calls Advance. A mutex serializes Advance against AfterFunc from a
-// run-loop goroutine; this package is not in the determinism gate.
+// It is a thin runtime.Clock façade over dst/clock (and the sched that clock
+// sits on), not a second timer heap. Time moves only when the caller calls
+// Advance. A mutex serializes Advance against AfterFunc from a run-loop
+// goroutine; this package is not in the determinism gate.
 package fakeclock
 
 import (
@@ -81,7 +82,7 @@ func (t *timer) Stop() bool {
 
 // Advance moves time forward by d and fires every timer that is due, in time
 // order. A timer may start new timers; they fire in the same call if they are due.
-// The heap is driven under mu via Take so callbacks can call AfterFunc without deadlock.
+// sched is driven under mu via Take so callbacks can call AfterFunc without deadlock.
 func (c *Clock) Advance(d time.Duration) {
 	c.mu.Lock()
 	target := c.s.Mono() + sched.TimeNs(d)

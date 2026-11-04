@@ -86,13 +86,3 @@ func (e *env) Reachable(p runtime.PropertyID) {
 func (e *env) Unreachable(p runtime.PropertyID, details ...runtime.ContextPair) {
 	e.log.Unreachable(assert.Property(p), toPairs(details)...)
 }
-
-// coverage returns a copy of the assert stats. Callers sort keys when they print.
-func (e *env) coverage() map[string]assert.Coverage {
-	src := e.log.Coverage()
-	out := make(map[string]assert.Coverage, len(src))
-	for k, c := range src { //determinismcheck:ok copy only; the order of a map copy is not observable
-		out[k] = c
-	}
-	return out
-}

@@ -6,7 +6,8 @@ package runtime
 // the SetTimer action.
 //
 // There are two implementations: system/realclock for production and
-// system/fakeclock for tests and simulation, where time moves only when the
+// system/fakeclock for tests and simulation. fakeclock is a runtime.Clock
+// façade over dst/clock, not a second timer heap; time moves only when the
 // test says so. Code must not call time.Now, time.AfterFunc and the like itself;
 // architecture_test.go checks this for the control-plane packages.
 type Clock interface {

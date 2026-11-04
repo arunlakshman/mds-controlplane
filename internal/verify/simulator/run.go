@@ -139,7 +139,7 @@ func (s *sim) checkSameState() {
 func (s *sim) result() Result {
 	r := Result{
 		Seed: s.cfg.Seed, Scenario: s.cfg.Scenario, Hash: s.finalHash(), Steps: s.sched.steps(),
-		EndMs: s.sched.now() / int64(runtime.Millisecond), Failures: s.failures, Stats: s.stats, Coverage: s.env.coverage(),
+		EndMs: s.sched.now() / int64(runtime.Millisecond), Failures: s.failures, Stats: s.stats, Coverage: s.env.log.Coverage(),
 	}
 	if len(s.failures) > 0 {
 		r.Tail = s.tail()
