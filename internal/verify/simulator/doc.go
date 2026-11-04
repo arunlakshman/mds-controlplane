@@ -12,6 +12,6 @@
 //   - time moves only when the scheduler takes the next event from the queue.
 //
 // The oracle is the control-plane spec (spec.go is the only file that imports
-// it, from internal/verify/speccheck). See
+// it, from internal/spec). See
 // docs/simulation.md for what is checked and what is not.
 package simulator

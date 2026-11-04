@@ -10,7 +10,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
+	"github.com/manifesterio/mds-controlplane/internal/spec"
 )
 
 var lockstepCmds = []metadata.Entry{
@@ -95,9 +95,9 @@ func feedContiguous(t *testing.T, m *replica.Replica, entries []metadata.Entry) 
 	return out
 }
 
-func TestLockstepMachineVsSpecCheck(t *testing.T) {
+func TestLockstepMachineVsModel(t *testing.T) {
 	m := newMachine(t, replica.Config{CatchUpEvery: runtime.Millisecond})
-	orc := speccheck.NewControlPlane()
+	orc := spec.New()
 	machineAnswers := feedContiguous(t, m, lockstepCmds)
 
 	var orcAnswers []runtime.ControlPlaneDone
@@ -107,9 +107,9 @@ func TestLockstepMachineVsSpecCheck(t *testing.T) {
 			orcAnswers = append(orcAnswers, runtime.ControlPlaneDone{Req: runtime.RequestID(i), Outcome: runtime.Applied})
 		case metadata.KindCreateTopic, metadata.KindCreateTopicExclusive:
 			create := e.Op.(contract.CreateTopic)
-			orcAnswers = append(orcAnswers, runtime.ControlPlaneDone{Req: runtime.RequestID(i), Err: orc.CreateTopicIf(create.Name, create.Partitions, create.FailIfExists)})
+			orcAnswers = append(orcAnswers, runtime.ControlPlaneDone{Req: runtime.RequestID(i), Err: orc.Apply(create).Err})
 		case metadata.KindCommit:
-			orcAnswers = append(orcAnswers, orc.Exec(runtime.ControlPlaneCall{Req: runtime.RequestID(i), Op: e.Op}).(runtime.ControlPlaneDone))
+			orcAnswers = append(orcAnswers, orc.Apply(e.Op))
 		}
 	}
 
@@ -119,7 +119,7 @@ func TestLockstepMachineVsSpecCheck(t *testing.T) {
 		}
 		got, want := machineAnswers[i], orcAnswers[i]
 		if got.Err != want.Err || !reflect.DeepEqual(got.Resp, want.Resp) {
-			t.Fatalf("slot %d: machine %+v, speccheck %+v", i, got, want)
+			t.Fatalf("slot %d: machine %+v, the model %+v", i, got, want)
 		}
 	}
 
@@ -127,10 +127,10 @@ func TestLockstepMachineVsSpecCheck(t *testing.T) {
 		return m.Metadata().Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
 	})
 	orcDig := queryDigest(func(operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
-		return orc.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
+		return orc.Apply(operation)
 	})
 	if appDig != orcDig {
-		t.Fatalf("query digest: machine fold %x, speccheck %x", appDig, orcDig)
+		t.Fatalf("query digest: machine fold %x, the model %x", appDig, orcDig)
 	}
 	t.Logf("lockstep cmds=%d applied=%d foldHash=%x queryDigest=%x",
 		len(lockstepCmds), m.Applied(), m.Metadata().StateHash(), appDig)

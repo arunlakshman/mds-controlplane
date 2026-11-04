@@ -11,11 +11,11 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck"
+	"github.com/manifesterio/mds-controlplane/internal/spec"
 )
 
 // Random lockstep for the consumer group commands. Each step is a log write or
-// a read. The writes go to speccheck and to a metadata fold, and the
+// a read. The writes go to the model and to a metadata fold, and the
 // reads are compared on both. Some runs take a checkpoint in the middle,
 // restore it into a new fold, and keep comparing. At the end the same log is
 // fed through the machine, and its reads are compared too.
@@ -26,11 +26,11 @@ var (
 	runTopics  = []string{"orders", "pay", ""}
 )
 
-// groupRun builds random steps. It asks speccheck for the current group
+// groupRun builds random steps. It asks the model for the current group
 // state, so most commands are valid and some are not.
 type groupRun struct {
 	rng  *rand.Rand
-	orc  *speccheck.ControlPlane
+	orc  *spec.ControlPlane
 	now  int64
 	seen map[runtime.ErrCode]int
 }
@@ -40,7 +40,7 @@ func (r *groupRun) pick(xs []string) string { return xs[r.rng.IntN(len(xs))] }
 func (r *groupRun) chance(pct int) bool { return r.rng.IntN(100) < pct }
 
 func (r *groupRun) current(group string) contract.DescribeGroupResp {
-	return r.orc.Exec(runtime.ControlPlaneCall{Op: contract.DescribeGroup{Group: group}}).(runtime.ControlPlaneDone).Resp.(contract.DescribeGroupResp)
+	return r.orc.Apply(contract.DescribeGroup{Group: group}).Resp.(contract.DescribeGroupResp)
 }
 
 // subset picks n distinct members from runMembers.
@@ -208,7 +208,7 @@ func sameAnswer(t *testing.T, where string, operation runtime.ControlPlaneOperat
 func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[runtime.ErrCode]int) {
 	t.Helper()
 	rng := rand.New(rand.NewPCG(uint64(seed), 0x6a)) //nolint:gosec // G404: deterministic test PRNG
-	r := &groupRun{rng: rng, orc: speccheck.NewControlPlane(), seen: seen}
+	r := &groupRun{rng: rng, orc: spec.New(), seen: seen}
 	meta := metadata.NewMem()
 	defer func() { _ = meta.Close() }()
 	var writes []metadata.Entry
@@ -229,7 +229,7 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[runtime.ErrCo
 		if r.chance(25) {
 			operation := r.read()
 			got := meta.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
-			want := r.orc.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
+			want := r.orc.Apply(operation)
 			sameAnswer(t, "read", operation, got, want)
 			continue
 		}
@@ -238,7 +238,7 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[runtime.ErrCo
 		e := entryFor(t, operation, slot)
 		writes = append(writes, e)
 		got := meta.Apply(int64(slot), e)
-		want := r.orc.Exec(runtime.ControlPlaneCall{Req: runtime.RequestID(slot), Op: operation}).(runtime.ControlPlaneDone)
+		want := r.orc.Apply(operation)
 		sameAnswer(t, "write", operation, got, want)
 		seen[got.Err]++
 		if response, ok := got.Resp.(contract.OffsetCommitResp); ok {
@@ -251,7 +251,7 @@ func groupLockstep(t *testing.T, seed int64, crashAt int, seen map[runtime.ErrCo
 }
 
 // checkMachineGroups feeds the writes through the machine and compares its
-// reads with speccheck's state at the end.
+// reads with the model's state at the end.
 func checkMachineGroups(t *testing.T, r *groupRun, writes []metadata.Entry) {
 	t.Helper()
 	m := newMachine(t, replica.Config{CatchUpEvery: runtime.Millisecond})
@@ -263,7 +263,7 @@ func checkMachineGroups(t *testing.T, r *groupRun, writes []metadata.Entry) {
 	}
 	for _, operation := range ops {
 		got := m.Metadata().Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
-		want := r.orc.Exec(runtime.ControlPlaneCall{Op: operation}).(runtime.ControlPlaneDone)
+		want := r.orc.Apply(operation)
 		sameAnswer(t, "machine read", operation, got, want)
 	}
 }

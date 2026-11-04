@@ -6,7 +6,7 @@
 // It implements runtime.Machine so one Step runs under the sim kernel and a
 // control-plane-owned run loop. This package is an extractable unit under
 // controlplane/ autonomy (decision 56): it may import github.com/manifesterio/mds-controlplane/internal/runtime and
-// other controlplane packages, but not broker, simulator, system, cmd, speccheck, kafkawire,
+// other controlplane packages, but not broker, simulator, system, cmd, spec, kafkawire,
 // format, net/http, Pebble, or the Dynamo SDK.
 //
 // Log I/O goes out only as Log* IOCalls. Catch-up reads the log, applies

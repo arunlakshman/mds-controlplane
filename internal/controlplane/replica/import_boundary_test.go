@@ -11,7 +11,7 @@ import (
 var forbiddenImportPrefixes = []string{
 	"github.com/manifesterio/mds-controlplane/internal/system",
 	"github.com/manifesterio/mds-controlplane/cmd",
-	"github.com/manifesterio/mds-controlplane/internal/verify/speccheck",
+	"github.com/manifesterio/mds-controlplane/internal/spec",
 	"net/http",
 	"github.com/cockroachdb/pebble",
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb",
