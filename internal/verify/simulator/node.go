@@ -97,13 +97,13 @@ func (n *simNode) down(why string) {
 	n.up, n.paused, n.held, n.m = false, false, nil, nil
 }
 
-// crash kills the node from outside (the nemesis) and restarts it after d.
+// crash asks the controller to kill the node (the nemesis) and restart it
+// after d. The controller does it in one step, so a boot can not slip in
+// between the "down" and the runner's crash.
 func (n *simNode) crash(why string, d runtime.Duration) {
-	if !n.up {
-		return
+	if n.up {
+		n.s.runner.Inject(ctlID, 0, killNode{idx: n.idx, why: why, restartIn: d})
 	}
-	n.down(why)
-	n.s.runner.Inject(ctlID, 0, killNode{idx: n.idx, why: why, restartIn: d})
 }
 
 // pause stops the node from taking events. They wait and run in order when it resumes.
@@ -221,6 +221,10 @@ func (c controller) Step(_ dstsim.Context, inbox any) []any {
 		s.nodes[m.idx].down("shutdown")
 		return nil
 	case killNode:
+		if !s.nodes[m.idx].up {
+			return nil
+		}
+		s.nodes[m.idx].down(m.why)
 		return []any{
 			dstsim.Crash{Who: nodeID(m.idx), Cause: m.why},
 			dstsim.SetTimer{ID: uint64(m.idx), After: sched.TimeNs(m.restartIn), Body: bootNode{idx: m.idx}},
