@@ -193,6 +193,8 @@ func (m *Replica) Step(cx sim.Context, inbox any) []any {
 		acts = m.onTrimDone(body)
 	case runtime.ControlPlaneDeliver:
 		return m.onControlPlaneDeliver(body) // already withReplies
+	case runtime.LocalRead:
+		return m.onLocalRead(body)
 	default:
 		return nil
 	}

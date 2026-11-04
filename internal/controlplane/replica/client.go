@@ -21,6 +21,28 @@ func (m *Replica) onControlPlaneDeliver(o runtime.ControlPlaneDeliver) []any {
 	}
 }
 
+// onLocalRead answers a read from the fold of this node at once, if the node
+// is Ready. It does not wait for a fresh tail, so it is as fast as a local
+// lookup and can be a little behind the log. A node that is not Ready refuses
+// at once so the caller can try another node.
+func (m *Replica) onLocalRead(o runtime.LocalRead) []any {
+	reply := func(d runtime.ControlPlaneDone) []any {
+		d.Req = o.Req
+		return []any{runtime.ControlPlaneReply{To: o.From, Done: d}}
+	}
+	if !m.Ready() {
+		return reply(runtime.ControlPlaneDone{Err: runtime.ErrUnavailable})
+	}
+	if m.meta.Mode(o.Op) != module.ReadOnly {
+		return reply(runtime.ControlPlaneDone{Err: runtime.ErrInvalid})
+	}
+	d, err := m.meta.Read(o.Op)
+	if err != nil {
+		return reply(runtime.ControlPlaneDone{Err: runtime.ErrIO, Outcome: runtime.NotApplied})
+	}
+	return reply(d)
+}
+
 // offerRead queues a read behind a fresh tail check. A node that is not Ready
 // refuses at once so the bridge tries the other replica.
 func (m *Replica) offerRead(o runtime.ControlPlaneDeliver, read func() (runtime.ControlPlaneDone, error)) []any {

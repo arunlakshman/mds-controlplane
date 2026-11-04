@@ -76,6 +76,16 @@ type ControlPlaneDone struct {
 	Outcome Outcome
 }
 
+// LocalRead asks a node to answer a read from its own state, now. Unlike a read
+// in ControlPlaneDeliver it does not wait for a fresh check of the log tail, so
+// the answer can be a little behind the log. The gRPC server uses it to keep
+// reads fast. The answer is a ControlPlaneReply to From.
+type LocalRead struct {
+	From NodeInstance
+	Req  RequestID
+	Op   ControlPlaneOperation
+}
+
 // ControlPlaneDeliver delivers one broker ControlPlaneCall to a control-plane replica process. The
 // simulator bridge engine issues this; the machine answers with ControlPlaneReply actions.
 type ControlPlaneDeliver struct {
@@ -154,6 +164,7 @@ func (ObjectDeleteDone) isEvent()    {}
 func (ObjectListDone) isEvent()      {}
 func (ControlPlaneDone) isEvent()    {}
 func (ControlPlaneDeliver) isEvent() {}
+func (LocalRead) isEvent()           {}
 func (LogAppendDone) isEvent()       {}
 func (LogReadDone) isEvent()         {}
 func (LogGetEndDone) isEvent()       {}
