@@ -1,9 +1,9 @@
 // Command wiregen writes the plain value types of the control-plane contract and
-// the code that converts them to and from the generated api/v1 messages, so the
-// .proto file is the single source and nothing is translated by hand.
+// the code that converts them to and from the generated api messages, so the
+// .proto files are the single source and nothing is translated by hand.
 //
-// It reads the message layout from the generated api/v1 package and the list of
-// messages below (Go name, field renames and the doc comment). It writes three files:
+// It reads the message layout from the three generated api packages (shared,
+// service and log) and the list of messages below (Go name, field renames and the doc comment). It writes three files:
 //
 //	internal/controlplane/contract/wire_types_gen.go   the value structs (no wire import)
 //	internal/controlplane/groups/wire_types_gen.go     the group call structs (no wire import)
@@ -26,7 +26,9 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	logv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/log/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 )
 
 // spec says how one proto message becomes one Go type.
@@ -37,8 +39,10 @@ type spec struct {
 	Pkg string
 	Ext string // an existing type in another package, such as runtime.SegmentRef; not written
 	Doc string // doc comment lines of the Go type, with the leading //
-	// File is the proto file of the message: "" for controlplane.proto, "log" for
-	// controlplane_log.proto (internal messages that are not part of the service).
+	// File says which proto package holds the message: "" or "service" for
+	// controlplane.v1 (the gRPC service and its own messages), "shared" for
+	// controlplane.shared.v1 (used by the service and the log), "log" for
+	// controlplane.log.v1 (internal messages that are not part of the service).
 	File string
 	// NoWire writes only the value struct and no converters (the message is never sent).
 	NoWire bool
@@ -50,12 +54,12 @@ type spec struct {
 }
 
 var specs = []spec{
-	{Msg: "TopicPartition", Go: "TopicPartition", Ext: "", Doc: `// TopicPartition names one partition of a topic.`, Fields: map[string]string{}},
-	{Msg: "SegmentRef", Go: "", Ext: "runtime.SegmentRef", Doc: ``, Fields: map[string]string{}},
-	{Msg: "PendingBatch", Go: "PendingBatch", Ext: "", Doc: `// PendingBatch describes one uploaded batch awaiting offset assignment.`, Fields: map[string]string{"tp": "TopicPartition"}},
-	{Msg: "BatchRange", Go: "BatchRange", Ext: "", Doc: `// BatchRange is one batch of a partition's log: records [Base, Base+Count)
+	{Msg: "TopicPartition", File: "shared", Go: "TopicPartition", Ext: "", Doc: `// TopicPartition names one partition of a topic.`, Fields: map[string]string{}},
+	{Msg: "SegmentRef", File: "shared", Go: "", Ext: "runtime.SegmentRef", Doc: ``, Fields: map[string]string{}},
+	{Msg: "PendingBatch", File: "shared", Go: "PendingBatch", Ext: "", Doc: `// PendingBatch describes one uploaded batch awaiting offset assignment.`, Fields: map[string]string{"tp": "TopicPartition"}},
+	{Msg: "BatchRange", File: "shared", Go: "BatchRange", Ext: "", Doc: `// BatchRange is one batch of a partition's log: records [Base, Base+Count)
 // stored at Loc.`, Fields: map[string]string{"tp": "TopicPartition", "base": "Base:Offset"}},
-	{Msg: "TopicInfo", Go: "TopicInfo", Ext: "", Doc: `// TopicInfo describes one topic.`, Fields: map[string]string{}},
+	{Msg: "TopicInfo", File: "shared", Go: "TopicInfo", Ext: "", Doc: `// TopicInfo describes one topic.`, Fields: map[string]string{}},
 	{Msg: "CommitSegmentRequest", Go: "CommitSegment", Ext: "", Doc: `// CommitSegment registers one uploaded object holding batches for many
 // partitions and assigns their offsets atomically: every batch is assigned or
 // none is.
@@ -86,32 +90,32 @@ var specs = []spec{
 // one step in the control plane, so two creates of the same new name cannot
 // both succeed. Without it an existing topic is not an error, and the topic
 // keeps the larger of its old and new partition counts.`, Fields: map[string]string{"topic": "Name"}},
-	{Msg: "LogGroupMember", Go: "GroupMember", File: "log", NoWire: true, Doc: `// GroupMember is one member of a consumer group, as the join phase gives it.
+	{Msg: "GroupMember", Go: "GroupMember", File: "log", NoWire: true, Doc: `// GroupMember is one member of a consumer group, as the join phase gives it.
 // Metadata is the subscription of the protocol the group chose.`, Fields: map[string]string{}},
-	{Msg: "LogGroupMemberInfo", Go: "GroupMemberInfo", File: "log", NoWire: true, Embed: "member", Doc: `// GroupMemberInfo is a member as the state keeps it: its join time and the
+	{Msg: "GroupMemberInfo", Go: "GroupMemberInfo", File: "log", NoWire: true, Embed: "member", Doc: `// GroupMemberInfo is a member as the state keeps it: its join time and the
 // assignment the leader stored for it (empty until GroupAssign).`, Fields: map[string]string{}},
-	{Msg: "LogGroupAssignment", Go: "GroupAssignment", File: "log", NoWire: true, Doc: `// GroupAssignment is the assignment bytes of one member.`, Fields: map[string]string{"data": "Bytes"}},
-	{Msg: "LogGroupInstall", Go: "GroupInstall", File: "log", NoWire: true, Doc: `// GroupInstall is the result of a join phase. It starts generation
+	{Msg: "GroupAssignment", Go: "GroupAssignment", File: "log", NoWire: true, Doc: `// GroupAssignment is the assignment bytes of one member.`, Fields: map[string]string{"data": "Bytes"}},
+	{Msg: "GroupInstall", Go: "GroupInstall", File: "log", NoWire: true, Doc: `// GroupInstall is the result of a join phase. It starts generation
 // Generation with exactly Members and clears every assignment. Generation
 // must be the current generation + 1 (a new group is at generation 0), else
 // ErrIllegalGeneration. Members must be non-empty, Leader must be one of
 // them, and member ids must be unique (else ErrInvalid). The reply has no
 // response.`, Fields: map[string]string{}},
-	{Msg: "LogGroupAssign", Go: "GroupAssign", File: "log", NoWire: true, Doc: `// GroupAssign stores the leader's assignment (SyncGroup) for generation
+	{Msg: "GroupAssign", Go: "GroupAssign", File: "log", NoWire: true, Doc: `// GroupAssign stores the leader's assignment (SyncGroup) for generation
 // Generation. Generation must be the current one (else ErrIllegalGeneration),
 // Leader must be the group leader (else ErrUnknownMember), and every member
 // in Assignments must be a member (else ErrUnknownMember). Every member
 // gets the bytes listed for it, or none. The reply has no response.`, Fields: map[string]string{}},
-	{Msg: "LogGroupRemove", Go: "GroupRemove", File: "log", NoWire: true, Doc: `// GroupRemove removes members from a group (a leave, or a logged expiry).
+	{Msg: "GroupRemove", Go: "GroupRemove", File: "log", NoWire: true, Doc: `// GroupRemove removes members from a group (a leave, or a logged expiry).
 // Unknown members are ignored. Reason is "leave" or "expire" and is kept
 // nowhere. The generation does not change. The reply has no response.`, Fields: map[string]string{}},
-	{Msg: "LogDescribeGroup", Go: "DescribeGroup", File: "log", NoWire: true, Doc: `// DescribeGroup reads one group. A group that was never installed has
+	{Msg: "DescribeGroup", Go: "DescribeGroup", File: "log", NoWire: true, Doc: `// DescribeGroup reads one group. A group that was never installed has
 // Exists false. State is "Empty" with no members, "Stable" when the stored
 // assignment is for the current generation, else "PreparingSync".`, Fields: map[string]string{}},
-	{Msg: "LogDescribeGroupResponse", Go: "DescribeGroupResp", File: "log", NoWire: true, Doc: `// DescribeGroupResp answers DescribeGroup. Members are sorted by member id.`, Fields: map[string]string{}},
-	{Msg: "LogPartitionOffset", Go: "PartitionOffset", File: "log", NoWire: true, Doc: `// PartitionOffset is one committed offset of a group. A read of a partition
+	{Msg: "DescribeGroupResponse", Go: "DescribeGroupResp", File: "log", NoWire: true, Doc: `// DescribeGroupResp answers DescribeGroup. Members are sorted by member id.`, Fields: map[string]string{}},
+	{Msg: "PartitionOffset", Go: "PartitionOffset", File: "shared", Doc: `// PartitionOffset is one committed offset of a group. A read of a partition
 // that has no commit gives Offset -1 and LeaderEpoch -1.`, Fields: map[string]string{"tp": "TopicPartition"}},
-	{Msg: "LogOffsetCommit", Go: "OffsetCommit", File: "log", NoWire: true, Doc: `// OffsetCommit stores committed offsets for a group. Generation >= 0 is a
+	{Msg: "OffsetCommit", Go: "OffsetCommit", File: "log", NoWire: true, Doc: `// OffsetCommit stores committed offsets for a group. Generation >= 0 is a
 // managed commit: the group must exist (else ErrUnknownMember), Member must
 // be a member (else ErrUnknownMember) and Generation must be the current one
 // (else ErrIllegalGeneration). Generation -1 with an empty Member is a manual
@@ -119,21 +123,19 @@ var specs = []spec{
 // ErrIllegalGeneration). Any other generation is ErrIllegalGeneration.
 // Each offset is checked alone: an unknown partition gets ErrUnknownPartition
 // and an offset below 0 gets ErrInvalid, and the others still commit.`, Fields: map[string]string{}},
-	{Msg: "LogOffsetCommitResponse", Go: "OffsetCommitResp", File: "log", NoWire: true, Doc: `// OffsetCommitResp has one error per request offset, in request order.`, Fields: map[string]string{"errs": "Errs:runtime.ErrCode"}},
-	{Msg: "LogOffsetFetch", Go: "OffsetFetch", File: "log", NoWire: true, Doc: `// OffsetFetch reads committed offsets of a group. Empty Partitions means
+	{Msg: "OffsetCommitResponse", Go: "OffsetCommitResp", File: "log", NoWire: true, Doc: `// OffsetCommitResp has one error per request offset, in request order.`, Fields: map[string]string{"errs": "Errs:runtime.ErrCode"}},
+	{Msg: "OffsetFetch", Go: "OffsetFetch", File: "log", NoWire: true, Doc: `// OffsetFetch reads committed offsets of a group. Empty Partitions means
 // every committed partition, sorted by topic and partition.`, Fields: map[string]string{}},
-	{Msg: "LogOffsetFetchResponse", Go: "OffsetFetchResp", File: "log", NoWire: true, Doc: `// OffsetFetchResp has one entry per partition, in the order asked.`, Fields: map[string]string{}},
-	{Msg: "LogListGroups", Go: "ListGroups", File: "log", NoWire: true, Doc: `// ListGroups lists every group that was ever installed.`, Fields: map[string]string{}},
-	{Msg: "LogGroupSummary", Go: "GroupSummary", File: "log", NoWire: true, Doc: `// GroupSummary is one line of ListGroupsResp.`, Fields: map[string]string{}},
-	{Msg: "LogListGroupsResponse", Go: "ListGroupsResp", File: "log", NoWire: true, Doc: `// ListGroupsResp answers ListGroups, sorted by group name.`, Fields: map[string]string{}},
+	{Msg: "OffsetFetchResponse", Go: "OffsetFetchResp", File: "log", NoWire: true, Doc: `// OffsetFetchResp has one entry per partition, in the order asked.`, Fields: map[string]string{}},
+	{Msg: "ListGroups", Go: "ListGroups", File: "log", NoWire: true, Doc: `// ListGroups lists every group that was ever installed.`, Fields: map[string]string{}},
+	{Msg: "GroupSummary", Go: "GroupSummary", File: "shared", Doc: `// GroupSummary is one line of ListGroupsResp.`, Fields: map[string]string{}},
+	{Msg: "ListGroupsResponse", Go: "ListGroupsResp", File: "log", NoWire: true, Doc: `// ListGroupsResp answers ListGroups, sorted by group name.`, Fields: map[string]string{}},
 	{Msg: "PartitionOffsetCommit", Ext: "contract.PartitionOffset", Fields: map[string]string{"tp": "TopicPartition"}},
-	{Msg: "PartitionOffset", Ext: "contract.PartitionOffset", Fields: map[string]string{"tp": "TopicPartition"}},
 	{Msg: "GroupOffsetCommitRequest", Ext: "contract.OffsetCommit", Fields: map[string]string{"member_id": "Member"}},
 	{Msg: "GroupOffsetCommitResponse", Ext: "contract.OffsetCommitResp", Fields: map[string]string{"errs": "Errs:runtime.ErrCode"}},
 	{Msg: "GroupOffsetFetchRequest", Ext: "contract.OffsetFetch", Fields: map[string]string{}},
 	{Msg: "GroupOffsetFetchResponse", Ext: "contract.OffsetFetchResp", Fields: map[string]string{}},
 	{Msg: "ListGroupsRequest", Ext: "contract.ListGroups", Fields: map[string]string{}},
-	{Msg: "GroupSummary", Ext: "contract.GroupSummary", Fields: map[string]string{}},
 	{Msg: "ListGroupsResponse", Ext: "contract.ListGroupsResp", Fields: map[string]string{}},
 	{Msg: "BrokerInfo", Go: "BrokerAddr", Doc: `// BrokerAddr is one broker's advertised address, as Metadata lists it.`, Fields: map[string]string{}},
 	{Msg: "GroupProtocol", Go: "Protocol", Pkg: "groups", Doc: `// Protocol is one protocol a member supports, with its metadata.`, Fields: map[string]string{}},
@@ -149,7 +151,7 @@ var specs = []spec{
 	{Msg: "SyncGroupResponse", Ext: "groups.SyncResp", Fields: map[string]string{}},
 }
 
-const header = "// Code generated by ops/tools/wiregen from internal/controlplane/api/v1/controlplane.proto. DO NOT EDIT.\n\n"
+const header = "// Code generated by ops/tools/wiregen from the .proto files in internal/controlplane/api. DO NOT EDIT.\n\n"
 
 func main() {
 	check := flag.Bool("check", false, "fail if the generated files are out of date, and write nothing")
@@ -157,7 +159,10 @@ func main() {
 	flag.Parse()
 	g := &gen{byMsg: map[string]spec{}}
 	for _, s := range specs {
-		g.byMsg[s.Msg] = s
+		if _, dup := g.byMsg[s.key()]; dup {
+			log.Fatalf("two specs for message %s", s.key())
+		}
+		g.byMsg[s.key()] = s
 	}
 	contractTypes, err := g.types("contract")
 	if err != nil {
@@ -201,11 +206,52 @@ func main() {
 
 type gen struct{ byMsg map[string]spec }
 
-func (g *gen) descriptor(msg string) protoreflect.MessageDescriptor {
-	if md := cpv1.File_v1_controlplane_proto.Messages().ByName(protoreflect.Name(msg)); md != nil {
-		return md
+// descriptor finds a message in the generated package of the spec's proto file.
+func (g *gen) descriptor(s spec) protoreflect.MessageDescriptor {
+	var file protoreflect.FileDescriptor
+	switch s.file() {
+	case "shared":
+		file = sharedv1.File_controlplane_shared_v1_shared_proto
+	case "log":
+		file = logv1.File_controlplane_log_v1_log_proto
+	default:
+		file = cpv1.File_controlplane_v1_controlplane_proto
 	}
-	return cpv1.File_v1_controlplane_log_proto.Messages().ByName(protoreflect.Name(msg))
+	return file.Messages().ByName(protoreflect.Name(s.Msg))
+}
+
+// file is the proto package of the spec: "service", "shared" or "log".
+func (s spec) file() string {
+	if s.File == "" {
+		return "service"
+	}
+	return s.File
+}
+
+// key names a message across the three proto packages, such as "log.GroupMember".
+func (s spec) key() string { return s.file() + "." + s.Msg }
+
+// fileOf is the file name used in spec keys for a message of the given proto package.
+func fileOf(fd protoreflect.FileDescriptor) string {
+	switch fd.Package() {
+	case "controlplane.shared.v1":
+		return "shared"
+	case "controlplane.log.v1":
+		return "log"
+	}
+	return "service"
+}
+
+// goQualifier is the name under which package wire imports the generated Go
+// package of the spec's proto file.
+func (s spec) goQualifier() string {
+	switch s.file() {
+	case "shared":
+		return "sharedv1"
+	case "log":
+		return "logv1"
+	}
+	return "cpv1"
 }
 
 // camel turns a proto field name into the Go name that protoc-gen-go gives the
@@ -242,13 +288,14 @@ type field struct {
 	repeat  bool
 	embed   bool
 	kind    protoreflect.Kind
-	msgName string
+	msgName string // proto name of the message type of the field
+	msgKey  string // its key in the spec table
 }
 
 func (g *gen) fields(s spec) ([]field, error) {
-	md := g.descriptor(s.Msg)
+	md := g.descriptor(s)
 	if md == nil {
-		return nil, fmt.Errorf("no message %s in the proto file", s.Msg)
+		return nil, fmt.Errorf("no message %s in the proto file", s.key())
 	}
 	var out []field
 	for i := 0; i < md.Fields().Len(); i++ {
@@ -262,8 +309,9 @@ func (g *gen) fields(s spec) ([]field, error) {
 		}
 		if fd.Kind() == protoreflect.MessageKind {
 			f.msgName = string(fd.Message().Name())
-			if _, ok := g.byMsg[f.msgName]; !ok {
-				return nil, fmt.Errorf("%s.%s: message %s has no spec", s.Msg, name, f.msgName)
+			f.msgKey = fileOf(fd.Message().ParentFile()) + "." + f.msgName
+			if _, ok := g.byMsg[f.msgKey]; !ok {
+				return nil, fmt.Errorf("%s.%s: message %s has no spec", s.key(), name, f.msgKey)
 			}
 		}
 		switch f.kind {
@@ -293,7 +341,7 @@ func (g *gen) goType(f field, pkg string) string {
 	case protoreflect.EnumKind:
 		t = f.named
 	case protoreflect.MessageKind:
-		s := g.byMsg[f.msgName]
+		s := g.byMsg[f.msgKey]
 		t = s.Go
 		if s.Pkg != "" && s.Pkg != pkg {
 			t = s.Pkg + "." + s.Go
@@ -378,21 +426,29 @@ func (s spec) pkg() string {
 
 func (g *gen) wire() ([]byte, error) {
 	var body bytes.Buffer
+	seen := map[string]bool{}
 	for _, s := range specs {
 		if s.NoWire {
 			continue
 		}
+		// The converters are named after the short message name, so two wired
+		// messages of different proto packages must not share it.
+		if seen[s.Msg] {
+			return nil, fmt.Errorf("two wired messages are called %s", s.Msg)
+		}
+		seen[s.Msg] = true
 		fs, err := g.fields(s)
 		if err != nil {
 			return nil, err
 		}
 		q := qualified(s)
-		fmt.Fprintf(&body, "// %sToCore rebuilds a %s from a %s message.\nfunc %sToCore(m *cpv1.%s) %s {\n\treturn %s{\n", s.Msg, q, s.Msg, s.Msg, s.Msg, q, q)
+		gm := s.goQualifier() + "." + s.Msg
+		fmt.Fprintf(&body, "// %sToCore rebuilds a %s from a %s message.\nfunc %sToCore(m *%s) %s {\n\treturn %s{\n", s.Msg, q, s.Msg, s.Msg, gm, q, q)
 		for _, f := range fs {
 			fmt.Fprintf(&body, "\t\t%s: %s,\n", f.goName, g.toCore(f))
 		}
 		body.WriteString("\t}\n}\n\n")
-		fmt.Fprintf(&body, "// %sFromCore builds a %s message from a %s.\nfunc %sFromCore(v %s) *cpv1.%s {\n\treturn &cpv1.%s{\n", s.Msg, s.Msg, q, s.Msg, q, s.Msg, s.Msg)
+		fmt.Fprintf(&body, "// %sFromCore builds a %s message from a %s.\nfunc %sFromCore(v %s) *%s {\n\treturn &%s{\n", s.Msg, s.Msg, q, s.Msg, q, gm, gm)
 		for _, f := range fs {
 			fmt.Fprintf(&body, "\t\t%s: %s,\n", f.proto, g.fromCore(f))
 		}
@@ -407,7 +463,14 @@ import (
 	if strings.Contains(body.String(), "slices.") {
 		b.WriteString("\t\"slices\"\n\n")
 	}
-	b.WriteString("\tcpv1 \"github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1\"\n\t\"github.com/manifesterio/mds-controlplane/internal/controlplane/contract\"\n")
+	b.WriteString("\tcpv1 \"github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1\"\n")
+	if strings.Contains(body.String(), "sharedv1.") {
+		b.WriteString("\tsharedv1 \"github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1\"\n")
+	}
+	if strings.Contains(body.String(), "logv1.") {
+		b.WriteString("\tlogv1 \"github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/log/v1\"\n")
+	}
+	b.WriteString("\t\"github.com/manifesterio/mds-controlplane/internal/controlplane/contract\"\n")
 	if strings.Contains(body.String(), "groups.") {
 		b.WriteString("\t\"github.com/manifesterio/mds-controlplane/internal/controlplane/groups\"\n")
 	}
