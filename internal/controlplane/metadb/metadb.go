@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/group"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/topic"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -45,15 +45,15 @@ func topicSchema() Schema {
 func groupSchema() Schema {
 	return Schema{
 		Commands: []Command{
-			CommandOf(storage.Install),
-			CommandOf(storage.Assign),
-			CommandOf(storage.Remove),
-			CommandOf(storage.CommitOffsets(topic.PartitionCount)),
+			CommandOf(group.Install),
+			CommandOf(group.Assign),
+			CommandOf(group.Remove),
+			CommandOf(group.CommitOffsets(topic.PartitionCount)),
 		},
 		Reads: []Read{
-			ReadOf(storage.OffsetFetch),
-			ReadOf(storage.DescribeGroup),
-			ReadOf(storage.ListGroups),
+			ReadOf(group.OffsetFetch),
+			ReadOf(group.DescribeGroup),
+			ReadOf(group.ListGroups),
 		},
 	}
 }
