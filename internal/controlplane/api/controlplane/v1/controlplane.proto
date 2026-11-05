@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package controlplane.v1;
 
+import "controlplane/options/v1/options.proto";
 import "controlplane/shared/v1/shared.proto";
 
 option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1;controlplanev1";
@@ -60,36 +61,73 @@ message ErrorDetail {
   Outcome outcome = 2;
 }
 
+// CommitSegmentRequest registers one uploaded object holding batches for many
+// partitions and assigns their offsets atomically: every batch is assigned or
+// none is.
+//
+// Each batch gets Base = the partition's next offset, the end of its newest
+// run (0 for an empty log), in request order: a later batch of the same
+// partition continues after the earlier one. Offsets are contiguous per
+// partition and never reused, whatever the interleaving of committers.
+//
+// MUST be idempotent per SegmentKey: a replay of a committed key with an
+// identical request returns the originally assigned ranges, never new ones
+// (so a retry after MaybeApplied is safe); the same key with a different
+// request is ErrConflict. ErrConflict is also the answer for a LogAppend that
+// the log refused because its slot is at or below the floor (not a commit,
+// Outcome NotApplied). Those are the only two uses.
 message CommitSegmentRequest {
+  option (controlplane.options.v1.go_struct) = "contract.CommitSegment";
   string segment_key = 1;
   repeated controlplane.shared.v1.PendingBatch batches = 2;
 }
 
+// CommitSegmentResponse has one entry per request batch, in request order.
 message CommitSegmentResponse {
+  option (controlplane.options.v1.go_struct) = "contract.CommitSegmentResp";
   repeated controlplane.shared.v1.BatchRange assigned = 1;
 }
 
+// LookupRequest finds which segments hold offsets >= From for a partition.
 message LookupRequest {
-  controlplane.shared.v1.TopicPartition tp = 1;
-  int64 from = 2;
+  option (controlplane.options.v1.go_struct) = "contract.FindSegments";
+  controlplane.shared.v1.TopicPartition tp = 1 [(controlplane.options.v1.go_name) = "TopicPartition"];
+  int64 from = 2 [(controlplane.options.v1.go_type) = "contract.Offset"];
   int32 max_bytes = 3;
 }
 
+// LookupResponse lists the batches holding offsets >= From in offset order. End is
+// the partition end offset (the next offset to be assigned, ListOffsets
+// latest), derived from the newest run.
 message LookupResponse {
+  option (controlplane.options.v1.go_struct) = "contract.FindSegmentsResp";
   repeated controlplane.shared.v1.BatchRange ranges = 1;
-  int64 end = 2;
+  int64 end = 2 [(controlplane.options.v1.go_type) = "contract.Offset"];
 }
 
+// DescribeTopicsRequest answers Kafka Metadata requests.
 message DescribeTopicsRequest {
+  option (controlplane.options.v1.go_struct) = "contract.DescribeTopics";
   repeated string topics = 1;
 }
 
+// DescribeTopicsResponse answers DescribeTopics.
 message DescribeTopicsResponse {
+  option (controlplane.options.v1.go_struct) = "contract.DescribeTopicsResp";
   repeated controlplane.shared.v1.TopicInfo topics = 1;
 }
 
+// CreateTopicRequest creates a topic with at least Partitions partitions. ErrInvalid
+// for an empty name or Partitions <= 0. The reply has no response.
+//
+// With FailIfExists the create is exclusive: if the topic already exists the
+// answer is ErrTopicExists and nothing changes. The check and the create are
+// one step in the control plane, so two creates of the same new name cannot
+// both succeed. Without it an existing topic is not an error, and the topic
+// keeps the larger of its old and new partition counts.
 message CreateTopicRequest {
-  string topic = 1;
+  option (controlplane.options.v1.go_struct) = "contract.CreateTopic";
+  string topic = 1 [(controlplane.options.v1.go_name) = "Name"];
   int32 partitions = 2;
   // When true the create fails with ERR_CODE_TOPIC_EXISTS if the topic exists.
   bool fail_if_exists = 3;
@@ -110,8 +148,9 @@ message GetStatusResponse {
   uint64 step_downs = 5;
 }
 
-// BrokerInfo is the advertised address of one broker (Metadata brokers[]).
+// BrokerInfo is one broker's advertised address, as Metadata lists it.
 message BrokerInfo {
+  option (controlplane.options.v1.go_struct) = "contract.BrokerAddr";
   int32 node_id = 1;
   string host = 2;
   int32 port = 3;
@@ -135,11 +174,16 @@ message BrokerHeartbeatResponse {
 
 // GroupProtocol is one protocol a member supports, with its metadata.
 message GroupProtocol {
+  option (controlplane.options.v1.go_struct) = "groups.Protocol";
   string name = 1;
   bytes metadata = 2;
 }
 
+// JoinGroupRequest is a JoinGroup call. An empty MemberID asks for a new member.
+//
+// RebalanceTimeoutMs 0 means the session timeout.
 message JoinGroupRequest {
+  option (controlplane.options.v1.go_struct) = "groups.JoinReq";
   string group = 1;
   string member_id = 2;
   string group_instance_id = 3;
@@ -151,14 +195,16 @@ message JoinGroupRequest {
   repeated GroupProtocol protocols = 9;
 }
 
-// GroupMember is one member of the join result. Only the leader gets the list.
+// GroupMember is one member in the join result. Only the leader gets the list.
 message GroupMember {
-  string member_id = 1;
-  string group_instance_id = 2;
+  option (controlplane.options.v1.go_struct) = "groups.Member";
+  string member_id = 1 [(controlplane.options.v1.go_name) = "ID"];
+  string group_instance_id = 2 [(controlplane.options.v1.go_name) = "InstanceID"];
   bytes metadata = 3;
 }
 
 message JoinGroupResponse {
+  option (controlplane.options.v1.go_existing) = "groups.JoinResp";
   string member_id = 1;
   int32 generation = 2;
   string protocol = 3;
@@ -166,13 +212,16 @@ message JoinGroupResponse {
   repeated GroupMember members = 5;
 }
 
-// GroupAssignment is the assignment bytes of one member (sent by the leader).
+// GroupAssignment is the bytes the leader gives one member.
 message GroupAssignment {
-  string member_id = 1;
-  bytes assignment = 2;
+  option (controlplane.options.v1.go_struct) = "groups.Assignment";
+  string member_id = 1 [(controlplane.options.v1.go_name) = "Member"];
+  bytes assignment = 2 [(controlplane.options.v1.go_name) = "Bytes"];
 }
 
+// SyncGroupRequest is a SyncGroup call. Assignments is used by the leader only.
 message SyncGroupRequest {
+  option (controlplane.options.v1.go_struct) = "groups.SyncReq";
   string group = 1;
   string member_id = 2;
   int32 generation = 3;
@@ -180,10 +229,13 @@ message SyncGroupRequest {
 }
 
 message SyncGroupResponse {
+  option (controlplane.options.v1.go_existing) = "groups.SyncResp";
   bytes assignment = 1;
 }
 
+// GroupHeartbeatRequest is a Heartbeat call.
 message GroupHeartbeatRequest {
+  option (controlplane.options.v1.go_struct) = "groups.HeartbeatReq";
   string group = 1;
   string member_id = 2;
   int32 generation = 3;
@@ -191,7 +243,9 @@ message GroupHeartbeatRequest {
 
 message GroupHeartbeatResponse {}
 
+// LeaveGroupRequest is a LeaveGroup call.
 message LeaveGroupRequest {
+  option (controlplane.options.v1.go_struct) = "groups.LeaveReq";
   string group = 1;
   repeated string members = 2;
 }
@@ -202,31 +256,36 @@ message LeaveGroupResponse {
 }
 
 message PartitionOffsetCommit {
-  controlplane.shared.v1.TopicPartition tp = 1;
+  option (controlplane.options.v1.go_existing) = "contract.PartitionOffset";
+  controlplane.shared.v1.TopicPartition tp = 1 [(controlplane.options.v1.go_name) = "TopicPartition"];
   int64 offset = 2;
   int32 leader_epoch = 3;
   string metadata = 4;
 }
 
 message GroupOffsetCommitRequest {
+  option (controlplane.options.v1.go_existing) = "contract.OffsetCommit";
   string group = 1;
-  string member_id = 2;
+  string member_id = 2 [(controlplane.options.v1.go_name) = "Member"];
   int32 generation = 3;
   repeated PartitionOffsetCommit offsets = 4;
 }
 
 // GroupOffsetCommitResponse has one code per request partition, in request order.
 message GroupOffsetCommitResponse {
-  repeated ErrCode errs = 1;
+  option (controlplane.options.v1.go_existing) = "contract.OffsetCommitResp";
+  repeated ErrCode errs = 1 [(controlplane.options.v1.go_type) = "runtime.ErrCode"];
 }
 
 message GroupOffsetFetchRequest {
+  option (controlplane.options.v1.go_existing) = "contract.OffsetFetch";
   string group = 1;
   // Empty means every committed partition.
   repeated controlplane.shared.v1.TopicPartition partitions = 2;
 }
 
 message GroupOffsetFetchResponse {
+  option (controlplane.options.v1.go_existing) = "contract.OffsetFetchResp";
   repeated controlplane.shared.v1.PartitionOffset offsets = 1;
 }
 
@@ -264,8 +323,11 @@ message DescribeGroupsResponse {
   repeated GroupDescription groups = 1;
 }
 
-message ListGroupsRequest {}
+message ListGroupsRequest {
+  option (controlplane.options.v1.go_existing) = "contract.ListGroups";
+}
 
 message ListGroupsResponse {
+  option (controlplane.options.v1.go_existing) = "contract.ListGroupsResp";
   repeated controlplane.shared.v1.GroupSummary groups = 1;
 }

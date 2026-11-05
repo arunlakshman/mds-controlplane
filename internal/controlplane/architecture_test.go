@@ -100,7 +100,9 @@ func TestImportRules(t *testing.T) {
 		onlyImports(t, pkgs, cp+"executor/"+a, []string{cp + "executor", rt, "internal/system/realclock"}, false)
 	}
 	// The log entries and the shared messages do not pull in grpc: only the service package does.
-	onlyImports(t, pkgs, cp+"api/controlplane/log/v1", []string{cp + "api/controlplane/shared/v1"}, false)
+	// Every api package imports the options of protoc-gen-mdswire, which import no package of the module.
+	onlyImports(t, pkgs, cp+"api/controlplane/log/v1", []string{cp + "api/controlplane/shared/v1", cp + "api/controlplane/options/v1"}, false)
+	onlyImports(t, pkgs, cp+"api/controlplane/options/v1", nil, false)
 	for _, dir := range []string{cp + "api/controlplane/log/v1", cp + "api/controlplane/shared/v1"} {
 		for _, imp := range pkgs[dir].imports {
 			if strings.HasPrefix(imp, "google.golang.org/grpc") {
