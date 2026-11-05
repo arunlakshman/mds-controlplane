@@ -8,7 +8,7 @@ CI when one is missing, so a version bump forces a re-audit.
 A module that only test code imports (`pgregory.net/rapid`, in `_test.go` files) needs no record: the gate follows the imports of the deterministic packages, and tests are not in it.
 
 Only modules that the deterministic packages really run are checked. The script does not
-follow imports into the generated gRPC API (`internal/controlplane/api/v1`), because that is
+follow imports into the generated API (`internal/controlplane/api`: the shared, service and log packages), because that is
 the input/output edge. So grpc, protobuf, genproto and golang.org/x/{net,sys,text} need no
 record here. Deterministic packages may use the generated API for type definitions only
 (decision 57).

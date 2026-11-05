@@ -35,7 +35,7 @@ Not done on purpose:
 
 Do not rename these, because the outside world defines them:
 
-- Generated code in `internal/controlplane/api/v1` (made from the `.proto` file).
+- Generated code in `internal/controlplane/api` (made from the `.proto` files).
 - Kafka words: `Produce`, `Fetch`, `ListOffsets`, `Metadata`, `ApiVersions`, `DescribeTopics`.
 - AWS words: `DynamoDB`, `S3`, `IMDS`, `Healthz`.
 - Go words: `ctx`, `err`, `mu`, `Reader`, `Writer`.

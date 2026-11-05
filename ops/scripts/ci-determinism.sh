@@ -53,11 +53,12 @@ done
 
 echo "== dependency audit records"
 # Only code that the deterministic packages really run needs an audit record.
-# The generated gRPC API (internal/controlplane/api/v1) is the input/output
-# edge, so we do not follow imports into it: grpc, protobuf and their
-# dependencies are not audited here. The packages still may import it for type
-# definitions only (decision 57).
-edge=github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1
+# The generated API (internal/controlplane/api: the shared messages, the gRPC
+# service and the log entries) is the input/output edge, so we do not follow
+# imports into it: grpc, protobuf and their dependencies are not audited here.
+# The packages still may import it for type definitions only (decision 57).
+api=github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane
+edge="$api/shared/v1 $api/v1 $api/log/v1"
 roots=$(go list "${pkgs[@]}" "$sim" | tr '\n' ' ')
 missing=0
 while read -r modver; do
@@ -73,13 +74,14 @@ done < <(
   # Line format: import path, module (or "-"), then the imports of that package.
   go list -deps -f '{{.ImportPath}} {{if and .Module (not .Module.Main)}}{{.Module.Path}}@{{.Module.Version}}{{else}}-{{end}} {{join .Imports " "}}' "${pkgs[@]}" "$sim" |
     awk -v edge="$edge" -v roots="$roots" '
+      BEGIN { ne = split(edge, e, " "); for (i = 1; i <= ne; i++) isedge[e[i]] = 1 }
       { mod[$1] = $2; n = split($0, f, " "); imps[$1] = ""; for (i = 3; i <= n; i++) imps[$1] = imps[$1] " " f[i] }
       END {
         nr = split(roots, r, " "); top = 0
         for (i = 1; i <= nr; i++) stack[++top] = r[i]
         while (top > 0) {
           p = stack[top--]
-          if (p in seen || p == edge) continue
+          if (p in seen || p in isedge) continue
           seen[p] = 1
           if (mod[p] != "" && mod[p] != "-") out[mod[p]] = 1
           m = split(imps[p], q, " ")

@@ -1,4 +1,4 @@
-// Package wire converts the contract value types to and from the generated api/v1
+// Package wire converts the contract value types to and from the generated api
 // messages. Nearly every function is generated (wire_gen.go, by ops/tools/wiregen
 // from the .proto file); none of the conversions of a message is written by hand.
 // A ToCore function reads the message with its Get methods, so a nil message or a

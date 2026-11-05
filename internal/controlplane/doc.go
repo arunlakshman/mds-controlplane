@@ -1,8 +1,8 @@
 // Package controlplane is the control-plane service tree (renamed from cp/).
 // Production mdscontrolplane serves gRPC via controlplane/server over internal/system/live
-// and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/v1) with their own client.
+// and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/controlplane/v1) with their own client.
 //
-// The gRPC wire contract is controlplane/api/v1 (decision 57). The reference
+// The gRPC wire contract is controlplane/api/controlplane/v1 (decision 57). The reference
 // model in internal/spec stays the independent oracle: it shares the schema
 // types, not the apply code (decision 21).
 //
@@ -18,11 +18,15 @@
 //
 // # Map of the packages
 //
-//   - api/v1: the gRPC wire contract, defined in controlplane.proto.
+//   - api/controlplane/v1: the gRPC wire contract (the service and its own messages),
+//     defined in controlplane.proto. It imports api/controlplane/shared/v1.
+//   - api/controlplane/shared/v1: the messages that the service and the log entries both use.
+//     No service, so no grpc.
+//   - api/controlplane/log/v1: the log entries. It imports the shared package only.
 //   - wire: generated (ops/tools/wiregen, from the .proto) conversions between the
-//     contract value types and the api/v1 messages. No hand-written code.
+//     contract value types and the api messages. No hand-written code.
 //   - server: the gRPC adapter for the control-plane machine. Each handler reads the
-//     generated api/v1 message and builds the contract value itself (the conversions
+//     generated api message and builds the contract value itself (the conversions
 //     sit at the end of its file). It has one file
 //     per context: topics_handler.go, groups_handler.go, brokers_handler.go and
 //     status_handler.go. node.go is

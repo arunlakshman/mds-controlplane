@@ -5,7 +5,7 @@ package runtime
 // They implement this interface with the marker method, so runtime does not need
 // to import them.
 //
-// The wire protocol for new work is gRPC (`controlplane/api/v1`, decision 57);
+// The wire protocol for new work is gRPC (`controlplane/api/controlplane/v1`, decision 57);
 // the contract types remain the in-process vocabulary until cutover. The metadb is still invisible
 // to the broker. The invariants below are not provisional.
 //
