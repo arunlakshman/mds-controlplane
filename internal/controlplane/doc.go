@@ -23,8 +23,10 @@
 //   - api/controlplane/shared/v1: the messages that the service and the log entries both use.
 //     No service, so no grpc.
 //   - api/controlplane/log/v1: the log entries. It imports the shared package only.
-//   - wire: generated (ops/tools/wiregen, from the .proto) conversions between the
-//     contract value types and the api messages. No hand-written code.
+//   - api/controlplane/options/v1: the custom options that say how a message becomes
+//     a contract value type (read by the plugin ops/tools/protoc-gen-mdswire).
+//   - wire: generated (ops/tools/protoc-gen-mdswire, from the .proto) conversions
+//     between the contract value types and the api messages. No hand-written code.
 //   - server: the gRPC adapter for the control-plane machine. Each handler reads the
 //     generated api message and builds the contract value itself (the conversions
 //     sit at the end of its file). It has one file

@@ -1,5 +1,5 @@
 # Build for the MDS control plane. `make` / `make build` is the full gate:
-#   generate (proto, wiregen), fmt, ascii, vet, lint, modernize, compile, unit tests, determinism, simulation.
+#   generate (buf: the *.pb.go files and protoc-gen-mdswire), fmt, ascii, vet, lint, modernize, compile, unit tests, determinism, simulation.
 # Toolchain + commit hook: `mise install` (pins in mise.toml; postinstall runs make install-hooks).
 
 BUF             ?= buf
@@ -11,11 +11,14 @@ PROTO_GRPC_VER  ?= v1.5.1
 SIM_SEEDS       ?= 300
 
 .PHONY: it build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks test-race wire generate mutants fuzz
+	ascii-check determinism sim sim-campaign spec-long install-hooks test-race generate mutants fuzz
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
-# Generate Go from internal/controlplane/api/**/*.proto (shared, service, log) into ignored *.pb.go files.
+# Generate Go from internal/controlplane/api/**/*.proto (shared, service, log, options):
+# the *.pb.go files next to them, and, by the plugin ops/tools/protoc-gen-mdswire
+# (buf runs it with go run), the contract value types and the wire converters.
+# None of it is in git.
 proto: proto-tools
 	@if command -v mise >/dev/null 2>&1; then \
 		cd internal/controlplane/api && mise exec -- $(BUF) generate; \
@@ -58,14 +61,10 @@ ascii-check:
 determinism:
 	bash ops/scripts/ci-determinism.sh
 
-# Write the contract value types and the wire converters from the .proto (needs
-# the generated api packages, so run make proto first). Not in git.
-wire: proto
-	go run ./ops/tools/wiregen
-
-# All generated Go: the *.pb.go files, then the contract, groups and wire *_gen.go
-# files. None of it is in git, and the module does not compile without it.
-generate: proto wire
+# All generated Go: the *.pb.go files and the contract, groups and wire *_gen.go
+# files. One buf run writes all of them (see make proto). None of it is in git,
+# and the module does not compile without it.
+generate: proto
 
 compile:
 	go build ./...
