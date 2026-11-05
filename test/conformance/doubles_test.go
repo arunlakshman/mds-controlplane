@@ -60,7 +60,7 @@ func requireFound(t *testing.T, newTarget func(*rapid.T) Target) {
 func TestDoubleCrashLosesAnsweredWrites(t *testing.T) {
 	requireFound(t, func(rt *rapid.T) Target {
 		n := newReplicaNode(rt, false)
-		return Target{Exec: n.exec, Reboot: n.reboot, Checkpoint: n.checkpoint, DirtyReboot: func(keep int) {
+		return Target{Exec: n.exec, Reboot: n.reboot, Checkpoint: n.checkpoint, DirtyReboot: func(int) {
 			n.proc.dead.Store(true)
 			_ = n.node.Close()
 			ctx := rt.Context()
@@ -74,7 +74,7 @@ func TestDoubleCrashLosesAnsweredWrites(t *testing.T) {
 				_, _, _, _ = lost.ClaimEpoch(ctx, i, owner)
 			}
 			n.log = lost
-			n.dirtyReboot(keep)
+			n.dirtyReboot(0) // the checkpoints were in the cache too
 		}}
 	})
 }
