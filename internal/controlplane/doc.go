@@ -47,7 +47,7 @@
 //     CommitSegment, FindSegments). It owns the T, E, R, K and S keys. Its
 //     rules are pure: Decide reads a View and returns events, and Apply writes
 //     the events.
-//   - metadb/engine: the small ordered key-value seam under metadata and groups/storage,
+//   - metadb/engine: the small ordered key-value seam under metadata and domain/group,
 //     with an in-memory store and the record codec they share.
 //   - metadb/engine/pebble: the Pebble-backed key-value store that
 //     metadata uses.
@@ -58,9 +58,11 @@
 //     suite.
 //   - domain/broker: the broker context: which brokers are alive (leases).
 //     Its state is not logged, so it is not a schema.
-//   - groups/storage: the consumer group context in the replicated state (the G,
-//     M and O keys): the fold of the group writes and the group reads. It does
-//     not know about topics.
+//   - domain/group: the consumer group context in the replicated state (the G,
+//     M and O keys): GroupInstall, GroupAssign, GroupRemove and OffsetCommit,
+//     and the group reads. Its rules are pure like the topic ones: Decide reads
+//     a View and returns events, and Apply writes the events. It does not know
+//     about topics: the partition count comes in as a function at wiring.
 //   - groups: the consumer group coordinator of the active node. It
 //     speaks the classic group protocol only. It owns the Store port that the
 //     node implements over the log.
@@ -75,8 +77,8 @@
 // How they fit together, from the imports:
 //
 //   - server imports live, replica, executor and groups.
-//   - replica imports metadb. metadb imports domain/topic and groups/storage.
-//     domain/topic and groups/storage import engine, and not each other or metadb.
+//   - replica imports metadb. metadb imports domain/topic and domain/group.
+//     domain/topic and domain/group import engine, and not each other or metadb.
 //     executor imports only runtime. dynamolog and sqllog
 //     import executor. Domain packages import no third-party package; see
 //     TestControlPlaneLayers in architecture_test.go.

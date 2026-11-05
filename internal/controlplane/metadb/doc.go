@@ -5,7 +5,7 @@
 // against it.
 //
 // The kernel holds one table built from the schemas of the contexts
-// (Schema): domain/topic for topics and segments, and groups/storage for
+// (Schema): domain/topic for topics and segments, and domain/group for
 // consumer groups. Each context owns its own key prefixes and its own rules.
 // The kernel does four things:
 //   - It sends every operation to its row in the table (Mode, Write, Read).
@@ -19,7 +19,7 @@
 //   - It computes the state hash, which leaves out the idempotency window.
 //
 // The key layout is in the packages that own the keys: T, E, R, K and S in
-// domain/topic, G, M and O in groups/storage.
+// domain/topic, G, M and O in domain/group.
 //
 // It is I/O shell code, outside the determinism closure, but its behaviour is
 // a pure function of the commands applied in order.
