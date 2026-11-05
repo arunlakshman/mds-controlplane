@@ -7,14 +7,11 @@ PROTOC_GEN_GO   ?= protoc-gen-go
 PROTOC_GEN_GRPC ?= protoc-gen-go-grpc
 PROTO_GO_VER    ?= v1.35.2
 PROTO_GRPC_VER  ?= v1.5.1
-# Image for make it-postgres (pinned; see ops/scripts/postgres-test.sh).
-POSTGRES_IMAGE  ?= postgres:17.11-alpine
-PG_TEST_ARGS    ?=
 # Seeds per scenario for make sim-campaign (see docs/simulation.md).
 SIM_SEEDS       ?= 300
 
 .PHONY: it build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate mutants fuzz
+	ascii-check determinism sim sim-campaign spec-long install-hooks test-race wire generate mutants fuzz
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
@@ -135,7 +132,3 @@ mutants:
 it:
 	@docker info >/dev/null 2>&1 || { echo "make it: Docker is not running (or DOCKER_HOST is wrong). Start Docker and run again; the integration tests are never skipped." >&2; exit 1; }
 	go test -tags integration -count=1 -timeout 15m ./...
-
-# Log tests against a real PostgreSQL in Docker (needs Docker). Not part of build.
-it-postgres:
-	POSTGRES_IMAGE=$(POSTGRES_IMAGE) bash ops/scripts/postgres-test.sh $(PG_TEST_ARGS)
