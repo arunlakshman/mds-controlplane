@@ -67,10 +67,6 @@ func parseFlags(args []string, stderr io.Writer) (cpFlags, *flag.FlagSet, error)
 }
 
 func run(ctx context.Context, args []string, stderr io.Writer) int {
-	return runWith(ctx, args, stderr, realDeps())
-}
-
-func runWith(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 	f, fs, err := parseFlags(args, stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -78,14 +74,14 @@ func runWith(ctx context.Context, args []string, stderr io.Writer, d deps) int {
 		}
 		return 2
 	}
-	if err := serve(ctx, d, f, fs, stderr); err != nil {
+	if err := serve(ctx, f, fs, stderr); err != nil {
 		slog.Error("mdscontrolplane", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, d deps, f cpFlags, fs *flag.FlagSet, stderr io.Writer) error {
+func serve(ctx context.Context, f cpFlags, fs *flag.FlagSet, stderr io.Writer) error {
 	lvl, lerr := runinfo.ParseLevel(f.logLevel)
 	info := runinfo.New("mdscontrolplane", f.runID, -1)
 	log := runinfo.NewLogger(stderr, lvl, info)
@@ -101,7 +97,7 @@ func serve(ctx context.Context, d deps, f cpFlags, fs *flag.FlagSet, stderr io.W
 	if err := runinfo.ServeMetrics(ctx, log, "mdscontrolplane", f.metricsAddr, m.Handler()); err != nil {
 		return err
 	}
-	node, closeNode, err := openNode(ctx, d, f, m, log)
+	node, closeNode, err := openNode(ctx, f, m, log)
 	if err != nil {
 		return err
 	}
@@ -148,7 +144,7 @@ func serve(ctx context.Context, d deps, f cpFlags, fs *flag.FlagSet, stderr io.W
 	return nil
 }
 
-func openNode(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.Metrics, log *slog.Logger) (*server.Node, func(), error) {
+func openNode(ctx context.Context, f cpFlags, m *controlplanemetrics.Metrics, log *slog.Logger) (*server.Node, func(), error) {
 	nop := func() {}
 	mcfg := machineConfig(f)
 
@@ -162,9 +158,9 @@ func openNode(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.Met
 		objs = executor.NewMemoryObjects()
 		closeStore = nop
 	case kindLog:
-		logStore, objs, closeStore, err = openDynLog(ctx, d, f, m, log)
+		logStore, objs, closeStore, err = openDynLog(ctx, f, m, log)
 	case kindPostgres:
-		logStore, objs, closeStore, err = openPostgresLog(ctx, d, f, m, log)
+		logStore, objs, closeStore, err = openPostgresLog(ctx, f, log)
 	default:
 		return nil, nop, errors.New("unknown -store " + f.kind)
 	}

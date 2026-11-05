@@ -91,28 +91,6 @@ func isLogStore(kind string) bool {
 	return kind == kindLog || kind == kindPostgres
 }
 
-type logDB interface {
-	dynamolog.Client
-	dynamolog.TableManager
-}
-
-type deps struct {
-	db      func(ctx context.Context, f cpFlags, m *controlplanemetrics.Metrics) (logDB, error)
-	objects func(ctx context.Context, f cpFlags) (system.ObjectStore, error)
-}
-
-func realDeps() deps {
-	return deps{
-		db: func(ctx context.Context, f cpFlags, m *controlplanemetrics.Metrics) (logDB, error) {
-			return newDynamo(ctx, f.endpoint, f.region, m.APIOptions())
-		},
-		objects: func(ctx context.Context, f cpFlags) (system.ObjectStore, error) {
-			return s3store.New(ctx, s3store.Config{Endpoint: f.log.s3Endpoint, Region: f.region,
-				Bucket: f.log.checkpointBucket, Prefix: f.log.checkpointPrefix, PathStyle: f.log.s3PathStyle})
-		},
-	}
-}
-
 func (l logFlags) tableName(prefix string) string {
 	return cmp.Or(l.table, prefix+"cp")
 }
@@ -133,9 +111,9 @@ func nodeName(l logFlags) string {
 	return h
 }
 
-func openDynLog(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.Metrics, log *slog.Logger) (executor.Log, executor.ObjectStore, func(), error) {
+func openDynLog(ctx context.Context, f cpFlags, m *controlplanemetrics.Metrics, log *slog.Logger) (executor.Log, executor.ObjectStore, func(), error) {
 	nop := func() {}
-	db, err := d.db(ctx, f, m)
+	db, err := newDynamo(ctx, f.endpoint, f.region, m.APIOptions())
 	if err != nil {
 		return nil, nil, nop, err
 	}
@@ -146,7 +124,7 @@ func openDynLog(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.M
 		}
 	}
 	lg := dynamolog.New(db, table, dynamolog.Options{TTL: f.log.logTTL})
-	objs, err := openCheckpointObjects(ctx, d, f, log)
+	objs, err := openCheckpointObjects(ctx, f, log)
 	if err != nil {
 		return nil, nil, nop, err
 	}
@@ -156,12 +134,13 @@ func openDynLog(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.M
 
 // openCheckpointObjects returns the checkpoint store: S3 when -checkpoint-bucket
 // is set, else memory. Both log stores use it.
-func openCheckpointObjects(ctx context.Context, d deps, f cpFlags, log *slog.Logger) (executor.ObjectStore, error) {
+func openCheckpointObjects(ctx context.Context, f cpFlags, log *slog.Logger) (executor.ObjectStore, error) {
 	if f.log.checkpointBucket == "" {
 		log.Warn("no -checkpoint-bucket: no checkpoints and no log trim; a restart replays the whole log", "event", "log_no_checkpoint")
 		return executor.NewMemoryObjects(), nil
 	}
-	store, err := d.objects(ctx, f)
+	store, err := s3store.New(ctx, s3store.Config{Endpoint: f.log.s3Endpoint, Region: f.region,
+		Bucket: f.log.checkpointBucket, Prefix: f.log.checkpointPrefix, PathStyle: f.log.s3PathStyle})
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +149,14 @@ func openCheckpointObjects(ctx context.Context, d deps, f cpFlags, log *slog.Log
 
 // openPostgresLog opens the PostgreSQL log. Checkpoints work as they do for
 // dynamolog. The DSN is never logged, and it is not in any error this adds.
-func openPostgresLog(ctx context.Context, d deps, f cpFlags, m *controlplanemetrics.Metrics, log *slog.Logger) (executor.Log, executor.ObjectStore, func(), error) {
+func openPostgresLog(ctx context.Context, f cpFlags, log *slog.Logger) (executor.Log, executor.ObjectStore, func(), error) {
 	nop := func() {}
 	db, err := openSQLDB(ctx, resolvedDSN(f.log))
 	if err != nil {
 		return nil, nil, nop, err
 	}
 	closeDB := func() { _ = db.Close() }
-	lg, objs, err := newSQLStore(ctx, db, d, f, log)
+	lg, objs, err := newSQLStore(ctx, db, f, log)
 	if err != nil {
 		closeDB()
 		return nil, nil, nop, err
@@ -195,7 +174,7 @@ func openSQLDB(ctx context.Context, dsn string) (*sql.DB, error) {
 }
 
 // newSQLStore builds the SQL log over db and the checkpoint store.
-func newSQLStore(ctx context.Context, db *sql.DB, d deps, f cpFlags, log *slog.Logger) (executor.Log, executor.ObjectStore, error) {
+func newSQLStore(ctx context.Context, db *sql.DB, f cpFlags, log *slog.Logger) (executor.Log, executor.ObjectStore, error) {
 	lg, err := sqllog.New(db, f.log.postgresPrefix)
 	if err != nil {
 		return nil, nil, err
@@ -203,7 +182,7 @@ func newSQLStore(ctx context.Context, db *sql.DB, d deps, f cpFlags, log *slog.L
 	if err := createSQLTables(ctx, lg, f.create); err != nil {
 		return nil, nil, err
 	}
-	objs, err := openCheckpointObjects(ctx, d, f, log)
+	objs, err := openCheckpointObjects(ctx, f, log)
 	if err != nil {
 		return nil, nil, err
 	}

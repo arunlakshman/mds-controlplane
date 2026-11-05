@@ -97,25 +97,39 @@ func TestRunServesMemStoreAndStops(t *testing.T) {
 	}
 }
 
+// Every row is a startup that must end with the exit code, without a service.
 func TestRunErrors(t *testing.T) {
-	var logs bytes.Buffer
-	cases := map[string][]string{
-		"bad level":     {"-log-level", "loud"},
-		"unknown store": {"-store", "nope", "-metrics-addr", ""},
-		"bad metrics":   {"-metrics-addr", "256.0.0.1:x"},
-		"bad addr":      {"-metrics-addr", "", "-addr", "256.0.0.1:x"},
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv(postgresDSNEnv, "")
+	// A DynamoDB endpoint that refuses every call, for -create-tables.
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"__type":"com.amazon.coral.service#ValidationException","message":"fake"}`))
+	}))
+	defer failing.Close()
+	cases := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"bad level", []string{"-log-level", "loud"}, 1},
+		{"unknown store", []string{"-store", "nope", "-metrics-addr", ""}, 1},
+		{"unknown store dynamo", []string{"-store", "dynamo", "-metrics-addr", "", "-addr", freeAddr(t)}, 1},
+		{"bad metrics", []string{"-metrics-addr", "256.0.0.1:x"}, 1},
+		{"bad addr", []string{"-metrics-addr", "", "-addr", "256.0.0.1:x"}, 1},
+		{"postgres without a DSN", []string{"-store", kindPostgres, "-metrics-addr", "", "-addr", freeAddr(t)}, 1},
+		{"create-tables against a failing endpoint", []string{"-store", kindLog, "-dynamo-endpoint", failing.URL,
+			"-metrics-addr", "", "-create-tables", "-addr", freeAddr(t)}, 1},
+		{"unknown flag", []string{"-bogus"}, 2},
+		{"help", []string{"-h"}, 0},
 	}
-	for name, args := range cases {
-		logs.Reset()
-		if code := run(t.Context(), args, &logs); code != 1 {
-			t.Errorf("%s: code %d", name, code)
+	for _, c := range cases {
+		var logs bytes.Buffer
+		if code := run(t.Context(), c.args, &logs); code != c.want {
+			t.Errorf("%s: code %d, want %d\n%s", c.name, code, c.want, logs.String())
 		}
-	}
-	if code := run(t.Context(), []string{"-bogus"}, &logs); code != 2 {
-		t.Fatal(code)
-	}
-	if code := run(t.Context(), []string{"-h"}, &logs); code != 0 {
-		t.Fatal(code)
 	}
 }
 
@@ -128,31 +142,5 @@ func TestManifestFailureIsNotFatal(t *testing.T) {
 	code := run(ctx, []string{"-addr", freeAddr(t), "-metrics-addr", "", "-manifest-out", filepath.Join(f, "x", "m.json")}, &logs)
 	if code != 0 || !strings.Contains(logs.String(), "manifest_failed") {
 		t.Fatalf("code %d\n%s", code, logs.String())
-	}
-}
-
-func TestCreateTablesFailureExits(t *testing.T) {
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	t.Setenv("AWS_ACCESS_KEY_ID", "")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"__type":"com.amazon.coral.service#ValidationException","message":"fake"}`))
-	}))
-	defer srv.Close()
-	var logs bytes.Buffer
-	args := []string{"-store", kindLog, "-dynamo-endpoint", srv.URL, "-metrics-addr", "", "-create-tables", "-addr", freeAddr(t)}
-	if code := run(t.Context(), args, &logs); code != 1 {
-		t.Fatalf("create-tables against a failing endpoint must exit 1, got %d\n%s", code, logs.String())
-	}
-}
-
-func TestUnknownStoreRejected(t *testing.T) {
-	var logs bytes.Buffer
-	for _, kind := range []string{"dynamo", "nope"} {
-		args := []string{"-store", kind, "-metrics-addr", "", "-addr", freeAddr(t)}
-		if code := run(t.Context(), args, &logs); code != 1 {
-			t.Fatalf("-store %s: code %d\n%s", kind, code, logs.String())
-		}
 	}
 }
