@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/topic"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -30,14 +29,12 @@ func New(keyValue engine.Engine) *DB {
 func topicSchema() Schema {
 	return Schema{
 		Commands: []Command{
-			CommandOf(topics.Commit),
-			CommandOf(func(transaction engine.Txn, _ int64, operation contract.CreateTopic) runtime.ControlPlaneDone {
-				return runtime.ControlPlaneDone{Err: topics.Create(transaction, operation.Name, operation.Partitions, operation.FailIfExists)}
-			}),
+			CommandOf(topic.CommitSegment),
+			CommandOf(topic.CreateTopic),
 		},
 		Reads: []Read{
-			ReadOf(topics.Lookup),
-			ReadOf(topics.Describe),
+			ReadOf(topic.FindSegments),
+			ReadOf(topic.DescribeTopics),
 		},
 	}
 }
@@ -51,7 +48,7 @@ func groupSchema() Schema {
 			CommandOf(storage.Install),
 			CommandOf(storage.Assign),
 			CommandOf(storage.Remove),
-			CommandOf(storage.CommitOffsets(topics.PartitionCount)),
+			CommandOf(storage.CommitOffsets(topic.PartitionCount)),
 		},
 		Reads: []Read{
 			ReadOf(storage.OffsetFetch),

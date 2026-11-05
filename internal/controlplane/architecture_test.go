@@ -82,11 +82,10 @@ func TestImportRules(t *testing.T) {
 		cp + "contract":       {rt},
 		cp + "metadb/engine":  {cp + "contract", rt},
 		cp + "membership":     {cp + "contract", rt},
-		cp + "module":         {cp + "metadb/engine", rt},
-		cp + "topics":         {cp + "contract", cp + "metadb/engine", cp + "module", rt},
-		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", cp + "module", rt},
+		cp + "domain/topic":   {cp + "contract", cp + "metadb/engine", rt},
+		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadb", cp + "module", rt},
+		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
 		cp + "executor":       {rt},
 	}
 	for dir, allowed := range layers {
@@ -98,7 +97,7 @@ func TestImportRules(t *testing.T) {
 	metadb := cp + "metadb"
 	protobuf := []string{"google.golang.org/protobuf/proto", "google.golang.org/protobuf/reflect/protoreflect"}
 	onlyImports(t, pkgs, metadb, []string{cp + "api/controlplane/log/v1", cp + "api/controlplane/shared/v1", cp + "contract",
-		cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt}, false)
+		cp + "domain/topic", cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", rt}, false)
 	for _, imp := range pkgs[metadb].imports {
 		if local(imp) == "" && strings.Contains(strings.Split(imp, "/")[0], ".") && !slices.Contains(protobuf, imp) {
 			t.Errorf("%s imports %s: the only third-party packages it may use are %v", metadb, imp, protobuf)
@@ -136,7 +135,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"metadb/engine", "membership", "module", "topics", "groups", "groups/storage", "metadb", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "membership", "domain/topic", "groups", "groups/storage", "metadb", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {

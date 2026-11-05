@@ -1,4 +1,4 @@
-package topics
+package topic
 
 import (
 	"crypto/sha256"
@@ -10,39 +10,16 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-const (
-	prefixTopic     = 'T'
-	prefixEndOffset = 'E'
-	prefixRun       = 'R'
-	prefixKey       = 'K'
-	prefixSlot      = 'S'
+// The state records of the topic context, written by hand. These bytes are
+// the stored state: the checkpoint and the state hash read them, so a change
+// here moves the golden hashes.
 
+const (
 	checksumLength = 16
 	runFormat      = 1
 )
 
 var errCorrupt = errors.New("topics: corrupt record")
-
-func topicKey(name string) []byte { return append([]byte{prefixTopic}, name...) }
-
-// topicPartitionPrefix is the prefix-free key prefix of one partition for kind p.
-func topicPartitionPrefix(p byte, topicPartition contract.TopicPartition) []byte {
-	return engine.AppendTopicPartition([]byte{p}, topicPartition)
-}
-
-func endKey(topicPartition contract.TopicPartition) []byte {
-	return topicPartitionPrefix(prefixEndOffset, topicPartition)
-}
-
-func batchRunKey(topicPartition contract.TopicPartition, base int64) []byte {
-	return binary.BigEndian.AppendUint64(topicPartitionPrefix(prefixRun, topicPartition), uint64(base))
-}
-
-func duplicateCheckKey(segKey string) []byte { return append([]byte{prefixKey}, segKey...) }
-
-func slotKey(slot int64, segKey string) []byte {
-	return append(binary.BigEndian.AppendUint64([]byte{prefixSlot}, uint64(slot)), segKey...)
-}
 
 func writeVarint(n int64) []byte { return binary.AppendUvarint(nil, uint64(n)) }
 
@@ -165,9 +142,4 @@ func decodeBatchRun(topicPartition contract.TopicPartition, base int64, b []byte
 		return nil, errCorrupt
 	}
 	return out, nil
-}
-
-// batchRunBase is the base offset in an R key.
-func batchRunBase(key []byte) int64 {
-	return int64(binary.BigEndian.Uint64(key[len(key)-8:]))
 }

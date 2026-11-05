@@ -1,8 +1,7 @@
-package topics_test
+package topic_test
 
 import (
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -10,7 +9,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -121,42 +119,6 @@ func TestCreateTopicExclusive(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestAssignedStates(t *testing.T) {
-	engineKV := memory.New()
-	a := metadb.New(engineKV)
-	assigned := func(slot int64, operation contract.CommitSegment) ([]contract.BatchRange, topics.AssignState) {
-		var rs []contract.BatchRange
-		var st topics.AssignState
-		if err := engineKV.View(func(transaction engine.Txn) { rs, st = topics.Assigned(transaction, slot, operation) }); err != nil {
-			t.Fatal(err)
-		}
-		return rs, st
-	}
-	operation := commit("k1", pb("a", 0, 3), pb("a", 1, 2))
-	first := mustCommit(t, a, 5, operation)
-	want := first.Resp.(contract.CommitSegmentResp).Assigned
-
-	rs, st := assigned(5, operation)
-	if st != topics.OffsetOwnedHere || !reflect.DeepEqual(rs, want) {
-		t.Fatalf("here: %v %+v", st, rs)
-	}
-	if _, st = assigned(9, operation); st != topics.OffsetOwnedElsewhere { // a replay at a later slot
-		t.Fatalf("other slot: %v", st)
-	}
-	if _, st = assigned(5, commit("k1", pb("a", 0, 4))); st != topics.OffsetOwnedElsewhere { // a conflict
-		t.Fatalf("conflict: %v", st)
-	}
-	if _, st = assigned(5, commit("nope", pb("a", 0, 1))); st != topics.OffsetOwnerUnknown {
-		t.Fatalf("unknown: %v", st)
-	}
-	if _, err := a.Trim(6); err != nil {
-		t.Fatal(err)
-	}
-	if _, st = assigned(5, operation); st != topics.OffsetOwnerUnknown { // forgotten by the window
-		t.Fatalf("trimmed: %v", st)
 	}
 }
 

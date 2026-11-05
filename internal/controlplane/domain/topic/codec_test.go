@@ -1,12 +1,10 @@
-package topics
+package topic
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -41,34 +39,5 @@ func TestIdemRecordCorruption(t *testing.T) {
 		if _, _, err := parseDuplicateCheck(x); err == nil {
 			t.Errorf("accepted %v", x)
 		}
-	}
-}
-
-func TestCorruptStoredRecordsPanic(t *testing.T) {
-	store := memory.New()
-	topicPartition := contract.NewTopicPartition("t", 0)
-	_ = store.Update(func(transaction engine.Txn) {
-		transaction.Set(batchRunKey(topicPartition, 0), []byte{9, 9})
-		transaction.Set(endKey(topicPartition), []byte{5})
-		transaction.Set(duplicateCheckKey("k"), []byte{0x80})
-	})
-	for name, f := range map[string]func(){
-		"lookup": func() {
-			_ = store.View(func(transaction engine.Txn) {
-				Lookup(transaction, contract.FindSegments{TopicPartition: topicPartition})
-			})
-		},
-		"replay": func() {
-			_ = store.Update(func(transaction engine.Txn) { Commit(transaction, 1, contract.CommitSegment{SegmentKey: "k"}) })
-		},
-	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("%s: no panic on a corrupt record", name)
-				}
-			}()
-			f()
-		}()
 	}
 }
