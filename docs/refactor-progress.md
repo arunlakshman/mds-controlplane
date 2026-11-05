@@ -10,8 +10,13 @@ T0.2 | done | 96f8fca | make build green, cpsim hashes equal baseline | real pat
 T0.3 | done | cherry-picked 26bb715,d446235 | make build green on merged result, hashes equal baseline | also touched internal/controlplane/doc.go comments; doc.go has a pre-existing wrong claim (map at top of server/brokers.go), T7.1 fixes it
 T0.4 | done | cherry-picked 2e59c36 | make build green on merged tree; agent also did fresh-clone build green | generated files untracked, `make generate` added, wire-check removed
 T0.5 | done | cherry-picked ac1a639 | make build green on merged tree | brief deleted, note added to docs/test-cuts.md
+T1.1 | done | cherry-picked 1067a50,9449231 | make build green, make mutants 8/8 killed (~26s) on merged tree, golden unchanged | see notes below
 
 ## Deferred items
+
+- T1.1 DEVIATION (accepted): added test-only file change internal/controlplane/replica/commit_test.go (TestWindowForgetsKeysOnlyOnLogStride), because nothing tested WindowSlots so per-replica-window survived. No replica behaviour change. Rule 4 spirit kept; user should know.
+- T1.1: rapid-based mutants use -rapid.seed=1 (unseeded kills are by chance). After T1.2/T1.5 the seeds may need re-choosing.
+- T1.1: planted-bug flags (InjectedBug*, WriterBases, commitWithBases) still in production until T1.6.
 
 - Dockerfile and CI workflow changes of T0.4 (buf-setup-action@v1 pinned buf 1.47.2, make generate) are NOT run: dst replace is a local path. Check when dst is published.
 - make lint can fail with "parallel golangci-lint is running" when two builds run at once. Retry; do not run gates in parallel with agents.
@@ -26,3 +31,4 @@ T0.5 | done | cherry-picked ac1a639 | make build green on merged tree | brief de
 - T0.3 merged by cherry-pick (task branch is checked out in its worktree, so rebase is impossible; use cherry-pick from now on). make build re-run on merged tree: green.
 - T0.4, T0.5 merged by cherry-pick; make build green after each. P0 tasks all done. Next: P0 phase gate (race, campaign), then P1 (T1.1 serial).
 - P0 phase gate green: build, race x3 (build/p0-race.txt), campaign 2000 seeds all ok (build/p0-campaign.txt). Starting T1.1 (serial).
+- T1.1 merged. Next: T1.2 conformance harness (serial, opus).
