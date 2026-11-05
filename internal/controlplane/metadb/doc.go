@@ -4,21 +4,22 @@
 // internal/spec stays the independent reference; this package is tested
 // against it.
 //
-// The kernel holds a list of modules (module.Module): topics for topics and
-// segments, and groups/storage for consumer groups. Each module owns its own
-// key prefixes and its own rules. The kernel does four things:
-//   - It sends every operation to the module that owns it (Mode, Write, Read).
-//     A new context is a new module in the list, not a new switch.
+// The kernel holds one table built from the schemas of the contexts
+// (Schema): domain/topic for topics and segments, and groups/storage for
+// consumer groups. Each context owns its own key prefixes and its own rules.
+// The kernel does four things:
+//   - It sends every operation to its row in the table (Mode, Write, Read).
+//     A new operation is one row in a schema, not a new switch.
 //   - It owns the log entry format (Entry, Encode, Decode, EntryOf): an id and
 //     one command, as the protobuf message logv1.Entry. A new command needs a
 //     new field there and a case in entry_codec.go. The kernel applies the
 //     entries in log order (Apply, ApplyBytes).
 //   - It writes and restores the checkpoint (Snapshot, Restore). The checkpoint
-//     carries every key of every module.
+//     carries every key of every context.
 //   - It computes the state hash, which leaves out the idempotency window.
 //
 // The key layout is in the packages that own the keys: T, E, R, K and S in
-// topics, G, M and O in groups/storage.
+// domain/topic, G, M and O in groups/storage.
 //
 // It is I/O shell code, outside the determinism closure, but its behaviour is
 // a pure function of the commands applied in order.

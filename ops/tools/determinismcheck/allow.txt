@@ -11,6 +11,10 @@
 # standard library
 bytes
 cmp
+# crypto/sha256: a pure function of its input (no randomness, no state, no time). The
+# topic context (internal/controlplane/domain/topic) uses it for the request digest of
+# the idempotency window.
+crypto/sha256
 encoding/binary
 encoding/hex
 errors

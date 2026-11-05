@@ -22,11 +22,11 @@ import (
 //     server/topics_handler.go).
 //   - wire/wire_gen.go: maps group requests and responses to and from the wire
 //     types.
-//   - groups/storage/module.go, write.go: the group module: the fold of
+//   - groups/storage/commands.go, write.go: the group commands: the fold of
 //     GroupInstall, GroupAssign, GroupRemove and OffsetCommit, on the key-value store.
 //   - groups/storage/read.go: the group reads (OffsetFetch, DescribeGroup
 //     and ListGroups).
-//   - metadb/metadb.go: the kernel routes each group operation to the module.
+//   - metadb/metadb.go: the group schema; the kernel routes each group operation to its row.
 //   - metadb/entry.go: the log format of the group entries.
 //   - replica/client.go: passes the group calls to the replica.
 //   - replica/commit.go: encodes and decodes the group entries in the log.

@@ -27,25 +27,27 @@
 
 # A replay of a known segment key is committed again as a new segment, with new offsets.
 mutant segment-replay-new-offsets
-file internal/controlplane/topics/commit.go
+file internal/controlplane/domain/topic/decide.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
 	dig := checksum(operation.Batches)
-	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
-		return replay(rec, dig, operation)
+	if rec, ok := view.Commit(operation.SegmentKey); ok {
+		assigned, code := replay(rec, dig, operation)
+		return nil, assigned, code
 	}
 	if !validCommit(operation) {
 @@ new
 	dig := checksum(operation.Batches)
-	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); false {
-		return replay(rec, dig, operation)
+	if rec, ok := view.Commit(operation.SegmentKey); ok && false {
+		assigned, code := replay(rec, dig, operation)
+		return nil, assigned, code
 	}
 	if !validCommit(operation) {
 @@ end
 
 # The stop rule of FindSegments is off by one: it stops after MaxBytes, not at it.
 mutant find-segments-stop-off-by-one
-file internal/controlplane/topics/commit.go
+file internal/controlplane/domain/topic/tables.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
 			if operation.MaxBytes > 0 && size >= int64(operation.MaxBytes) {
@@ -55,7 +57,7 @@ run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 
 # DescribeTopics answers in reverse name order.
 mutant describe-topics-not-sorted
-file internal/controlplane/topics/commit.go
+file internal/controlplane/domain/topic/tables.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
 		return true
@@ -74,12 +76,12 @@ run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 # from a base that is one too high (as if the writer had picked it from stale
 # state before the append), so every commit leaves a gap in the committed log.
 mutant writer-offsets
-file internal/controlplane/topics/commit.go
+file internal/controlplane/domain/topic/decide.go
 run go test ./internal/verify/simulator -run ^TestScenariosPass$ -count=1
 @@ old
-			base = readVarint(transaction.Get(endKey(b.TopicPartition)))
+			base = view.End(b.TopicPartition)
 @@ new
-			base = readVarint(transaction.Get(endKey(b.TopicPartition))) + 1
+			base = view.End(b.TopicPartition) + 1
 @@ end
 
 # per-replica-window: each replica forgets idempotency keys on its own clock, not

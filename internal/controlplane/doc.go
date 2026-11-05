@@ -38,14 +38,15 @@
 //     and the standard library.
 //   - replica: one node's copy of the replicated log: leader or standby,
 //     catch-up, checkpoint and restore. It has a Step that takes one event and returns dst values and IO calls.
-//   - metadata: the kernel of the replicated state. It sends each operation to
-//     the module that owns it, owns the log entry format (protobuf, the log
-//     package of api/) and the checkpoint, and applies commands in order to an
-//     ordered key-value store.
-//   - module: the one interface that each context implements to take part in
-//     the replicated state: Mode, Write and Read.
-//   - topics: the topics and segments context (CreateTopic, DescribeTopics,
-//     CommitSegment, FindSegments). It owns the T, E, R, K and S keys.
+//   - metadb: the kernel of the replicated state. It keeps one table of the
+//     schemas of the contexts (metadb.Schema: one row per command or read) and
+//     sends each operation to its row. It owns the log entry format (protobuf,
+//     the log package of api/) and the checkpoint, and applies commands in
+//     order to an ordered key-value store.
+//   - domain/topic: the topics and segments context (CreateTopic, DescribeTopics,
+//     CommitSegment, FindSegments). It owns the T, E, R, K and S keys. Its
+//     rules are pure: Decide reads a View and returns events, and Apply writes
+//     the events.
 //   - metadb/engine: the small ordered key-value seam under metadata and groups/storage,
 //     with an in-memory store and the record codec they share.
 //   - metadb/engine/pebble: the Pebble-backed key-value store that
@@ -56,7 +57,7 @@
 //     implementations of executor.Log. executor/logtest is their shared test
 //     suite.
 //   - membership: the broker membership context: which brokers are alive (leases).
-//     Its state is not logged, so it is not a module.
+//     Its state is not logged, so it is not a schema.
 //   - groups/storage: the consumer group context in the replicated state (the G,
 //     M and O keys): the fold of the group writes and the group reads. It does
 //     not know about topics.
@@ -74,8 +75,9 @@
 // How they fit together, from the imports:
 //
 //   - server imports live, replica, executor and groups.
-//   - replica imports metadata. metadata imports module, topics and groups/storage.
-//     topics and groups/storage import module and engine, and not each other. executor imports only runtime. dynamolog and sqllog
+//   - replica imports metadb. metadb imports domain/topic and groups/storage.
+//     domain/topic and groups/storage import engine, and not each other or metadb.
+//     executor imports only runtime. dynamolog and sqllog
 //     import executor. Domain packages import no third-party package; see
 //     TestControlPlaneLayers in architecture_test.go.
 package controlplane
