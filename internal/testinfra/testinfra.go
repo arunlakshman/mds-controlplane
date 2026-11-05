@@ -30,7 +30,7 @@ import (
 // Image versions are pinned on purpose. Change them here only.
 const (
 	DynamoDBImage = "amazon/dynamodb-local:3.1.0"
-	PostgresImage = "postgres:17.11-alpine" // same as POSTGRES_IMAGE in the Makefile
+	PostgresImage = "postgres:17.11-alpine"
 	MinIOImage    = "bitnamilegacy/minio:2025.7.23-debian-12-r3"
 )
 
