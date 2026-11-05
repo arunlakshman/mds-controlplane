@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI gate for the deterministic packages of the control plane:
 #   internal/runtime, internal/controlplane/contract, and the control-plane
-#   domain packages that pass the check today (domain/topic, domain/group, replica, metadb/engine),
+#   domain packages that pass the check today (domain/topic, domain/group, domain/broker, replica, metadb/engine),
 #   and the reference model (internal/spec). Test code is not in the gate, so
 #   the property-based tests (pgregory.net/rapid) are not either.
 # The simulator engine (internal/verify/simulator) is checked too, with one more
@@ -9,8 +9,7 @@
 # campaign runner (cmd/cpsim) uses goroutines and wall time on purpose,
 # to run many seeds at once, so it is not in the gate.
 # Other control-plane packages (engine/memory, groups, metadb) use sync,
-# time or other banned things and are not in this gate yet. domain/broker is not
-# in it either: it imports time and ranges over a map.
+# time or other banned things and are not in this gate yet.
 #   1. determinismcheck: exact-path import allow-list plus banned constructs.
 #   2. Every third-party module they depend on has a reviewed audit record
 #      for the exact version in go.mod (so a version bump forces a re-audit).
@@ -23,6 +22,7 @@ pkgs=(
   ./internal/controlplane/metadb/engine
   ./internal/controlplane/domain/topic
   ./internal/controlplane/domain/group
+  ./internal/controlplane/domain/broker
   ./internal/controlplane/replica
   ./internal/spec
 )
