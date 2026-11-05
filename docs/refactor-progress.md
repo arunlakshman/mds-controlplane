@@ -27,8 +27,13 @@ T2.4 | done | cherry-picked 390422e->bd7c002, 5f6cc7a->172fe41 (one conflict in 
 T2.5 | done | cherry-picked a734faa,48961b6,6d68f8b | merged tree: make build green, make it green (test/integration ~50s, real binary, dynamolog+postgres, 3-node takeover with SIGKILL, restart from real checkpoint), make mutants 8/8; agent also ran race x3 + campaign 2000 green on identical tree | controlplanetest deleted (-1519 lines incl fakedynamodb 1211); deps seam removed; 19 files +840/-2197; no leftover processes/containers
 T3.1 | done | cherry-picked 9beaf14,07a28a1,1af3c31,7489a49 | merged tree: make build green, make mutants 8/8, go vet -tags integration clean; agent also ran make it green | kv -> metadb/engine (+engine/memory, engine/pebble); Store->Engine, Transaction->Txn; engine added to determinism gate (listed without /..., so memory and pebble stay outside); golden unchanged
 T3.2 | done | cherry-picked aee78d3,1c2655c,3fef79b,cc235ba | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent make it green | metadata -> metadb, Store -> DB; 47 files +234/-234; golden unchanged
+T3.3 | done | cherry-picked 95a60d7,9e23946 | merged tree: make build green, make mutants 8/8, golden unchanged; agent: vet -tags integration + make it green | metadb pruned: Exec, Command, CommitBatch, Commit, Lookup, Describe, CreateTopicIf, End, Window, Assigned, AssignState, OffsetOwner*, OffsetFetch, DescribeGroup, ListGroups, SnapshotAt, CreateEntry deleted; production +28/-165, tests +119/-93
 
 ## Deferred items
+
+- T3.3: plan was wrong: replica does NOT use CommitBatch (applies entry by entry); it was dead in production. Two tests deleted with their features (TestCommitBatchEqualsSequential, TestSnapshotAtTagsTheViewsSlot); no mutant covers metadb unit tests so judged by hand.
+- T3.3: topics.End, Window, Assigned, AssignState, OffsetOwner* now have no production caller (only TestAssignedStates). Prune with the T5.1 topic context work.
+- T3.3: one-line edit in replica/commit_test.go (End read via Read) needed to compile; comments edited in groups/, topics/, runtime/. "decision N"/CP-DSM-N references left.
 
 - T3.2: test/var names (TestMetadata*, localStore, newGroupStore, Metadata fields) left as is (churn). ops/mutants.txt needed no edit.
 
@@ -113,3 +118,4 @@ T3.2 | done | cherry-picked aee78d3,1c2655c,3fef79b,cc235ba | merged tree: make 
 - T2.5 merged. P2 PHASE GATE GREEN: build, mutants 8/8, race x3 (agent run on identical tree), campaign 2000 (agent run), make it (real Docker). Next: P3 renames, serial: T3.1 kv -> metadb/engine (haiku).
 - T3.1 merged. Next: T3.2 metadata -> metadb (Store -> DB), serial.
 - T3.2 merged. Next: T3.3 prune metadb (sonnet).
+- T3.3 merged; P3 gate: build ok, mutants 8/8 ok; race x3 + campaign 2000 running (build/p3-*.txt).
