@@ -34,8 +34,12 @@ T4.3 | done | cherry-picked 0d802bf,74b1bda,f241908,80bd5fe (trailer normalised 
 T4.4 | done | cherry-picked b5ee9c5,5f49ee1,f69a194,21c3764(RE-PIN) + my fix cf5d3cb | merged tree: make build green, make mutants 8/8; agent: make it, fuzz (6 targets, no failure), fresh-clone build, race (see note), cpsim 2000 green | log entries in protobuf: log/v1 Entry{id, oneof command}; metadb/entry.go + entry_codec.go; Encode Deterministic:true; Decode rejects unknown fields; topics/codec.go and groups/storage/codec.go and module Kinds/KindOf/Encode/Decode deleted (-~315 lines); audit record docs/dep-audits/google.golang.org/protobuf@v1.35.2.md ACCEPTED WITH RULES
 T5.1 | done | cherry-picked 67d4e8f,1bd28a4,61e969f | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent: make it green, race x1 green; golden unchanged | metadb/schema.go (Schema{Commands,Reads}, CommandOf[T]/ReadOf[T], reflect.Type dispatch, no type switches); domain/topic {decide,events,tables,codec,schema}.go 609 lines + tests; topics/ and module/ deleted (-927 lines); mutants moved to domain/topic/{decide,tables}.go, 8/8
 T5.3 | done | cherry-picked 8bf951b,5e76502 | merged tree: build+vet+go test (controlplane, broker, server) green; agent: make build, mutants 8/8, vet, make it, race x1 green; golden unchanged; full gate after T5.2 merges | membership -> domain/broker (git mv, API unchanged, no renames)
+T5.2 | done | cherry-picked 7ae0741,91b41a4,83e5c7d,481f821 (+ my conflict resolution in architecture_test.go, + format commit) | merged tree (with T5.3): make build green, make mutants 8/8, vet -tags integration clean; agent: make it, race x1, fuzz 5s x3 green; golden unchanged | domain/group {decide 285, tables 226, codec 112, schema 85, events 55} + tests; groups/storage deleted (-578 prod lines); group mutants moved to domain/group/decide.go 8/8; topic dependency = group.CommitOffsets(topic.PartitionCount) wired in metadb.groupSchema()
 
 ## Deferred items
+
+- T5.2: codec byte pins for groups are new (none existed in groups/storage; expected bytes taken from old code before deletion). Apply reads nothing (old code read+wrote in one pass); behaviour identical. Group reads live in tables.go.
+- T5.2/T5.3 merge: architecture_test.go conflicted (layers map + wallclock dir list); resolved by hand to include both domain/broker and domain/group, gofmt'd.
 
 - T5.3 GATE GAP (must fix for final acceptance, section 7: 'domain/* are in the determinism gate'): domain/broker is NOT in ci-determinism.sh; determinismcheck rejects it: imports `time` (not allowed) and ranges over a map in Live. Fixing = behaviour change (inject time / sort), so not done in the move. Needs a follow-up task before T7.3 (e.g. T7.2 or a new T5.4): take time as a parameter and iterate in sorted order, then add domain/broker to the gate.
 - T5.3: ci-determinism.sh comment wrongly said membership uses sync; corrected.
@@ -154,3 +158,4 @@ T5.3 | done | cherry-picked 8bf951b,5e76502 | merged tree: build+vet+go test (co
 - P4 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 (hashes unchanged), make it (build/p4-*.txt). P4 complete. Starting P5: T5.1 schema + topic context (serial, opus, higher).
 - T5.1 merged. Next: Group E in parallel: T5.2 (domain/group, sonnet higher) and T5.3 (domain/broker, sonnet). Then P5 phase gate.
 - T5.3 merged (light checks only; full gate after T5.2). T5.2 still running.
+- T5.2 merged with T5.3. P5 gate: build ok, mutants 8/8 ok, vet ok; race x3, campaign, make it running/next.
