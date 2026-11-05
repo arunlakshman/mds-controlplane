@@ -159,3 +159,4 @@ T5.2 | done | cherry-picked 7ae0741,91b41a4,83e5c7d,481f821 (+ my conflict resol
 - T5.1 merged. Next: Group E in parallel: T5.2 (domain/group, sonnet higher) and T5.3 (domain/broker, sonnet). Then P5 phase gate.
 - T5.3 merged (light checks only; full gate after T5.2). T5.2 still running.
 - T5.2 merged with T5.3. P5 gate: build ok, mutants 8/8 ok, vet ok; race x3, campaign, make it running/next.
+- PAUSED at user request (Anthropic 5h usage window ~96%), about 1h20m. Resume point: finish P5 phase gate (race x3 was running into build/p5-race.txt; then cpsim 2000 -> build/p5-campaign.txt, then make it), then T6.1 (rebalance note + model; STOP and show user), plus the domain/broker determinism-gate follow-up (see T5.3 note) before T7.3.
