@@ -1,8 +1,8 @@
 package replica
 
 import (
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -67,7 +67,7 @@ type Config struct {
 	// in. It runs when the machine is built and again after a crash restart or
 	// a trimmed-slot restore, once the old store has been closed. Nil means an
 	// in-memory store. The machine itself never imports a database.
-	OpenStore func() (kv.Store, error)
+	OpenStore func() (engine.Store, error)
 
 	// WindowSlots is the idempotency window length. Keys older than this many
 	// slots are forgotten at TrimStride boundaries (decision 48). Zero skips.

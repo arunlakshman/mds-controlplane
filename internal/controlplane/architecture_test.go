@@ -20,7 +20,7 @@ const (
 )
 
 type pkg struct {
-	dir     string   // module-relative, for example internal/controlplane/kv
+	dir     string   // module-relative, for example internal/controlplane/metadb/engine
 	files   []string // non-test .go files
 	imports []string // direct imports of the non-test files
 	tests   []string // direct imports of the test files
@@ -80,14 +80,14 @@ func TestImportRules(t *testing.T) {
 	// The domain packages depend inward only, and take no third-party package.
 	layers := map[string][]string{
 		cp + "contract":       {rt},
-		cp + "kv":             {cp + "contract", rt},
+		cp + "metadb/engine":  {cp + "contract", rt},
 		cp + "membership":     {cp + "contract", rt},
-		cp + "module":         {cp + "kv", rt},
-		cp + "topics":         {cp + "contract", cp + "kv", cp + "module", rt},
-		cp + "groups/storage": {cp + "contract", cp + "kv", cp + "module", rt},
+		cp + "module":         {cp + "metadb/engine", rt},
+		cp + "topics":         {cp + "contract", cp + "metadb/engine", cp + "module", rt},
+		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "metadata":       {cp + "contract", cp + "groups/storage", cp + "kv", cp + "module", cp + "topics", rt},
-		cp + "replica":        {cp + "contract", cp + "kv", cp + "metadata", cp + "module", rt},
+		cp + "metadata":       {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "module", cp + "topics", rt},
+		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadata", cp + "module", rt},
 		cp + "executor":       {rt},
 	}
 	for dir, allowed := range layers {
@@ -114,7 +114,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"kv", "membership", "module", "topics", "groups", "groups/storage", "metadata", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "membership", "module", "topics", "groups", "groups/storage", "metadata", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {

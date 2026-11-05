@@ -4,23 +4,23 @@ import (
 	"fmt"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Store is the control-plane replicated state over a kv.Store. It is the kernel:
+// Store is the control-plane replicated state over a engine.Store. It is the kernel:
 // it holds the modules (topics, groups) and sends each operation to the one that
 // owns it. Writes (commands) must be applied by one goroutine in log order;
 // reads may run concurrently.
 type Store struct {
-	keyValue kv.Store
+	keyValue engine.Store
 	modules  []module.Module
 }
 
-// New returns a metadata store over kv (empty, or restored from a checkpoint).
-func New(keyValue kv.Store) *Store {
+// New returns a metadata store over the engine (empty, or restored from a checkpoint).
+func New(keyValue engine.Store) *Store {
 	return &Store{keyValue: keyValue, modules: registry.list}
 }
 
@@ -60,7 +60,7 @@ func (a *Store) Write(slot int64, operation runtime.ControlPlaneOperation) (runt
 		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
 	}
 	var d runtime.ControlPlaneDone
-	err := a.keyValue.Update(func(transaction kv.Transaction) { d = m.Write(transaction, slot, operation) })
+	err := a.keyValue.Update(func(transaction engine.Transaction) { d = m.Write(transaction, slot, operation) })
 	return d, err
 }
 
@@ -72,7 +72,7 @@ func (a *Store) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPl
 		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
 	}
 	var d runtime.ControlPlaneDone
-	err := a.keyValue.View(func(transaction kv.Transaction) { d = m.Read(transaction, operation) })
+	err := a.keyValue.View(func(transaction engine.Transaction) { d = m.Read(transaction, operation) })
 	return d, err
 }
 
@@ -114,7 +114,7 @@ type Command struct {
 // applying them one by one, with far fewer page writes in the store.
 func (a *Store) CommitBatch(cmds []Command) ([]runtime.ControlPlaneDone, error) {
 	var out []runtime.ControlPlaneDone
-	err := a.keyValue.Update(func(transaction kv.Transaction) {
+	err := a.keyValue.Update(func(transaction engine.Transaction) {
 		out = make([]runtime.ControlPlaneDone, len(cmds))
 		for i, c := range cmds {
 			out[i] = topics.Commit(transaction, c.Slot, c.Op)

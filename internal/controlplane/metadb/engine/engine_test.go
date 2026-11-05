@@ -1,22 +1,22 @@
-package kv_test
+package engine_test
 
 import (
 	"slices"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 )
 
 func TestPrefixEnd(t *testing.T) {
-	if string(kv.PrefixEnd([]byte("ab"))) != "ac" || string(kv.PrefixEnd([]byte{'a', 0xFF})) != "b" || kv.PrefixEnd([]byte{0xFF}) != nil {
-		t.Fatal("kv.PrefixEnd")
+	if string(engine.PrefixEnd([]byte("ab"))) != "ac" || string(engine.PrefixEnd([]byte{'a', 0xFF})) != "b" || engine.PrefixEnd([]byte{0xFF}) != nil {
+		t.Fatal("engine.PrefixEnd")
 	}
 }
 
 func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
-	m := kv.NewMemory()
-	err := m.Update(func(tx kv.Transaction) {
+	m := engine.NewMemory()
+	err := m.Update(func(tx engine.Transaction) {
 		tx.Set([]byte("b"), []byte("2"))
 		tx.Set([]byte("a"), []byte("1"))
 		tx.Set([]byte("c"), []byte("3"))
@@ -31,7 +31,7 @@ func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	var keys []string
-	if err := m.View(func(tx kv.Transaction) {
+	if err := m.View(func(tx engine.Transaction) {
 		if tx.Get([]byte("c")) != nil || tx.Get([]byte("none")) != nil {
 			t.Error("deleted or absent key has a value")
 		}
@@ -48,13 +48,13 @@ func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
 }
 
 func TestMemoryStoreFloorAndAscendStop(t *testing.T) {
-	m := kv.NewMemory()
-	_ = m.Update(func(tx kv.Transaction) {
+	m := engine.NewMemory()
+	_ = m.Update(func(tx engine.Transaction) {
 		for _, k := range []string{"a", "c", "e"} {
 			tx.Set([]byte(k), []byte(k))
 		}
 	})
-	_ = m.View(func(tx kv.Transaction) {
+	_ = m.View(func(tx engine.Transaction) {
 		if k, _ := tx.Floor([]byte("a"), []byte("d")); string(k) != "c" {
 			t.Errorf("floor below d: %q", k)
 		}
@@ -76,10 +76,10 @@ func TestMemoryStoreFloorAndAscendStop(t *testing.T) {
 }
 
 func TestMemoryStoreKeepsOldViewOnUpdate(t *testing.T) {
-	m := kv.NewMemory()
-	_ = m.Update(func(tx kv.Transaction) { tx.Set([]byte("k"), []byte("v")) })
-	_ = m.Update(func(tx kv.Transaction) { tx.Set([]byte("k"), []byte("w")) })
-	_ = m.View(func(tx kv.Transaction) {
+	m := engine.NewMemory()
+	_ = m.Update(func(tx engine.Transaction) { tx.Set([]byte("k"), []byte("v")) })
+	_ = m.Update(func(tx engine.Transaction) { tx.Set([]byte("k"), []byte("w")) })
+	_ = m.View(func(tx engine.Transaction) {
 		if string(tx.Get([]byte("k"))) != "w" {
 			t.Error("update lost")
 		}
@@ -89,11 +89,11 @@ func TestMemoryStoreKeepsOldViewOnUpdate(t *testing.T) {
 func TestReader(t *testing.T) {
 	// uvarint 5, varint -3, string "hi", blob "xyz"
 	b := []byte{5, 5, 2, 'h', 'i', 3, 'x', 'y', 'z'}
-	r := kv.NewReader(b)
+	r := engine.NewReader(b)
 	if r.Uvarint() != 5 || r.Varint() != -3 || r.String() != "hi" || string(r.Blob()) != "xyz" || !r.Done() {
 		t.Fatal("reader read wrong values")
 	}
-	short := kv.NewReader([]byte{9, 'a'}) // claims 9 bytes, has 1
+	short := engine.NewReader([]byte{9, 'a'}) // claims 9 bytes, has 1
 	if short.String() != "" || short.OK() || short.Done() {
 		t.Fatal("a short string must fail")
 	}
@@ -101,13 +101,13 @@ func TestReader(t *testing.T) {
 	if short.OK() {
 		t.Fatal("a failure must stick")
 	}
-	if kv.NewReader([]byte{0x80}).Uvarint() != 0 || kv.NewReader([]byte{0x80}).Varint() != 0 {
+	if engine.NewReader([]byte{0x80}).Uvarint() != 0 || engine.NewReader([]byte{0x80}).Varint() != 0 {
 		t.Fatal("a cut varint must fail")
 	}
-	if kv.NewReader([]byte{9, 'a'}).Blob() != nil {
+	if engine.NewReader([]byte{9, 'a'}).Blob() != nil {
 		t.Fatal("a short blob must fail")
 	}
-	left := kv.NewReader([]byte{1, 'a', 7})
+	left := engine.NewReader([]byte{1, 'a', 7})
 	_ = left.String()
 	if !left.OK() || left.Done() || len(left.Rest()) != 1 {
 		t.Fatal("a leftover byte is not Done")
@@ -116,20 +116,20 @@ func TestReader(t *testing.T) {
 
 func TestTopicPartitionKeyRoundTrip(t *testing.T) {
 	want := contract.NewTopicPartition("orders", 7)
-	got, ok := kv.SplitTopicPartition(kv.AppendTopicPartition(nil, want))
+	got, ok := engine.SplitTopicPartition(engine.AppendTopicPartition(nil, want))
 	if !ok || got != want {
 		t.Fatalf("%+v %v", got, ok)
 	}
-	if _, ok := kv.SplitTopicPartition(append(kv.AppendTopicPartition(nil, want), 0)); ok {
+	if _, ok := engine.SplitTopicPartition(append(engine.AppendTopicPartition(nil, want), 0)); ok {
 		t.Fatal("trailing byte accepted")
 	}
-	if _, ok := kv.SplitTopicPartition([]byte{9, 'a'}); ok {
+	if _, ok := engine.SplitTopicPartition([]byte{9, 'a'}); ok {
 		t.Fatal("short topic accepted")
 	}
 }
 
 func TestWriterAndReaderMatch(t *testing.T) {
-	w := kv.NewWriter()
+	w := engine.NewWriter()
 	w.Uvarint(300)
 	w.Varint(-7)
 	w.String("hi")
@@ -138,14 +138,14 @@ func TestWriterAndReaderMatch(t *testing.T) {
 	w.String("a")
 	w.String("b")
 	w.Append([]byte{9})
-	r := kv.NewReader(w.Bytes())
+	r := engine.NewReader(w.Bytes())
 	if r.Uvarint() != 300 || r.Varint() != -7 || r.String() != "hi" || r.Bytes() != nil || r.Count() != 2 {
 		t.Fatal("values did not round trip")
 	}
 	if r.String() != "a" || r.String() != "b" || r.Uvarint() != 9 || !r.Done() {
 		t.Fatal("list or appended bytes did not round trip")
 	}
-	b := kv.NewReader([]byte{2, 'o', 'k'})
+	b := engine.NewReader([]byte{2, 'o', 'k'})
 	if string(b.Bytes()) != "ok" {
 		t.Fatal("a byte field was not read")
 	}
@@ -153,11 +153,11 @@ func TestWriterAndReaderMatch(t *testing.T) {
 
 func TestReaderCountAndFail(t *testing.T) {
 	// a count of 5 with 2 bytes left must fail, so a damaged record cannot make a caller allocate
-	r := kv.NewReader([]byte{5, 1, 1})
+	r := engine.NewReader([]byte{5, 1, 1})
 	if r.Count() != 0 || r.OK() {
 		t.Fatal("a count above the bytes left must fail")
 	}
-	f := kv.NewReader(nil)
+	f := engine.NewReader(nil)
 	f.Fail()
 	if f.OK() || f.Done() {
 		t.Fatal("Fail must mark the record bad")

@@ -5,14 +5,14 @@ import (
 	"github.com/manifesterio/dst/sim"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // trackedStore is an in-memory store that remembers whether it was closed.
 type trackedStore struct {
-	*kv.Memory
+	*engine.Memory
 	closed bool
 }
 
@@ -27,11 +27,11 @@ type storeSource struct {
 	failOn int // 1-based call number that fails; 0 never fails
 }
 
-func (s *storeSource) open() (kv.Store, error) {
+func (s *storeSource) open() (engine.Store, error) {
 	if s.failOn == len(s.opened)+1 {
 		return nil, errors.New("disk is full")
 	}
-	st := &trackedStore{Memory: kv.NewMemory()}
+	st := &trackedStore{Memory: engine.NewMemory()}
 	s.opened = append(s.opened, st)
 	return st, nil
 }

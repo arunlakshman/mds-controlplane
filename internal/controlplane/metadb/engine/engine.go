@@ -1,7 +1,7 @@
-// Package kv is the small ordered key-value seam under the control-plane
+// Package engine is the small ordered key-value seam under the control-plane
 // metadata: a read transaction, an atomic write transaction, nothing else. It
-// has an in-memory store here and a Pebble-backed store in kv/pebblestore.
-package kv
+// has an in-memory store here and a Pebble-backed store in engine/pebble.
+package engine
 
 import "bytes"
 

@@ -1,4 +1,4 @@
-package kv
+package engine
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 
 // Memory is an in-memory KV: a sorted slice copied on every write transaction.
 // It is the default store of the machine in the simulator and in tests. Production
-// mdscontrolplane passes Pebble instead (see kv/pebblestore and replica.Config.OpenStore).
+// mdscontrolplane passes Pebble instead (see metadb/engine/pebble and replica.Config.OpenStore).
 type Memory struct {
 	mu      sync.RWMutex
 	entries []memoryEntry

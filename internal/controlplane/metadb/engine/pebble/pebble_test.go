@@ -1,16 +1,16 @@
-package pebblestore_test
+package pebble_test
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 )
 
-func open(t *testing.T) *pebblestore.DB {
+func open(t *testing.T) *pebble.DB {
 	t.Helper()
-	db, err := pebblestore.Open(filepath.Join(t.TempDir(), "s"), pebblestore.Options{})
+	db, err := pebble.Open(filepath.Join(t.TempDir(), "s"), pebble.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func open(t *testing.T) *pebblestore.DB {
 
 func TestOrderedOps(t *testing.T) {
 	db := open(t)
-	err := db.Update(func(transaction kv.Transaction) {
+	err := db.Update(func(transaction engine.Transaction) {
 		for _, k := range []string{"b", "d", "f", "h"} {
 			transaction.Set([]byte(k), []byte("v"+k))
 		}
@@ -35,7 +35,7 @@ func TestOrderedOps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = db.View(func(transaction kv.Transaction) {
+	_ = db.View(func(transaction engine.Transaction) {
 		cases := []struct{ lo, hi, want string }{
 			{"a", "d", "b"}, {"a", "e", "d"}, {"a", "b", ""}, {"c", "d", ""}, {"a", "", "h"}, {"a", "z", "h"}, {"e", "i", "h"}, {"i", "", ""},
 		}
@@ -63,9 +63,9 @@ func TestOrderedOps(t *testing.T) {
 
 func TestViewIsASnapshot(t *testing.T) {
 	db := open(t)
-	_ = db.Update(func(transaction kv.Transaction) { transaction.Set([]byte("k"), []byte("1")) })
-	_ = db.View(func(transaction kv.Transaction) {
-		_ = db.Update(func(w kv.Transaction) { w.Set([]byte("k"), []byte("2")) })
+	_ = db.Update(func(transaction engine.Transaction) { transaction.Set([]byte("k"), []byte("1")) })
+	_ = db.View(func(transaction engine.Transaction) {
+		_ = db.Update(func(w engine.Transaction) { w.Set([]byte("k"), []byte("2")) })
 		if string(transaction.Get([]byte("k"))) != "1" {
 			t.Error("a View must not see a later commit")
 		}
@@ -73,25 +73,25 @@ func TestViewIsASnapshot(t *testing.T) {
 }
 
 func TestOpenFailsOnBadPath(t *testing.T) {
-	if _, err := pebblestore.Open("/dev/null/x", pebblestore.Options{}); err == nil {
+	if _, err := pebble.Open("/dev/null/x", pebble.Options{}); err == nil {
 		t.Fatal("Open must fail")
 	}
 }
 
 func TestReopenKeepsData(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "s")
-	db, err := pebblestore.Open(dir, pebblestore.Options{})
+	db, err := pebble.Open(dir, pebble.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = db.Update(func(transaction kv.Transaction) { transaction.Set([]byte("k"), []byte("v")) })
+	_ = db.Update(func(transaction engine.Transaction) { transaction.Set([]byte("k"), []byte("v")) })
 	_ = db.Close() // closing for the reopen; the test checks what survived
-	db, err = pebblestore.Open(dir, pebblestore.Options{})
+	db, err = pebble.Open(dir, pebble.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	_ = db.View(func(transaction kv.Transaction) {
+	_ = db.View(func(transaction engine.Transaction) {
 		if string(transaction.Get([]byte("k"))) != "v" {
 			t.Error("data lost on reopen")
 		}

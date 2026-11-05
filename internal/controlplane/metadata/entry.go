@@ -5,7 +5,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -90,7 +90,7 @@ func CreateEntry(operation contract.CreateTopic) Entry {
 
 // Encode serialises an entry.
 func Encode(en Entry) []byte {
-	w := kv.NewWriter()
+	w := engine.NewWriter()
 	w.Uvarint(uint64(en.Kind))
 	w.String(en.ID)
 	if m := registry.owner[en.Kind]; m != nil {
@@ -101,7 +101,7 @@ func Encode(en Entry) []byte {
 
 // Decode parses an entry made by Encode.
 func Decode(b []byte) (Entry, error) {
-	r := kv.NewReader(b)
+	r := engine.NewReader(b)
 	en := Entry{Kind: Kind(r.Uvarint())}
 	en.ID = r.String()
 	if en.Kind != KindNoop {
@@ -119,7 +119,7 @@ func Decode(b []byte) (Entry, error) {
 
 // NewMem returns a metadata store over an in-memory KV. No Pebble. Suitable for the
 // DSM Step fold and for tests that need the pure command fold.
-func NewMem() *Store { return New(kv.NewMemory()) }
+func NewMem() *Store { return New(engine.NewMemory()) }
 
 // Apply folds one log entry at slot into the store. No-ops leave state unchanged.
 // A store failure panics (fail-stop), matching Commit.

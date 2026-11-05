@@ -5,7 +5,7 @@
 package module
 
 import (
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -38,9 +38,9 @@ type Module interface {
 	// Write applies a Logged operation at log slot slot. The answer depends only
 	// on the state before the command and on the command, so every replica
 	// gets the same answer.
-	Write(transaction kv.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
+	Write(transaction engine.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 	// Read answers a ReadOnly operation.
-	Read(transaction kv.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
+	Read(transaction engine.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 
 	// Kinds lists the log entry kinds the module owns.
 	Kinds() []Kind
@@ -48,8 +48,8 @@ type Module interface {
 	KindOf(operation runtime.ControlPlaneOperation) (Kind, bool)
 	// Encode writes the payload of a Logged operation, the bytes after the kind
 	// and the id. The kernel writes those two.
-	Encode(w *kv.Writer, kind Kind, operation runtime.ControlPlaneOperation)
+	Encode(w *engine.Writer, kind Kind, operation runtime.ControlPlaneOperation)
 	// Decode reads the payload of an entry of kind. A damaged payload fails the
 	// reader (r.OK() is false) and the kernel reports a corrupt entry.
-	Decode(r *kv.Reader, kind Kind) runtime.ControlPlaneOperation
+	Decode(r *engine.Reader, kind Kind) runtime.ControlPlaneOperation
 }

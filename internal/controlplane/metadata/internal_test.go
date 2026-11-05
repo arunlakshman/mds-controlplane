@@ -6,16 +6,16 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // brokenKV fails every transaction.
 type brokenKV struct{}
 
-func (*brokenKV) View(func(kv.Transaction)) error { return errors.New("disk gone") }
+func (*brokenKV) View(func(engine.Transaction)) error { return errors.New("disk gone") }
 
-func (*brokenKV) Update(func(kv.Transaction)) error { return errors.New("disk gone") }
+func (*brokenKV) Update(func(engine.Transaction)) error { return errors.New("disk gone") }
 
 func (*brokenKV) Close() error { return nil }
 

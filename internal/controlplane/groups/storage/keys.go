@@ -29,7 +29,7 @@ import (
 	"errors"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 )
 
 const (
@@ -41,7 +41,7 @@ const (
 var errCorrupt = errors.New("groups: corrupt record")
 
 // Partitions tells how many partitions a topic has (0 when it does not exist).
-type Partitions func(transaction kv.Transaction, topic string) int64
+type Partitions func(transaction engine.Transaction, topic string) int64
 
 // groupKey is the G key of a group: its header.
 func groupKey(group string) []byte { return append([]byte{prefixGroup}, group...) }
@@ -59,5 +59,5 @@ func memberKey(group, member string) []byte {
 
 // offsetKey is the O key of one committed partition of a group.
 func offsetKey(group string, topicPartition contract.TopicPartition) []byte {
-	return kv.AppendTopicPartition(groupPrefix(prefixOffset, group), topicPartition)
+	return engine.AppendTopicPartition(groupPrefix(prefixOffset, group), topicPartition)
 }

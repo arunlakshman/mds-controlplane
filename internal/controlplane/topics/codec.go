@@ -2,7 +2,7 @@ package topics
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -38,7 +38,7 @@ func (Module) KindOf(operation runtime.ControlPlaneOperation) (module.Kind, bool
 }
 
 // Encode writes the payload of a CommitSegment or a CreateTopic.
-func (Module) Encode(w *kv.Writer, kind module.Kind, operation runtime.ControlPlaneOperation) {
+func (Module) Encode(w *engine.Writer, kind module.Kind, operation runtime.ControlPlaneOperation) {
 	switch x := operation.(type) {
 	case contract.CommitSegment:
 		encodeCommit(w, x)
@@ -49,7 +49,7 @@ func (Module) Encode(w *kv.Writer, kind module.Kind, operation runtime.ControlPl
 }
 
 // Decode reads the payload of an entry of kind.
-func (Module) Decode(r *kv.Reader, kind module.Kind) runtime.ControlPlaneOperation {
+func (Module) Decode(r *engine.Reader, kind module.Kind) runtime.ControlPlaneOperation {
 	switch kind {
 	case KindCommit:
 		return decodeCommit(r)
@@ -64,7 +64,7 @@ func (Module) Decode(r *kv.Reader, kind module.Kind) runtime.ControlPlaneOperati
 // encodeCommit writes the segment key, then a table of the strings that the
 // batches use (each topic and each object key once), then the batches, which
 // refer to the table by index.
-func encodeCommit(w *kv.Writer, c contract.CommitSegment) {
+func encodeCommit(w *engine.Writer, c contract.CommitSegment) {
 	w.String(c.SegmentKey)
 	var table []string
 	index := map[string]int{}
@@ -76,7 +76,7 @@ func encodeCommit(w *kv.Writer, c contract.CommitSegment) {
 		table = append(table, s)
 		return uint64(len(table) - 1)
 	}
-	body := kv.NewWriter()
+	body := engine.NewWriter()
 	for _, b := range c.Batches {
 		body.Uvarint(ref(b.TopicPartition.Topic))
 		body.Varint(int64(b.TopicPartition.Partition))
@@ -93,7 +93,7 @@ func encodeCommit(w *kv.Writer, c contract.CommitSegment) {
 	w.Append(body.Bytes())
 }
 
-func decodeCommit(r *kv.Reader) contract.CommitSegment {
+func decodeCommit(r *engine.Reader) contract.CommitSegment {
 	c := contract.CommitSegment{SegmentKey: r.String()}
 	table := make([]string, 0, 8)
 	for n := r.Uvarint(); n > 0 && r.OK(); n-- {

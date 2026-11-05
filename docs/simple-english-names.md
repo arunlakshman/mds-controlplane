@@ -83,7 +83,7 @@ Historical: `speccheck`, `speccheck/checker` and `specsystem` were removed. The 
 | `controlplane/fakedb` | `controlplane/fakedynamodb` |
 | `controlplane/memstore` | `controlplane/memorystore` |
 | `controlplane/grpctest` | `controlplane/grpctestserver` |
-| `applier/pebblekv` | `kv/pebblestore` |
+| `applier/pebblekv` | `metadb/engine/pebble` |
 | `wire/format` | `wire/segmentformat` |
 | `wire/kwire` | `wire/kafkawire` |
 | `ops/tools/detcheck` | `ops/tools/determinismcheck` |

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -30,7 +30,7 @@ func TestMachineConfigSetsTheIdempotencyWindow(t *testing.T) {
 }
 
 // topicCount asks a store how many topics it holds.
-func topicCount(t *testing.T, keyValue kv.Store) int {
+func topicCount(t *testing.T, keyValue engine.Store) int {
 	t.Helper()
 	d, err := metadata.New(keyValue).Describe(contract.DescribeTopics{})
 	if err != nil {

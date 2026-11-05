@@ -2,7 +2,7 @@ package storage
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -30,12 +30,12 @@ func (Module) Mode(operation runtime.ControlPlaneOperation) module.Mode {
 
 // Write applies a group write. The slot is not used: group state does not
 // depend on where in the log a command sits.
-func (m Module) Write(transaction kv.Transaction, _ int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func (m Module) Write(transaction engine.Transaction, _ int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	return write(transaction, operation, m.partitions)
 }
 
 // Read answers a group read.
-func (Module) Read(transaction kv.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func (Module) Read(transaction engine.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
 	case contract.OffsetFetch:
 		return offsetFetch(transaction, x)

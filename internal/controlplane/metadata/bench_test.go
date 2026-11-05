@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -39,7 +39,7 @@ func benchSegment(rng *rand.Rand, n, parts int) contract.CommitSegment {
 // transaction, onto a store holding 2,000 segments already. The reported
 // segs/s is the apply rate to compare with 430 segments/s (docs/applier-bakeoff.md).
 func BenchmarkApply150(b *testing.B) {
-	keyValue, err := pebblestore.Open(filepath.Join(b.TempDir(), "state"), pebblestore.Options{})
+	keyValue, err := pebble.Open(filepath.Join(b.TempDir(), "state"), pebble.Options{})
 	if err != nil {
 		b.Fatal(err)
 	}

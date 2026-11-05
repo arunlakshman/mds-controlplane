@@ -42,8 +42,8 @@ Coverage per package (own tests only, `go test -coverprofile`; files in `build/`
 | internal/controlplane/executor/sqllog | 8.1% |
 | internal/controlplane/groups | 86.1% |
 | internal/controlplane/groups/storage | 98.2% |
-| internal/controlplane/kv | 100.0% |
-| internal/controlplane/kv/pebblestore | 85.2% |
+| internal/controlplane/metadb/engine | 100.0% |
+| internal/controlplane/metadb/engine/pebble | 85.2% |
 | internal/controlplane/membership | 100.0% |
 | internal/controlplane/metadata | 79.2% |
 | internal/controlplane/replica | 85.5% |
@@ -75,7 +75,7 @@ functions covered.
 | group removed | lines | statements | functions that become uncovered |
 |---|---|---|---|
 | G1 all replica/*_test.go | 2,224 | -0.4 | 7: String, TakeAnswers, InFlightCommits, QueueDepth, encodeGroup, trip, Booting |
-| G2 groups, groups/storage, metadata, topics, kv unit tests | 2,600 | -7.0 | 64: the group coordinator and group state machine (join, sync, settle, timers), metadata CommitBatch, topics Trim, Window, Assigned, kv codec Fail |
+| G2 groups, groups/storage, metadata, topics, engine unit tests | 2,600 | -7.0 | 64: the group coordinator and group state machine (join, sync, settle, timers), metadata CommitBatch, topics Trim, Window, Assigned, engine codec Fail |
 | G3 server/*_test.go | 715 | -6.4 | 96: all group RPC handlers, BrokerHeartbeat, status, 36 generated wire converters |
 | G4 cmd/mdscontrolplane tests | 963 | -3.3 | 33: main, run, serve, openNode, flags, state open and wipe |
 | G5 architecture_test.go | 392 | 0.0 | 0 (it checks imports, not behaviour) |
@@ -115,7 +115,7 @@ after its mutation check (section 4).
 | groups/storage rules_test, codec_test | 405 | trim to one example per rule | 150 | rapid covers group storage operations; no storage function is lost in G2 |
 | metadata tests (5 files, bench) | 621 | keep golden bytes, snapshot CRC and damage, corrupt entries; drop repeats | 330 | CommitBatch is only covered here |
 | topics tests (3 files) | 364 | keep Trim, Window, Assigned, codec damage | 220 | those three functions are only covered here |
-| kv/kv_test | 165 | trim | 90 | codec Fail is only covered here |
+| engine/engine_test | 165 | trim | 90 | codec Fail is only covered here |
 | server tests (4 files) | 715 | keep handlers; trim wire round trips | 595 | only place for the group RPCs and brokers |
 | cmd/logstore_test | 575 | table-driven flags and startup errors; keep three-node takeover and restart | 350 | one shared log suite (see backends) |
 | cmd/main_test | 158 | table-driven | 100 | same cases, less code |

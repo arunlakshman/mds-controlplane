@@ -6,7 +6,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -23,16 +23,16 @@ func TestCodecRoundTrip(t *testing.T) {
 		if !ok {
 			t.Fatalf("%T has no kind", operation)
 		}
-		w := kv.NewWriter()
+		w := engine.NewWriter()
 		m.Encode(w, kind, operation)
-		r := kv.NewReader(w.Bytes())
+		r := engine.NewReader(w.Bytes())
 		got := m.Decode(r, kind)
 		if !r.Done() || !reflect.DeepEqual(got, operation) {
 			t.Fatalf("%T: got %+v (done %v), want %+v", operation, got, r.Done(), operation)
 		}
 		// every cut of a valid entry must fail the reader, and never panic
 		for n := range len(w.Bytes()) {
-			cut := kv.NewReader(w.Bytes()[:n])
+			cut := engine.NewReader(w.Bytes()[:n])
 			m.Decode(cut, kind)
 			if cut.Done() {
 				t.Fatalf("%T cut to %d of %d bytes was accepted", operation, n, len(w.Bytes()))
@@ -65,11 +65,11 @@ func TestKindsModeAndForeignOperations(t *testing.T) {
 			t.Errorf("%T: mode %v, want %v", c.operation, got, c.want)
 		}
 	}
-	r := kv.NewReader(nil)
+	r := engine.NewReader(nil)
 	if got := m.Decode(r, 99); got != nil || r.OK() {
 		t.Fatal("an unknown kind must fail the reader")
 	}
-	w := kv.NewWriter()
+	w := engine.NewWriter()
 	m.Encode(w, storage.KindGroupInstall, contract.CreateTopic{})
 	if len(w.Bytes()) != 0 {
 		t.Fatal("encoded an operation that is not a group operation")

@@ -41,9 +41,9 @@
 //     and their bytes (Kinds, KindOf, Encode, Decode).
 //   - topics: the topics and segments context (CreateTopic, DescribeTopics,
 //     CommitSegment, FindSegments). It owns the T, E, R, K and S keys.
-//   - kv: the small ordered key-value seam under metadata and groups/storage,
+//   - metadb/engine: the small ordered key-value seam under metadata and groups/storage,
 //     with an in-memory store and the record codec they share.
-//   - kv/pebblestore: the Pebble-backed key-value store that
+//   - metadb/engine/pebble: the Pebble-backed key-value store that
 //     metadata uses.
 //   - executor: runs the control-plane IOCalls outside Step, and owns the Log
 //     and ObjectStore ports.
@@ -70,7 +70,7 @@
 //
 //   - server imports live, replica, executor and groups.
 //   - replica imports metadata. metadata imports module, topics and groups/storage.
-//     topics and groups/storage import module and kv, and not each other. executor imports only runtime. dynamolog and sqllog
+//     topics and groups/storage import module and engine, and not each other. executor imports only runtime. dynamolog and sqllog
 //     import executor. Domain packages import no third-party package; see
 //     TestControlPlaneLayers in architecture_test.go.
 package controlplane

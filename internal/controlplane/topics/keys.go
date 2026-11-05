@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -27,7 +27,7 @@ func topicKey(name string) []byte { return append([]byte{prefixTopic}, name...) 
 
 // topicPartitionPrefix is the prefix-free key prefix of one partition for kind p.
 func topicPartitionPrefix(p byte, topicPartition contract.TopicPartition) []byte {
-	return kv.AppendTopicPartition([]byte{p}, topicPartition)
+	return engine.AppendTopicPartition([]byte{p}, topicPartition)
 }
 
 func endKey(topicPartition contract.TopicPartition) []byte {
@@ -138,7 +138,7 @@ func decodeBatchRun(topicPartition contract.TopicPartition, base int64, b []byte
 	if len(b) == 0 || b[0] != runFormat {
 		return nil, errCorrupt
 	}
-	r := kv.NewReader(b[1:])
+	r := engine.NewReader(b[1:])
 	nk := r.Uvarint()
 	if nk > uint64(len(r.Rest())) {
 		return nil, errCorrupt

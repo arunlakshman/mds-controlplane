@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -25,7 +25,7 @@ func FuzzModuleDecode(f *testing.F) {
 		}},
 	} {
 		kind, _ := Module{}.KindOf(op)
-		w := kv.NewWriter()
+		w := engine.NewWriter()
 		Module{}.Encode(w, kind, op)
 		f.Add(uint8(kind), w.Bytes())
 	}
@@ -33,20 +33,20 @@ func FuzzModuleDecode(f *testing.F) {
 	f.Add(uint8(200), []byte{1, 2, 3})
 	f.Fuzz(func(t *testing.T, k uint8, b []byte) {
 		kind := module.Kind(k)
-		r := kv.NewReader(b)
+		r := engine.NewReader(b)
 		op := Module{}.Decode(r, kind)
 		if !r.Done() || op == nil {
 			return
 		}
-		w := kv.NewWriter()
+		w := engine.NewWriter()
 		Module{}.Encode(w, kind, op)
 		first := w.Bytes()
-		r2 := kv.NewReader(first)
+		r2 := engine.NewReader(first)
 		op2 := Module{}.Decode(r2, kind)
 		if !r2.Done() {
 			t.Fatalf("encoded operation does not decode: %+v", op)
 		}
-		w2 := kv.NewWriter()
+		w2 := engine.NewWriter()
 		Module{}.Encode(w2, kind, op2)
 		if !bytes.Equal(w2.Bytes(), first) {
 			t.Fatalf("re-encoding changed the bytes")

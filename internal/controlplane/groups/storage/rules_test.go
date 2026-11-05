@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -57,11 +57,11 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
-var backends = map[string]func(testing.TB) kv.Store{
-	"mem": func(testing.TB) kv.Store { return kv.NewMemory() },
-	"pebble": func(t testing.TB) kv.Store {
+var backends = map[string]func(testing.TB) engine.Store{
+	"mem": func(testing.TB) engine.Store { return engine.NewMemory() },
+	"pebble": func(t testing.TB) engine.Store {
 		t.Helper()
-		store, err := pebblestore.Open(filepath.Join(t.TempDir(), "state"), pebblestore.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
+		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +104,7 @@ func runSteps(t *testing.T, a *metadata.Store, steps []step) {
 }
 
 // newGroupStore is a store with two topics, for every backend.
-func newGroupStore(t *testing.T, mk func(testing.TB) kv.Store) *metadata.Store {
+func newGroupStore(t *testing.T, mk func(testing.TB) engine.Store) *metadata.Store {
 	t.Helper()
 	a := metadata.New(mk(t))
 	t.Cleanup(func() { _ = a.Close() })

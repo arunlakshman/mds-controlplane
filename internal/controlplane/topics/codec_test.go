@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -18,9 +18,9 @@ func roundTrip(t *testing.T, operation runtime.ControlPlaneOperation) runtime.Co
 	if !ok {
 		t.Fatalf("%T has no kind", operation)
 	}
-	w := kv.NewWriter()
+	w := engine.NewWriter()
 	m.Encode(w, kind, operation)
-	r := kv.NewReader(w.Bytes())
+	r := engine.NewReader(w.Bytes())
 	got := m.Decode(r, kind)
 	if !r.Done() {
 		t.Fatalf("%T: the decoder did not read exactly the bytes written", operation)
@@ -79,36 +79,36 @@ func TestKindsAndMode(t *testing.T) {
 
 func TestDecodeRejectsDamage(t *testing.T) {
 	m := topics.Module{}
-	valid := kv.NewWriter()
+	valid := engine.NewWriter()
 	m.Encode(valid, topics.KindCommit, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{
 		{TopicPartition: contract.NewTopicPartition("t", 0), Records: 1, Loc: runtime.SegmentRef{Key: "o", Len: 1}},
 	}})
 	whole := valid.Bytes()
 	// every cut of a valid commit must fail the reader, and never panic
 	for n := range len(whole) {
-		r := kv.NewReader(whole[:n])
+		r := engine.NewReader(whole[:n])
 		m.Decode(r, topics.KindCommit)
 		if r.Done() {
 			t.Fatalf("a commit cut to %d of %d bytes was accepted", n, len(whole))
 		}
 	}
 	// a batch that points past the string table
-	bad := kv.NewWriter()
+	bad := engine.NewWriter()
 	bad.String("k")
 	bad.Uvarint(1) // one string in the table
 	bad.String("t")
 	bad.Uvarint(1) // one batch
 	bad.Uvarint(5) // topic index 5: out of range
-	if r := kv.NewReader(bad.Bytes()); func() bool { m.Decode(r, topics.KindCommit); return r.OK() }() {
+	if r := engine.NewReader(bad.Bytes()); func() bool { m.Decode(r, topics.KindCommit); return r.OK() }() {
 		t.Fatal("an index outside the string table was accepted")
 	}
 	// a kind this module does not own
-	r := kv.NewReader(nil)
+	r := engine.NewReader(nil)
 	if got := m.Decode(r, 99); got != nil || r.OK() {
 		t.Fatal("an unknown kind must fail the reader")
 	}
 	// Encode of an operation this module does not own writes nothing
-	w := kv.NewWriter()
+	w := engine.NewWriter()
 	m.Encode(w, topics.KindCommit, contract.ListGroups{})
 	if len(w.Bytes()) != 0 {
 		t.Fatal("encoded an operation that is not a topics operation")

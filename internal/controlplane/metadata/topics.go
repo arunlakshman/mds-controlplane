@@ -2,7 +2,7 @@ package metadata
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -23,7 +23,7 @@ const (
 // Commit applies a CommitSegment that sits at log slot slot.
 func (a *Store) Commit(slot int64, operation contract.CommitSegment) (runtime.ControlPlaneDone, error) {
 	var d runtime.ControlPlaneDone
-	err := a.keyValue.Update(func(transaction kv.Transaction) { d = topics.Commit(transaction, slot, operation) })
+	err := a.keyValue.Update(func(transaction engine.Transaction) { d = topics.Commit(transaction, slot, operation) })
 	return d, err
 }
 
@@ -32,7 +32,7 @@ func (a *Store) Commit(slot int64, operation contract.CommitSegment) (runtime.Co
 func (a *Store) KnownCommit(operation contract.CommitSegment) (runtime.ControlPlaneDone, bool, error) {
 	var d runtime.ControlPlaneDone
 	var ok bool
-	err := a.keyValue.View(func(transaction kv.Transaction) { d, ok = topics.Known(transaction, operation) })
+	err := a.keyValue.View(func(transaction engine.Transaction) { d, ok = topics.Known(transaction, operation) })
 	return d, ok, err
 }
 
@@ -59,7 +59,7 @@ func (a *Store) CreateTopicIf(name string, partitions int32, failIfExists bool) 
 		return runtime.ErrInvalid
 	}
 	code := runtime.OK
-	mustStore(a.keyValue.Update(func(transaction kv.Transaction) {
+	mustStore(a.keyValue.Update(func(transaction engine.Transaction) {
 		code = topics.Create(transaction, name, partitions, failIfExists)
 	}))
 	return code
@@ -68,7 +68,7 @@ func (a *Store) CreateTopicIf(name string, partitions int32, failIfExists bool) 
 // End is the next offset of topicPartition (0 if unknown).
 func (a *Store) End(topicPartition contract.TopicPartition) contract.Offset {
 	var end contract.Offset
-	mustStore(a.keyValue.View(func(transaction kv.Transaction) { end = topics.End(transaction, topicPartition) }))
+	mustStore(a.keyValue.View(func(transaction engine.Transaction) { end = topics.End(transaction, topicPartition) }))
 	return end
 }
 
@@ -76,14 +76,14 @@ func (a *Store) End(topicPartition contract.TopicPartition) contract.Offset {
 // returns how many keys it dropped.
 func (a *Store) Trim(slot int64) (int, error) {
 	var dropped int
-	err := a.keyValue.Update(func(transaction kv.Transaction) { dropped = topics.Trim(transaction, slot) })
+	err := a.keyValue.Update(func(transaction engine.Transaction) { dropped = topics.Trim(transaction, slot) })
 	return dropped, err
 }
 
 // Window is the number of segment keys currently remembered.
 func (a *Store) Window() int {
 	var n int
-	_ = a.keyValue.View(func(transaction kv.Transaction) { n = topics.Window(transaction) })
+	_ = a.keyValue.View(func(transaction engine.Transaction) { n = topics.Window(transaction) })
 	return n
 }
 
@@ -92,7 +92,7 @@ func (a *Store) Window() int {
 func (a *Store) Assigned(slot int64, operation contract.CommitSegment) ([]contract.BatchRange, AssignState, error) {
 	var rs []contract.BatchRange
 	var st AssignState
-	err := a.keyValue.View(func(transaction kv.Transaction) { rs, st = topics.Assigned(transaction, slot, operation) })
+	err := a.keyValue.View(func(transaction engine.Transaction) { rs, st = topics.Assigned(transaction, slot, operation) })
 	return rs, st, err
 }
 

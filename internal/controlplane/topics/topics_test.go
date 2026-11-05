@@ -6,19 +6,19 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
-var backends = map[string]func(testing.TB) kv.Store{
-	"mem": func(testing.TB) kv.Store { return kv.NewMemory() },
-	"pebble": func(t testing.TB) kv.Store {
+var backends = map[string]func(testing.TB) engine.Store{
+	"mem": func(testing.TB) engine.Store { return engine.NewMemory() },
+	"pebble": func(t testing.TB) engine.Store {
 		t.Helper()
-		store, err := pebblestore.Open(filepath.Join(t.TempDir(), "state"), pebblestore.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
+		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +31,7 @@ var backends = map[string]func(testing.TB) kv.Store{
 // test/conformance (metadata over memory and Pebble).
 
 func TestTrimForgetsKeysNotOffsets(t *testing.T) {
-	a := metadata.New(kv.NewMemory())
+	a := metadata.New(engine.NewMemory())
 	mustCommit(t, a, 0, commit("old", pb("a", 0, 5)))
 	mustCommit(t, a, 5, commit("new", pb("a", 0, 5)))
 	h := a.StateHash()
@@ -53,7 +53,7 @@ func TestTrimForgetsKeysNotOffsets(t *testing.T) {
 }
 
 func TestInvalidAndUnknown(t *testing.T) {
-	a := metadata.New(kv.NewMemory())
+	a := metadata.New(engine.NewMemory())
 	if a.CreateTopic("", 1) != runtime.ErrInvalid || a.CreateTopic("t", 0) != runtime.ErrInvalid {
 		t.Fatal("CreateTopic must reject empty name and non-positive partitions")
 	}
@@ -122,7 +122,7 @@ func TestCreateTopicExclusive(t *testing.T) {
 }
 
 func TestAssignedStates(t *testing.T) {
-	a := metadata.New(kv.NewMemory())
+	a := metadata.New(engine.NewMemory())
 	operation := commit("k1", pb("a", 0, 3), pb("a", 1, 2))
 	first := mustCommit(t, a, 5, operation)
 	want := first.Resp.(contract.CommitSegmentResp).Assigned

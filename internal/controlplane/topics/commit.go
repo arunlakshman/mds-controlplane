@@ -33,14 +33,14 @@ import (
 	"slices"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // Known answers operation from the idempotency window when its key is already
 // present. ok is false when the key is unknown (the caller must append).
-func Known(transaction kv.Transaction, operation contract.CommitSegment) (runtime.ControlPlaneDone, bool) {
+func Known(transaction engine.Transaction, operation contract.CommitSegment) (runtime.ControlPlaneDone, bool) {
 	rec := transaction.Get(duplicateCheckKey(operation.SegmentKey))
 	if rec == nil {
 		return runtime.ControlPlaneDone{}, false
@@ -49,7 +49,7 @@ func Known(transaction kv.Transaction, operation contract.CommitSegment) (runtim
 }
 
 // Lookup answers a Lookup from the stored runs.
-func Lookup(transaction kv.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
+func Lookup(transaction engine.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
 	if operation.From < 0 {
 		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
 	}
@@ -57,7 +57,7 @@ func Lookup(transaction kv.Transaction, operation contract.FindSegments) runtime
 }
 
 // Describe answers a DescribeTopics.
-func Describe(transaction kv.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
+func Describe(transaction engine.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
 	return describeTransaction(transaction, operation)
 }
 
@@ -66,7 +66,7 @@ func Describe(transaction kv.Transaction, operation contract.DescribeTopics) run
 // existing topic gives ErrTopicExists and nothing changes. The check and the
 // write are in one transaction, so the answer depends only on the state before
 // this command.
-func Create(transaction kv.Transaction, name string, partitions int32, failIfExists bool) runtime.ErrCode {
+func Create(transaction engine.Transaction, name string, partitions int32, failIfExists bool) runtime.ErrCode {
 	if name == "" || partitions <= 0 {
 		return runtime.ErrInvalid
 	}
@@ -78,12 +78,12 @@ func Create(transaction kv.Transaction, name string, partitions int32, failIfExi
 }
 
 // End is the next offset of topicPartition (0 if unknown).
-func End(transaction kv.Transaction, topicPartition contract.TopicPartition) contract.Offset {
+func End(transaction engine.Transaction, topicPartition contract.TopicPartition) contract.Offset {
 	return contract.Offset(readVarint(transaction.Get(endKey(topicPartition))))
 }
 
 // PartitionCount is how many partitions topic has (0 when it does not exist).
-func PartitionCount(transaction kv.Transaction, topic string) int64 {
+func PartitionCount(transaction engine.Transaction, topic string) int64 {
 	return readVarint(transaction.Get(topicKey(topic)))
 }
 
@@ -94,7 +94,7 @@ func InWindow(key []byte) bool { return key[0] == prefixKey || key[0] == prefixS
 // Trim forgets the idempotency records of commands at slots below slot (the
 // log no longer holds them) and returns how many keys it dropped. Offsets and
 // runs are untouched. A key forgotten here commits again as a new segment.
-func Trim(transaction kv.Transaction, slot int64) int {
+func Trim(transaction engine.Transaction, slot int64) int {
 	hi := binary.BigEndian.AppendUint64([]byte{prefixSlot}, uint64(slot))
 	var keysToDrop [][]byte
 	transaction.Ascend([]byte{prefixSlot}, hi, func(k, _ []byte) bool {
@@ -109,17 +109,17 @@ func Trim(transaction kv.Transaction, slot int64) int {
 }
 
 // Window is the number of segment keys currently remembered.
-func Window(transaction kv.Transaction) int {
+func Window(transaction engine.Transaction) int {
 	var n int
 	lo := []byte{prefixSlot}
-	transaction.Ascend(lo, kv.PrefixEnd(lo), func(_, _ []byte) bool { n++; return true })
+	transaction.Ascend(lo, engine.PrefixEnd(lo), func(_, _ []byte) bool { n++; return true })
 	return n
 }
 
 // Assigned reports the ranges operation was given if it is the first commit of its
 // key at slot, rebuilt from the key's record. An indexer uses it to write the
 // run rows of a slot after the fact.
-func Assigned(transaction kv.Transaction, slot int64, operation contract.CommitSegment) ([]contract.BatchRange, AssignState) {
+func Assigned(transaction engine.Transaction, slot int64, operation contract.CommitSegment) ([]contract.BatchRange, AssignState) {
 	rec := transaction.Get(duplicateCheckKey(operation.SegmentKey))
 	if rec == nil {
 		return nil, OffsetOwnerUnknown
@@ -165,7 +165,7 @@ func (Module) Mode(operation runtime.ControlPlaneOperation) module.Mode {
 }
 
 // Write applies a CommitSegment or a CreateTopic at slot.
-func (Module) Write(transaction kv.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func (Module) Write(transaction engine.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
 	case contract.CommitSegment:
 		return Commit(transaction, slot, x)
@@ -176,7 +176,7 @@ func (Module) Write(transaction kv.Transaction, slot int64, operation runtime.Co
 }
 
 // Read answers a FindSegments or a DescribeTopics.
-func (Module) Read(transaction kv.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func (Module) Read(transaction engine.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
 	case contract.FindSegments:
 		return Lookup(transaction, x)
@@ -196,7 +196,7 @@ func validCommit(operation contract.CommitSegment) bool {
 
 // Commit applies a CommitSegment that sits at log slot slot. A key that is
 // already known gets its original answer, or ErrConflict if the request differs.
-func Commit(transaction kv.Transaction, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
+func Commit(transaction engine.Transaction, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	dig := checksum(operation.Batches)
 	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
 		return replay(rec, dig, operation)
@@ -227,7 +227,7 @@ func replay(rec []byte, dig [checksumLength]byte, operation contract.CommitSegme
 	return runtime.ControlPlaneDone{Resp: contract.CommitSegmentResp{Assigned: rs}, Outcome: runtime.Applied}
 }
 
-func storeCommit(transaction kv.Transaction, slot int64, operation contract.CommitSegment, dig [checksumLength]byte, assigned []contract.BatchRange) runtime.ControlPlaneDone {
+func storeCommit(transaction engine.Transaction, slot int64, operation contract.CommitSegment, dig [checksumLength]byte, assigned []contract.BatchRange) runtime.ControlPlaneDone {
 	transaction.Set(duplicateCheckKey(operation.SegmentKey), duplicateCheckRecord(slot, dig, assigned))
 	transaction.Set(slotKey(slot, operation.SegmentKey), []byte{1})
 	return runtime.ControlPlaneDone{Resp: contract.CommitSegmentResp{Assigned: assigned}, Outcome: runtime.Applied}
@@ -262,14 +262,14 @@ func (p *offsetPlan) add(b contract.PendingBatch, base int64) contract.BatchRang
 	return r
 }
 
-func (p *offsetPlan) write(transaction kv.Transaction) {
+func (p *offsetPlan) write(transaction engine.Transaction) {
 	writeAssign(transaction, p.order, p.ends, p.runs)
 }
 
 // assign hands out offsets: each batch's Base is its partition's end, in
 // request order, the end then growing by Records. It writes the new ends, one
 // packed run per partition and grown topics, and returns the ranges.
-func assign(transaction kv.Transaction, bs []contract.PendingBatch) []contract.BatchRange {
+func assign(transaction engine.Transaction, bs []contract.PendingBatch) []contract.BatchRange {
 	p := newOffsetPlan()
 	out := make([]contract.BatchRange, 0, len(bs))
 	for _, b := range bs {
@@ -283,7 +283,7 @@ func assign(transaction kv.Transaction, bs []contract.PendingBatch) []contract.B
 	return out
 }
 
-func writeAssign(transaction kv.Transaction, order []contract.TopicPartition, ends map[contract.TopicPartition]int64, runs map[contract.TopicPartition][]contract.BatchRange) {
+func writeAssign(transaction engine.Transaction, order []contract.TopicPartition, ends map[contract.TopicPartition]int64, runs map[contract.TopicPartition][]contract.BatchRange) {
 	topics := map[string]int32{}
 	for _, topicPartition := range order {
 		transaction.Set(endKey(topicPartition), writeVarint(ends[topicPartition]))
@@ -294,7 +294,7 @@ func writeAssign(transaction kv.Transaction, order []contract.TopicPartition, en
 
 // addPartitions raises topic's partition count to at least n; seen caches the
 // counts read in this transaction.
-func addPartitions(transaction kv.Transaction, seen map[string]int32, topic string, n int32) {
+func addPartitions(transaction engine.Transaction, seen map[string]int32, topic string, n int32) {
 	cur, ok := seen[topic]
 	if !ok {
 		cur = int32(readVarint(transaction.Get(topicKey(topic))))
@@ -306,10 +306,10 @@ func addPartitions(transaction kv.Transaction, seen map[string]int32, topic stri
 	seen[topic] = cur
 }
 
-func lookupTransaction(transaction kv.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
+func lookupTransaction(transaction engine.Transaction, operation contract.FindSegments) runtime.ControlPlaneDone {
 	response := contract.FindSegmentsResp{End: contract.Offset(readVarint(transaction.Get(endKey(operation.TopicPartition))))}
 	lo := batchRunKey(operation.TopicPartition, 0)
-	hi := kv.PrefixEnd(topicPartitionPrefix(prefixRun, operation.TopicPartition))
+	hi := engine.PrefixEnd(topicPartitionPrefix(prefixRun, operation.TopicPartition))
 	if k, _ := transaction.Floor(lo, append(batchRunKey(operation.TopicPartition, int64(operation.From)), 0)); k != nil {
 		lo = k // the run holding From starts at or before it
 	}
@@ -339,10 +339,10 @@ func lookupTransaction(transaction kv.Transaction, operation contract.FindSegmen
 	return runtime.ControlPlaneDone{Resp: response}
 }
 
-func describeTransaction(transaction kv.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
+func describeTransaction(transaction engine.Transaction, operation contract.DescribeTopics) runtime.ControlPlaneDone {
 	var response contract.DescribeTopicsResp
 	lo := []byte{prefixTopic}
-	transaction.Ascend(lo, kv.PrefixEnd(lo), func(k, v []byte) bool {
+	transaction.Ascend(lo, engine.PrefixEnd(lo), func(k, v []byte) bool {
 		name := string(bytes.Clone(k[1:]))
 		if len(operation.Topics) == 0 || slices.Contains(operation.Topics, name) {
 			response.Topics = append(response.Topics, contract.TopicInfo{Name: name, Partitions: int32(readVarint(v))})
