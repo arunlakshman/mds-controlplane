@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package controlplane.v1;
 
-option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1;controlplanev1";
+import "controlplane/shared/v1/shared.proto";
+
+option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1;controlplanev1";
 
 // ControlPlane is the broker-facing unary API. Non-OK RPCs return a gRPC
 // status with ErrorDetail. Success returns the response message only.
@@ -58,52 +60,23 @@ message ErrorDetail {
   Outcome outcome = 2;
 }
 
-message TopicPartition {
-  string topic = 1;
-  int32 partition = 2;
-}
-
-message SegmentRef {
-  string key = 1;
-  int64 off = 2;
-  int64 len = 3;
-}
-
-message PendingBatch {
-  TopicPartition tp = 1;
-  int64 records = 2;
-  SegmentRef loc = 3;
-}
-
-message BatchRange {
-  TopicPartition tp = 1;
-  int64 base = 2;
-  int64 count = 3;
-  SegmentRef loc = 4;
-}
-
-message TopicInfo {
-  string name = 1;
-  int32 partitions = 2;
-}
-
 message CommitSegmentRequest {
   string segment_key = 1;
-  repeated PendingBatch batches = 2;
+  repeated controlplane.shared.v1.PendingBatch batches = 2;
 }
 
 message CommitSegmentResponse {
-  repeated BatchRange assigned = 1;
+  repeated controlplane.shared.v1.BatchRange assigned = 1;
 }
 
 message LookupRequest {
-  TopicPartition tp = 1;
+  controlplane.shared.v1.TopicPartition tp = 1;
   int64 from = 2;
   int32 max_bytes = 3;
 }
 
 message LookupResponse {
-  repeated BatchRange ranges = 1;
+  repeated controlplane.shared.v1.BatchRange ranges = 1;
   int64 end = 2;
 }
 
@@ -112,7 +85,7 @@ message DescribeTopicsRequest {
 }
 
 message DescribeTopicsResponse {
-  repeated TopicInfo topics = 1;
+  repeated controlplane.shared.v1.TopicInfo topics = 1;
 }
 
 message CreateTopicRequest {
@@ -229,7 +202,7 @@ message LeaveGroupResponse {
 }
 
 message PartitionOffsetCommit {
-  TopicPartition tp = 1;
+  controlplane.shared.v1.TopicPartition tp = 1;
   int64 offset = 2;
   int32 leader_epoch = 3;
   string metadata = 4;
@@ -250,18 +223,11 @@ message GroupOffsetCommitResponse {
 message GroupOffsetFetchRequest {
   string group = 1;
   // Empty means every committed partition.
-  repeated TopicPartition partitions = 2;
-}
-
-message PartitionOffset {
-  TopicPartition tp = 1;
-  int64 offset = 2;
-  int32 leader_epoch = 3;
-  string metadata = 4;
+  repeated controlplane.shared.v1.TopicPartition partitions = 2;
 }
 
 message GroupOffsetFetchResponse {
-  repeated PartitionOffset offsets = 1;
+  repeated controlplane.shared.v1.PartitionOffset offsets = 1;
 }
 
 message DescribeGroupsRequest {
@@ -300,12 +266,6 @@ message DescribeGroupsResponse {
 
 message ListGroupsRequest {}
 
-message GroupSummary {
-  string name = 1;
-  string protocol_type = 2;
-  string state = 3;
-}
-
 message ListGroupsResponse {
-  repeated GroupSummary groups = 1;
+  repeated controlplane.shared.v1.GroupSummary groups = 1;
 }

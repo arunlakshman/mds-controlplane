@@ -15,7 +15,7 @@ SIM_SEEDS       ?= 300
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
-# Generate Go from internal/controlplane/api/v1/*.proto into ignored *.pb.go files.
+# Generate Go from internal/controlplane/api/**/*.proto (shared, service, log) into ignored *.pb.go files.
 proto: proto-tools
 	@if command -v mise >/dev/null 2>&1; then \
 		cd internal/controlplane/api && mise exec -- $(BUF) generate; \
@@ -59,7 +59,7 @@ determinism:
 	bash ops/scripts/ci-determinism.sh
 
 # Write the contract value types and the wire converters from the .proto (needs
-# the generated api/v1 package, so run make proto first). Not in git.
+# the generated api packages, so run make proto first). Not in git.
 wire: proto
 	go run ./ops/tools/wiregen
 

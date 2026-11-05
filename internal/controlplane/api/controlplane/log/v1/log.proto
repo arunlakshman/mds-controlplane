@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package controlplane.log.v1;
+
+import "controlplane/shared/v1/shared.proto";
+
+option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/log/v1;logv1";
+
+// The messages in this file are internal. They describe the group operations
+// that go into the replicated log and the answers of the group reads. They are
+// NOT part of the ControlPlane service and are never sent over gRPC. They live
+// in the .proto so that the .proto is the one source of the contract value types:
+// ops/tools/wiregen writes the Go structs of package contract from them.
+// This package imports controlplane.shared.v1 only, never the service package.
+
+// GroupMember is one member of a consumer group, as the join phase gives it.
+message GroupMember {
+  string member_id = 1;
+  string client_id = 2;
+  string client_host = 3;
+  string group_instance_id = 4;
+  int32 session_timeout_ms = 5;
+  int32 rebalance_timeout_ms = 6;
+  bytes metadata = 7;
+}
+
+// GroupMemberInfo is a member as the state keeps it.
+message GroupMemberInfo {
+  GroupMember member = 1;
+  int64 joined_time_ms = 2;
+  bytes assignment = 3;
+}
+
+// GroupAssignment is the assignment bytes of one member.
+message GroupAssignment {
+  string member = 1;
+  bytes data = 2;
+}
+
+// GroupInstall is the result of a join phase.
+message GroupInstall {
+  string group = 1;
+  string protocol_type = 2;
+  string protocol = 3;
+  int32 generation = 4;
+  string leader = 5;
+  int64 time_ms = 6;
+  repeated GroupMember members = 7;
+}
+
+// GroupAssign stores the leader's assignment for a generation.
+message GroupAssign {
+  string group = 1;
+  int32 generation = 2;
+  string leader = 3;
+  int64 time_ms = 4;
+  repeated GroupAssignment assignments = 5;
+}
+
+// GroupRemove removes members from a group.
+message GroupRemove {
+  string group = 1;
+  repeated string members = 2;
+  int64 time_ms = 3;
+  string reason = 4;
+}
+
+// DescribeGroup reads one group.
+message DescribeGroup {
+  string group = 1;
+}
+
+// DescribeGroupResponse answers DescribeGroup.
+message DescribeGroupResponse {
+  bool exists = 1;
+  int32 generation = 2;
+  string protocol_type = 3;
+  string protocol = 4;
+  string leader = 5;
+  int32 assigned_generation = 6;
+  string state = 7;
+  repeated GroupMemberInfo members = 8;
+}
+
+// OffsetCommit stores committed offsets for a group. The wire request has no
+// time; the server sets time_ms when it logs the command.
+message OffsetCommit {
+  string group = 1;
+  string member = 2;
+  int32 generation = 3;
+  int64 time_ms = 4;
+  repeated controlplane.shared.v1.PartitionOffset offsets = 5;
+}
+
+// OffsetCommitResponse has one error code per request offset. The codes are
+// runtime error codes (the wire message carries them as an enum).
+message OffsetCommitResponse {
+  repeated int32 errs = 1;
+}
+
+// OffsetFetch reads committed offsets of a group.
+message OffsetFetch {
+  string group = 1;
+  repeated controlplane.shared.v1.TopicPartition partitions = 2;
+}
+
+// OffsetFetchResponse has one entry per partition asked.
+message OffsetFetchResponse {
+  repeated controlplane.shared.v1.PartitionOffset offsets = 1;
+}
+
+// ListGroups lists every group that was ever installed.
+message ListGroups {}
+
+// ListGroupsResponse answers ListGroups.
+message ListGroupsResponse {
+  repeated controlplane.shared.v1.GroupSummary groups = 1;
+}
