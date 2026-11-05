@@ -78,3 +78,4 @@ T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; ds
 - T1.7 and T1.8 merged. T1.9 still running; full make build + mutants on merged tree after it.
 - T1.7, T1.8, T1.9 all merged; worktrees cleaned. Full make build + make mutants green on merged tree. Starting T1.10 (serial, RE-PIN, edits dst on local branch dst-process).
 - T1.10 merged (RE-PIN done). New baseline hashes (300 seeds): basic da8028bc, log-faults bc9f0863, crash-restart 23603524, leader-fencing 67c48ce5, chaos ba61ad2c. P1 gate: build ok, mutants 8/8 ok, race running, campaign next.
+- P1 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 seeds (build/p1-*.txt). P1 complete. Starting T2.1 (serial, sonnet).
