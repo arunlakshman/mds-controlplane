@@ -25,3 +25,4 @@ T0.5 | done | cherry-picked ac1a639 | make build green on merged tree | brief de
 - T0.2 merged (ff). Plan path api/v1 is really internal/controlplane/api/v1; harmless. Method: rebase each task branch onto refactor/greenfield, then ff-merge.
 - T0.3 merged by cherry-pick (task branch is checked out in its worktree, so rebase is impossible; use cherry-pick from now on). make build re-run on merged tree: green.
 - T0.4, T0.5 merged by cherry-pick; make build green after each. P0 tasks all done. Next: P0 phase gate (race, campaign), then P1 (T1.1 serial).
+- P0 phase gate green: build, race x3 (build/p0-race.txt), campaign 2000 seeds all ok (build/p0-campaign.txt). Starting T1.1 (serial).
