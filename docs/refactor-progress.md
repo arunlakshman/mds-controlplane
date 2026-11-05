@@ -11,8 +11,13 @@ T0.3 | done | cherry-picked 26bb715,d446235 | make build green on merged result,
 T0.4 | done | cherry-picked 2e59c36 | make build green on merged tree; agent also did fresh-clone build green | generated files untracked, `make generate` added, wire-check removed
 T0.5 | done | cherry-picked ac1a639 | make build green on merged tree | brief deleted, note added to docs/test-cuts.md
 T1.1 | done | cherry-picked 1067a50,9449231 | make build green, make mutants 8/8 killed (~26s) on merged tree, golden unchanged | see notes below
+T1.2 | done | cherry-picked 23abd70 | make build green, make mutants 8/8, conformance pkg 6.5s, golden unchanged | 607 lines (target ~500), files named *_test.go not ops.go
 
 ## Deferred items
+
+- T1.2: Target has no way to say "topics only"; T1.4 (gRPC has no group install/assign yet) needs a small addition. Left to T1.4 agent, minimal change, reported.
+- T1.2: DirtyReboot(keep) draws keep 0..2; trimmed-log rule (keep 0 only) belongs in the T1.3 replica target.
+- T1.2: new Pebble target is weaker than memory on two group mutants (fewer checks); relevant to T1.5 when mutants are pointed at the new suite (use Memory target for those).
 
 - T1.1 DEVIATION (accepted): added test-only file change internal/controlplane/replica/commit_test.go (TestWindowForgetsKeysOnlyOnLogStride), because nothing tested WindowSlots so per-replica-window survived. No replica behaviour change. Rule 4 spirit kept; user should know.
 - T1.1: rapid-based mutants use -rapid.seed=1 (unseeded kills are by chance). After T1.2/T1.5 the seeds may need re-choosing.
@@ -32,3 +37,4 @@ T1.1 | done | cherry-picked 1067a50,9449231 | make build green, make mutants 8/8
 - T0.4, T0.5 merged by cherry-pick; make build green after each. P0 tasks all done. Next: P0 phase gate (race, campaign), then P1 (T1.1 serial).
 - P0 phase gate green: build, race x3 (build/p0-race.txt), campaign 2000 seeds all ok (build/p0-campaign.txt). Starting T1.1 (serial).
 - T1.1 merged. Next: T1.2 conformance harness (serial, opus).
+- T1.2 merged. Next: T1.3 (replica target) and T1.4 (gRPC target) in parallel, Group B; both touch test/conformance, harness edits must be minimal.
