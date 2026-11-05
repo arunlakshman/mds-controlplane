@@ -8,6 +8,9 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
+// brokerFrom is the sender of the requests in these tests.
+var brokerFrom = runtime.NodeInstance{Node: "b1"}
+
 func readyMachine(t *testing.T) *replica.Replica {
 	t.Helper()
 	m := newMachine(t, replica.Config{
@@ -63,5 +66,15 @@ func TestLocalReadRefusesACommand(t *testing.T) {
 	r := onlyReply(t, step(m, runtime.LocalRead{From: brokerFrom, Req: 4, Op: contract.CreateTopic{Name: "x", Partitions: 1}}))
 	if r.Done.Err != runtime.ErrInvalid || r.Done.Req != 4 {
 		t.Fatalf("reply = %+v, want ErrInvalid", r)
+	}
+}
+
+// An operation that the machine does not know is refused with ErrInvalid, and
+// nothing reaches the log.
+func TestUnknownOperationIsInvalid(t *testing.T) {
+	m := newMachine(t, replica.Config{Writer: "w"})
+	r := onlyReply(t, step(m, runtime.ControlPlaneDeliver{From: brokerFrom, Req: 9, Op: nil}))
+	if r.To != brokerFrom || r.Done.Err != runtime.ErrInvalid || r.Done.Req != 9 {
+		t.Fatalf("reply = %+v, want ErrInvalid to the sender", r)
 	}
 }
