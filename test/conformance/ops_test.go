@@ -89,6 +89,7 @@ func ops(tg Target) []op {
 			w.do("groupAssign.large", contract.GroupAssign{Group: "g1", Generation: 1, Leader: "m1", Assignments: []contract.GroupAssignment{{Member: "m1", Bytes: big}}})
 		}},
 	}
+	list = slices.DeleteFunc(list, func(o op) bool { return slices.Contains(tg.Lacks, o.name) })
 	// Background operations do nothing in the model, so they must not change
 	// any answer.
 	if tg.Checkpoint != nil {

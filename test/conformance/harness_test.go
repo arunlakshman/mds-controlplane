@@ -43,6 +43,9 @@ type Target struct {
 	// -1 stops all failures. A target with Inject gets only operations that are
 	// safe to send twice.
 	Inject func(kind int)
+	// Lacks names the operations (the name of an op in ops_test.go) that the
+	// target cannot send, for example because its API has no such call.
+	Lacks []string
 }
 
 // Kinds of injected failure, the argument of Target.Inject.
