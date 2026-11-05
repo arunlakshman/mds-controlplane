@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
-	"slices"
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane"
@@ -11,6 +9,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -21,8 +20,8 @@ import (
 //   - server/groups_handler.go: this file. It holds the gRPC group handlers and the
 //     log and read side of the coordinator (nodeGroups, over Node.Exec in
 //     server/topics_handler.go).
-//   - the end of this file: maps group requests and responses to and from the
-//     wire types.
+//   - wire/wire_gen.go: maps group requests and responses to and from the wire
+//     types.
 //   - groups/storage/module.go, write.go: the group module: the fold of
 //     GroupInstall, GroupAssign, GroupRemove and OffsetCommit, on the key-value store.
 //   - groups/storage/read.go: the group reads (OffsetFetch, DescribeGroup
@@ -106,10 +105,10 @@ func (n *Node) watchGroups(ctx context.Context) {
 func (n *Node) groupCoordinator(ctx context.Context) (*groups.Coordinator, error) {
 	active, err := n.groupRole(ctx)
 	if err != nil {
-		return nil, toRPCError(runtime.ErrIO, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrIO, runtime.NotApplied)
 	}
 	if !active || !n.groups.Serving() {
-		return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 	}
 	return n.groups, nil
 }
@@ -125,7 +124,7 @@ func groupOutcome(code runtime.ErrCode) runtime.Outcome {
 
 // groupCtxErr maps a call that ended with its context.
 func groupCtxErr() error {
-	return toRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
+	return wire.ToRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
 }
 
 // groupReplyErr maps a coordinator answer to an RPC error. A call that
@@ -135,7 +134,7 @@ func groupReplyErr(code runtime.ErrCode, err error) error {
 		return groupCtxErr()
 	}
 	if code != runtime.OK {
-		return toRPCError(code, groupOutcome(code))
+		return wire.ToRPCError(code, groupOutcome(code))
 	}
 	return nil
 }
@@ -185,7 +184,7 @@ func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out
 	}
 	r, code := g.call(c, ctx, op)
 	if code != runtime.OK {
-		return zero, toRPCError(code, g.outcome(code))
+		return zero, wire.ToRPCError(code, g.outcome(code))
 	}
 	return g.convert(r), nil
 }
@@ -227,7 +226,7 @@ func (n *Node) Heartbeat(ctx context.Context, request *cpv1.HeartbeatRequest) (*
 		return nil, err
 	}
 	if code := c.Heartbeat(ctx, wire.HeartbeatRequestToCore(request)); code != runtime.OK {
-		return nil, toRPCError(code, groupOutcome(code))
+		return nil, wire.ToRPCError(code, groupOutcome(code))
 	}
 	return &cpv1.HeartbeatResponse{}, nil
 }
@@ -238,7 +237,7 @@ func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return leaveGroupRespFromCore(c.LeaveGroup(ctx, wire.LeaveGroupRequestToCore(request))), nil
+	return wire.LeaveGroupResponseFromCore(groups.LeaveResp{Errs: c.LeaveGroup(ctx, wire.LeaveGroupRequestToCore(request))}), nil
 }
 
 // OffsetCommit implements ControlPlane. The answer has one code per partition.
@@ -258,61 +257,17 @@ func (n *Node) DescribeGroups(ctx context.Context, request *cpv1.DescribeGroupsR
 		return nil, err
 	}
 	var out []groups.GroupDescription
-	for _, name := range describeGroupsToCore(request) {
+	for _, name := range wire.DescribeGroupsRequestToCore(request).Groups {
 		d, code := c.DescribeGroup(ctx, name)
 		if code != runtime.OK {
-			return nil, toRPCError(code, runtime.NotApplied)
+			return nil, wire.ToRPCError(code, runtime.NotApplied)
 		}
 		out = append(out, groups.GroupDescription{Name: name, DescribeGroupResp: d})
 	}
-	return describeGroupsRespFromCore(out), nil
+	return wire.DescribeGroupsResponseFromCore(groups.DescribeGroupsResp{Groups: out}), nil
 }
 
 // ListGroups implements ControlPlane.
 func (n *Node) ListGroups(ctx context.Context, _ *cpv1.ListGroupsRequest) (*cpv1.ListGroupsResponse, error) {
 	return groupList.run(ctx, n, struct{}{})
-}
-
-// ---- Wire conversions ----
-//
-// The handlers above read generated api/v1 messages and build contract values
-// with these functions, and build the answers back. Each reads the message with
-// its Get methods, so a nil or missing part is a zero value and never a panic.
-
-// Conversions for the consumer group context.
-
-// leaveGroupRespFromCore builds a LeaveGroupResponse from one code per member. It
-// stays by hand: the answer is a list of codes, with no struct to generate.
-func leaveGroupRespFromCore(errs []runtime.ErrCode) *cpv1.LeaveGroupResponse {
-	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, wire.ErrCodeFromCore)}
-}
-
-// describeGroupsToCore rebuilds the group names of a request.
-func describeGroupsToCore(request *cpv1.DescribeGroupsRequest) []string {
-	return slices.Clone(request.GetGroups())
-}
-
-// describeGroupsRespFromCore builds a DescribeGroupsResponse.
-func describeGroupsRespFromCore(groups []groups.GroupDescription) *cpv1.DescribeGroupsResponse {
-	return &cpv1.DescribeGroupsResponse{Groups: mapSlice(groups, groupDescriptionFromCore)}
-}
-
-// groupDescriptionFromCore stays by hand. The wire GroupDescription and
-// GroupMemberInfo are flat, while the contract nests the group fields inside
-// GroupDescription and the member inside GroupMemberInfo, so a field-by-field
-// generator cannot map them. The shapes differ on purpose: the wire is flat for
-// clients, the contract nests to reuse the member type.
-func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription {
-	return &cpv1.GroupDescription{
-		Name: g.Name, Exists: g.Exists, Generation: g.Generation, ProtocolType: g.ProtocolType,
-		Protocol: g.Protocol, Leader: g.Leader, AssignedGeneration: g.AssignedGeneration, State: g.State,
-		Members: mapSlice(g.Members, func(m contract.GroupMemberInfo) *cpv1.GroupMemberInfo {
-			return &cpv1.GroupMemberInfo{
-				MemberId: m.MemberID, ClientId: m.ClientID, ClientHost: m.ClientHost,
-				GroupInstanceId: m.GroupInstanceID, SessionTimeoutMs: m.SessionTimeoutMs,
-				RebalanceTimeoutMs: m.RebalanceTimeoutMs, JoinedTimeMs: m.JoinedTimeMs,
-				Metadata: m.Metadata, Assignment: m.Assignment,
-			}
-		}),
-	}
 }

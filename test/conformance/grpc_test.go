@@ -336,14 +336,15 @@ func (n *grpcNode) send(ctx context.Context, op runtime.ControlPlaneOperation) (
 			if len(r.GetGroups()) != 1 {
 				return runtime.ControlPlaneDone{}, status.Errorf(codes.Internal, "DescribeGroups of one group returned %d groups", len(r.GetGroups()))
 			}
-			g := r.GetGroups()[0]
+			g := r.GetGroups()[0].GetDetails()
 			out := contract.DescribeGroupResp{Exists: g.GetExists(), Generation: g.GetGeneration(), ProtocolType: g.GetProtocolType(),
 				Protocol: g.GetProtocol(), Leader: g.GetLeader(), AssignedGeneration: g.GetAssignedGeneration(), State: g.GetState()}
 			for _, m := range g.GetMembers() {
+				j := m.GetMember()
 				out.Members = append(out.Members, contract.GroupMemberInfo{
-					GroupMember: contract.GroupMember{MemberID: m.GetMemberId(), ClientID: m.GetClientId(), ClientHost: m.GetClientHost(),
-						GroupInstanceID: m.GetGroupInstanceId(), SessionTimeoutMs: m.GetSessionTimeoutMs(),
-						RebalanceTimeoutMs: m.GetRebalanceTimeoutMs(), Metadata: m.GetMetadata()},
+					GroupMember: contract.GroupMember{MemberID: j.GetMemberId(), ClientID: j.GetClientId(), ClientHost: j.GetClientHost(),
+						GroupInstanceID: j.GetGroupInstanceId(), SessionTimeoutMs: j.GetSessionTimeoutMs(),
+						RebalanceTimeoutMs: j.GetRebalanceTimeoutMs(), Metadata: j.GetMetadata()},
 					JoinedTimeMs: m.GetJoinedTimeMs(), Assignment: m.GetAssignment()})
 			}
 			resp = out

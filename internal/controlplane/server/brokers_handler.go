@@ -5,7 +5,7 @@ package server
 //
 // Where the pieces live:
 //   - wire messages: api/v1 (BrokerInfo, BrokerHeartbeat*)
-//   - conversions: the end of this file
+//   - conversions: package wire
 //   - membership: the lease rules (who is alive)
 //   - this file: the handler
 //   - broker side: system/production/lease.go sends the heartbeat and turns the
@@ -16,12 +16,12 @@ package server
 
 import (
 	"context"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -29,9 +29,9 @@ import (
 // returns the live broker set (Q4). Only the active node keeps the set, so a
 // standby answers Unavailable and the broker client tries the next address.
 func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbeatRequest) (*cpv1.BrokerHeartbeatResponse, error) {
-	b := brokerHeartbeatToCore(request)
+	b := wire.BrokerHeartbeatRequestToCore(request).Broker
 	if !membership.Valid(b) {
-		return nil, toRPCError(runtime.ErrInvalid, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrInvalid, runtime.NotApplied)
 	}
 	type result struct {
 		live []contract.BrokerAddr
@@ -49,31 +49,11 @@ func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbea
 		return nil
 	})
 	if err != nil {
-		return nil, toRPCError(runtime.ErrIO, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrIO, runtime.NotApplied)
 	}
 	r := <-ch
 	if !r.ok {
-		return nil, toRPCError(runtime.ErrUnavailable, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrUnavailable, runtime.NotApplied)
 	}
-	return brokerHeartbeatRespFromCore(r.live), nil
-}
-
-// ---- Wire conversions ----
-//
-// The handlers above read generated api/v1 messages and build contract values
-// with these functions, and build the answers back. Each reads the message with
-// its Get methods, so a nil or missing part is a zero value and never a panic.
-
-// Conversions for broker membership: BrokerHeartbeat.
-
-// ---- Data calls ----
-
-// brokerHeartbeatToCore rebuilds the calling broker's address from a request.
-func brokerHeartbeatToCore(request *cpv1.BrokerHeartbeatRequest) contract.BrokerAddr {
-	return wire.BrokerInfoToCore(request.GetBroker())
-}
-
-// brokerHeartbeatRespFromCore builds a BrokerHeartbeatResponse from the live set.
-func brokerHeartbeatRespFromCore(live []contract.BrokerAddr) *cpv1.BrokerHeartbeatResponse {
-	return &cpv1.BrokerHeartbeatResponse{Brokers: mapSlice(live, wire.BrokerInfoFromCore)}
+	return wire.BrokerHeartbeatResponseFromCore(contract.BrokerHeartbeatResp{Brokers: r.live}), nil
 }

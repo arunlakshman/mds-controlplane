@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"errors"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -49,12 +49,12 @@ func (n *Node) runOperation(ctx context.Context, operation runtime.ControlPlaneO
 	d, err := n.Exec(ctx, operation)
 	if err != nil {
 		if !isCommand(operation) {
-			return d, toRPCError(runtime.ErrIO, runtime.NotApplied)
+			return d, wire.ToRPCError(runtime.ErrIO, runtime.NotApplied)
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return d, toRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
+			return d, wire.ToRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
 		}
-		return d, toRPCError(runtime.ErrIO, runtime.MaybeApplied)
+		return d, wire.ToRPCError(runtime.ErrIO, runtime.MaybeApplied)
 	}
 	return d, answerError(d)
 }
@@ -62,7 +62,7 @@ func (n *Node) runOperation(ctx context.Context, operation runtime.ControlPlaneO
 // answerError is the RPC error of a business answer that failed, or nil.
 func answerError(d runtime.ControlPlaneDone) error {
 	if d.Err != runtime.OK {
-		return toRPCError(d.Err, d.Outcome)
+		return wire.ToRPCError(d.Err, d.Outcome)
 	}
 	return nil
 }
@@ -96,16 +96,8 @@ func (n *Node) DescribeTopics(ctx context.Context, request *cpv1.DescribeTopicsR
 // CreateTopic implements ControlPlane.
 func (n *Node) CreateTopic(ctx context.Context, request *cpv1.CreateTopicRequest) (*cpv1.CreateTopicResponse, error) {
 	if request == nil {
-		return nil, toRPCError(runtime.ErrInvalid, runtime.NotApplied)
+		return nil, wire.ToRPCError(runtime.ErrInvalid, runtime.NotApplied)
 	}
 	operation := wire.CreateTopicRequestToCore(request)
 	return moduleRPC(ctx, n, operation, func(runtime.ControlPlaneResponse) *cpv1.CreateTopicResponse { return &cpv1.CreateTopicResponse{} })
 }
-
-// ---- Wire conversions ----
-//
-// The handlers above read generated api/v1 messages and build contract values
-// with these functions, and build the answers back. Each reads the message with
-// its Get methods, so a nil or missing part is a zero value and never a panic.
-
-// ---- Broker heartbeat ----

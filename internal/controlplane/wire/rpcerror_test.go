@@ -1,4 +1,4 @@
-package server
+package wire
 
 import (
 	"testing"
@@ -35,7 +35,7 @@ func TestToRPCErrorTable(t *testing.T) {
 		{runtime.ErrTopicExists, codes.AlreadyExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
 	}
 	for _, c := range cases {
-		err := toRPCError(c.code, runtime.MaybeApplied)
+		err := ToRPCError(c.code, runtime.MaybeApplied)
 		st, ok := status.FromError(err)
 		if !ok {
 			t.Fatalf("%v: not a status error: %v", c.code, err)
@@ -66,7 +66,7 @@ func TestToRPCErrorTable(t *testing.T) {
 
 // TestToRPCErrorOKIsNil: an OK code is not an error.
 func TestToRPCErrorOKIsNil(t *testing.T) {
-	if err := toRPCError(runtime.OK, runtime.Applied); err != nil {
+	if err := ToRPCError(runtime.OK, runtime.Applied); err != nil {
 		t.Fatalf("OK: err = %v, want nil", err)
 	}
 }
