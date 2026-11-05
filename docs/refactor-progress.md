@@ -18,8 +18,12 @@ T1.5 | done | cherry-picked 8 commits 6e003d8..ff1e25b | make build green, make 
 T1.6 | done | cherry-picked 30cf03b | make build green, make mutants 8/8 (35s), golden hashes unchanged, grep for removed names empty | 13 files +14/-130; also edited topics_test.go and ops/mutants.txt (outside Touch, needed)
 T1.7 | done | cherry-picked 5 commits (86e56b8..f605b62) | task: make build + make mutants 8/8 (62s) green in worktree; merged tree: vet + go test ./internal/controlplane/... green, full make build pending until T1.9 merged | groupfix,kvtest,metadatastore,storecall deleted (-242 lines); coordinator tests use spec.New via small mutex modelStore wrapper
 T1.8 | done | cherry-picked 072fbe9,e8f2f35,6e16227 | task: make build green; make fuzz 8 targets x10s no crashes (~2m19s); merged tree go test green | fuzz_test.go in metadata, topics, groups/storage (+Makefile fuzz target)
+T1.9 | done | cherry-picked 597ee75,57128a5,2a403e3 | make build green, make mutants 8/8 (28.5s) on merged tree incl. T1.7+T1.8; agent ran campaign 2000 seeds green; 300-seed hashes equal baseline | cpsim -report/-json/-until-stable; expectedReachable kept (nothing in data names a lost path); report only touches cmd/cpsim + docs
 
 ## Deferred items
+
+- T1.9: coverage curve flattens at seed 4 (21 assertions all seen at once), so -until-stable is only useful once T1.10 adds more sites. ~4 reachable paths are not in expectedReachable; list could be extended (not done).
+- ENV: ~/tmp/dst was checked out on `main` (== origin/dst-process == origin/main, same commit 4e036b2, clean). Created local branch `dst-process` there for T1.10 so main stays untouched. Never pushed.
 
 - T1.7: dropped metadatastore/store_test.go (adapter-only tests; lost cases: unknown-op and cancelled-ctx of the adapter itself). docs/test-cuts.md still names deleted helpers (historical).
 - T1.7: remaining users of controlplanetest: cmd/mdscontrolplane/{logstore,postgres_failover}_test.go (Client), executor/dynamolog (fakedynamodb). Handled in P2.
@@ -67,3 +71,4 @@ T1.8 | done | cherry-picked 072fbe9,e8f2f35,6e16227 | task: make build green; ma
 - T1.5 merged, old suite deleted, worktrees cleaned. Next: T1.6 (serial; the rule-4 exception in replica), then Group C: T1.7, T1.8, T1.9.
 - T1.6 merged. replica diff vs main so far: commit.go/config.go/replica.go/role.go deletions (rule 4 exception) + commit_test.go test. Next: Group C T1.7, T1.8, T1.9 in parallel.
 - T1.7 and T1.8 merged. T1.9 still running; full make build + mutants on merged tree after it.
+- T1.7, T1.8, T1.9 all merged; worktrees cleaned. Full make build + make mutants green on merged tree. Starting T1.10 (serial, RE-PIN, edits dst on local branch dst-process).
