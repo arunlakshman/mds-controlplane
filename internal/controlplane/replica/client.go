@@ -54,7 +54,7 @@ func (m *Replica) offerRead(o runtime.ControlPlaneDeliver, read func() (runtime.
 }
 
 // withReplies turns answers that have a broker From into ControlPlaneReply actions.
-// Unit-test Offers without From stay in m.answers for TakeAnswers.
+// Unit-test Offers without From stay in m.answers (the tests read them with TakeAnswers).
 func (m *Replica) withReplies(acts []any) []any {
 	var kept []ReplyToClient
 	for _, a := range m.answers {

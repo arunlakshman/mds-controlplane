@@ -25,7 +25,8 @@ type ClientOperation struct {
 	From runtime.NodeInstance // broker; empty skips ControlPlaneReply (unit tests)
 }
 
-// ReplyToClient is the apply-time result for one ClientOperation.Req. TakeAnswers drains them.
+// ReplyToClient is the apply-time result for one ClientOperation.Req. withReplies turns it
+// into a ControlPlaneReply for the broker in From.
 type ReplyToClient struct {
 	Req  runtime.RequestID
 	From runtime.NodeInstance
@@ -49,7 +50,7 @@ type inFlightAppend struct {
 }
 
 // Offer enqueues a client command and flushes when an in-flight slot is free.
-// Answers arrive via TakeAnswers only after the winning slot applies.
+// Answers are replied (ControlPlaneReply) only after the winning slot applies.
 // Standby or not-yet-Ready nodes refuse without emitting LogAppend.
 //
 // A CommitSegment whose key is already in the fold is answered immediately
@@ -132,19 +133,6 @@ func (m *Replica) retargetCommit(operation ClientOperation) bool {
 	}
 	return false
 }
-
-// TakeAnswers returns and clears apply-time answers for prior Offers.
-func (m *Replica) TakeAnswers() []ReplyToClient {
-	out := m.answers
-	m.answers = nil
-	return out
-}
-
-// InFlightCommits is the number of live commit LogAppend ReqIDs (at most one).
-func (m *Replica) InFlightCommits() int { return len(m.inFlightAppends) }
-
-// QueueDepth is the number of client ops waiting for a commit slot.
-func (m *Replica) QueueDepth() int { return len(m.queue) }
 
 func (m *Replica) flushCommits() []any {
 	if m.exited || m.booting {

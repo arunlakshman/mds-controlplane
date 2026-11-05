@@ -24,9 +24,6 @@ const (
 // Ready reports that restore (if any) and the first catch-up round finished.
 func (m *Replica) Ready() bool { return m.ready }
 
-// Booting reports restore or catch-up in progress (not yet Ready).
-func (m *Replica) Booting() bool { return m.booting }
-
 // IsActive reports the advisory appender role.
 func (m *Replica) IsActive() bool { return m.active }
 

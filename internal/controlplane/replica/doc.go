@@ -15,7 +15,7 @@
 // later one exists fell behind a trim and restores from the checkpoint. Client
 // commits enter via Offer into a bounded queue; flush packs up to MaxCmdsPerSlot
 // commands into one entry and keeps one LogAppend in flight. Answers leave via
-// TakeAnswers once the winning slot applies.
+// a ControlPlaneReply once the winning slot applies.
 //
 // One node writes at a time. A node becomes the writer by claiming a new epoch
 // in the log (LogClaimEpoch), then writes a fence entry at the tail; every entry
