@@ -5,7 +5,7 @@ import (
 
 	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/dst/sim"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -28,7 +28,7 @@ type Replica struct {
 	ready    bool
 	active   bool // advisory appender role
 
-	meta *metadata.Store
+	meta *metadb.Store
 
 	now           runtime.NodeTime
 	timerGen      runtime.TimerVersion
@@ -117,7 +117,7 @@ func New(config Config) Factory {
 	return func(env runtime.Environment, self runtime.NodeInstance) *Replica {
 		meta, err := config.openMetadata()
 		if err != nil {
-			meta = metadata.NewMem() // placeholder; NodeStarted stops the machine
+			meta = metadb.NewMem() // placeholder; NodeStarted stops the machine
 		}
 		return &Replica{
 			env: env, self: self, config: config, openErr: err,
@@ -131,7 +131,7 @@ func New(config Config) Factory {
 
 // Metadata is the metadata store after the applied prefix. Tests compare its
 // digest to an independent oracle.
-func (m *Replica) Metadata() *metadata.Store { return m.meta }
+func (m *Replica) Metadata() *metadb.Store { return m.meta }
 
 // Applied is the next slot to apply (slots below are folded).
 func (m *Replica) Applied() runtime.LogPosition { return m.applied }

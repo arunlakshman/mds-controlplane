@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -32,7 +32,7 @@ func TestMachineConfigSetsTheIdempotencyWindow(t *testing.T) {
 // topicCount asks a store how many topics it holds.
 func topicCount(t *testing.T, keyValue engine.Engine) int {
 	t.Helper()
-	d, err := metadata.New(keyValue).Describe(contract.DescribeTopics{})
+	d, err := metadb.New(keyValue).Describe(contract.DescribeTopics{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestPebbleStateReopensEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := metadata.New(first).CreateTopic("orders", 2); code != runtime.OK {
+	if code := metadb.New(first).CreateTopic("orders", 2); code != runtime.OK {
 		t.Fatalf("CreateTopic code = %v", code)
 	}
 	if n := topicCount(t, first); n != 1 {

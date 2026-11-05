@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -66,7 +66,7 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 	if !ok || put.Key != ckptKey(2) || len(put.Data) == 0 {
 		t.Fatalf("checkpoint action = %#v, want ObjPut", acts[0])
 	}
-	slot, err := metadata.NewMem().Restore(bytes.NewReader(put.Data))
+	slot, err := metadb.NewMem().Restore(bytes.NewReader(put.Data))
 	if err != nil || slot != 2 {
 		t.Fatalf("published snapshot slot=%d err=%v, want 2", slot, err)
 	}

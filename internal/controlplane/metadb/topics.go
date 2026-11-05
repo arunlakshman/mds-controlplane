@@ -1,4 +1,4 @@
-package metadata
+package metadb
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"

@@ -3,7 +3,7 @@ package replica_test
 import (
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -93,8 +93,8 @@ func TestFencedByNewerEpochEntry(t *testing.T) {
 	ap := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 7, Cmd: commitCmd("k", 1)}))
 
 	// The commit's slot is taken by an entry written in epoch 2 by another node.
-	foreign := replica.EncodeEnvelopedForTest(2, "other", metadata.Encode(metadata.Entry{
-		ID: "other/e2/1", Kind: metadata.KindNoop,
+	foreign := replica.EncodeEnvelopedForTest(2, "other", metadb.Encode(metadb.Entry{
+		ID: "other/e2/1", Kind: metadb.KindNoop,
 	}))
 	acts = step(m, runtime.LogAppendDone{
 		Req: ap.Req, Slot: ap.Slot, Taken: true, Existing: foreign, Err: runtime.OK, Outcome: runtime.Applied,

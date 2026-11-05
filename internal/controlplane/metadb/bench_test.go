@@ -1,4 +1,4 @@
-package metadata_test
+package metadb_test
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -44,14 +44,14 @@ func BenchmarkApply150(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer func() { _ = keyValue.Close() }()
-	a := metadata.New(keyValue)
+	a := metadb.New(keyValue)
 	rng := rand.New(rand.NewSource(1)) //nolint:gosec // G404: deterministic test/sim PRNG
 	n := 0
 	apply := func(k int) {
 		for done := 0; done < k; done += 8 {
-			var batch []metadata.Command
+			var batch []metadb.Command
 			for j := 0; j < 8 && done+j < k; j++ {
-				batch = append(batch, metadata.Command{Slot: int64(n), Op: benchSegment(rng, n, 150)})
+				batch = append(batch, metadb.Command{Slot: int64(n), Op: benchSegment(rng, n, 150)})
 				n++
 			}
 			if _, err := a.CommitBatch(batch); err != nil {

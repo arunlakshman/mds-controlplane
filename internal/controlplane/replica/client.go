@@ -1,7 +1,7 @@
 package replica
 
 import (
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -12,7 +12,7 @@ func (m *Replica) onControlPlaneDeliver(o runtime.ControlPlaneDeliver) []any {
 	operation := o.Op
 	switch m.meta.Mode(operation) {
 	case module.Logged:
-		cmd, _ := metadata.EntryOf(operation)
+		cmd, _ := metadb.EntryOf(operation)
 		return m.withReplies(m.Offer(ClientOperation{Req: o.Req, From: o.From, Cmd: cmd}))
 	case module.ReadOnly:
 		return m.offerRead(o, func() (runtime.ControlPlaneDone, error) { return m.meta.Read(operation) })

@@ -6,7 +6,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -18,7 +18,7 @@ import (
 // isCommand reports whether operation is written to the log. Any other
 // operation is a read, answered by the fold.
 func isCommand(operation runtime.ControlPlaneOperation) bool {
-	_, logged := metadata.EntryOf(operation)
+	_, logged := metadb.EntryOf(operation)
 	return logged
 }
 
@@ -30,7 +30,7 @@ func isCommand(operation runtime.ControlPlaneOperation) bool {
 // loop and the context. Node is the log and read side of the group coordinator
 // (through nodeGroups) and of every topics RPC.
 func (n *Node) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
-	if _, logged := metadata.EntryOf(operation); logged {
+	if _, logged := metadb.EntryOf(operation); logged {
 		return n.ask(ctx, true, func(request runtime.RequestID) runtime.EventData {
 			return runtime.ControlPlaneDeliver{From: serverFrom, Req: request, Op: operation}
 		})

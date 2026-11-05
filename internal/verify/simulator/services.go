@@ -10,7 +10,7 @@ import (
 	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -253,7 +253,7 @@ func (st *storage) committed(slot runtime.LogPosition, data []byte) {
 		st.end++
 	}
 	if cmds, err := replica.EntryCommands(data); err == nil {
-		st.changes[slot] = slices.ContainsFunc(cmds, func(c metadata.Entry) bool { return c.Op != nil })
+		st.changes[slot] = slices.ContainsFunc(cmds, func(c metadb.Entry) bool { return c.Op != nil })
 	}
 	epoch, writer, ok := replica.EntryWriter(data)
 	if !ok {

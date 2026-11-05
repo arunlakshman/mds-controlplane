@@ -1,4 +1,4 @@
-package metadata_test
+package metadb_test
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -52,12 +52,12 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 	return contract.OffsetCommit{Group: group, Member: member, Generation: gen, TimeMs: 4000, Offsets: offs}
 }
 
-func exec(t testing.TB, a *metadata.Store, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func exec(t testing.TB, a *metadb.Store, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	t.Helper()
 	return a.Exec(runtime.ControlPlaneCall{Req: 1, Op: operation}).(runtime.ControlPlaneDone)
 }
 
-func snapshotBytes(t *testing.T, a *metadata.Store) []byte {
+func snapshotBytes(t *testing.T, a *metadb.Store) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 0); err != nil {
@@ -67,23 +67,23 @@ func snapshotBytes(t *testing.T, a *metadata.Store) []byte {
 }
 
 // groupLog is a command list that uses every group command and a topic.
-func groupLog() []metadata.Entry {
-	return []metadata.Entry{
-		{Kind: metadata.KindCreateTopic, Op: contract.CreateTopic{Name: "orders", Partitions: 2}},
+func groupLog() []metadb.Entry {
+	return []metadb.Entry{
+		{Kind: metadb.KindCreateTopic, Op: contract.CreateTopic{Name: "orders", Partitions: 2}},
 		entryOf(install("g", 1, "m1", "m1", "m2")),
 		entryOf(assign("g", 1, "m1", "m1", "a", "m2", "b")),
 		entryOf(commitOp("g", "m1", 1, pair("orders", 0, 4), pair("orders", 1, 2))),
 		entryOf(remove("g", "m2")),
 		entryOf(install("g", 2, "m1", "m1", "m3")),
 		entryOf(commitOp("solo", "", -1, pair("orders", 0, 1))),
-		{Kind: metadata.KindCommit, Op: contract.CommitSegment{SegmentKey: "k1", Batches: []contract.PendingBatch{
+		{Kind: metadb.KindCommit, Op: contract.CommitSegment{SegmentKey: "k1", Batches: []contract.PendingBatch{
 			{TopicPartition: contract.NewTopicPartition("orders", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o1", Off: 0, Len: 9}},
 		}}},
 	}
 }
 
-func entryOf(operation runtime.ControlPlaneOperation) metadata.Entry {
-	e, ok := metadata.EntryOf(operation)
+func entryOf(operation runtime.ControlPlaneOperation) metadb.Entry {
+	e, ok := metadb.EntryOf(operation)
 	if !ok {
 		panic("not a group op")
 	}
@@ -94,10 +94,10 @@ func entryOf(operation runtime.ControlPlaneOperation) metadata.Entry {
 // entry codec, and checks that both stores hold the same bytes.
 func TestGroupReplayIsPure(t *testing.T) {
 	run := func() []byte {
-		a := metadata.NewMem()
+		a := metadb.NewMem()
 		defer func() { _ = a.Close() }()
 		for i, e := range groupLog() {
-			data := metadata.Encode(e)
+			data := metadb.Encode(e)
 			if _, err := a.ApplyBytes(int64(i), data); err != nil {
 				t.Fatal(err)
 			}
@@ -111,13 +111,13 @@ func TestGroupReplayIsPure(t *testing.T) {
 
 // TestGroupCheckpointRoundTrip checks that the G and O keys survive a checkpoint.
 func TestGroupCheckpointRoundTrip(t *testing.T) {
-	a := metadata.NewMem()
+	a := metadb.NewMem()
 	defer func() { _ = a.Close() }()
 	for i, e := range groupLog() {
 		a.Apply(int64(i), e)
 	}
 	data := snapshotBytes(t, a)
-	b := metadata.NewMem()
+	b := metadb.NewMem()
 	defer func() { _ = b.Close() }()
 	if _, err := b.Restore(bytes.NewReader(data)); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestGroupCheckpointRoundTrip(t *testing.T) {
 
 func TestGroupEntryCodecRoundTrip(t *testing.T) {
 	for _, e := range groupLog() {
-		got, err := metadata.Decode(metadata.Encode(e))
+		got, err := metadb.Decode(metadb.Encode(e))
 		if err != nil {
 			t.Fatalf("kind %d: %v", e.Kind, err)
 		}
@@ -148,7 +148,7 @@ func TestGroupEntryCodecRoundTrip(t *testing.T) {
 
 func TestReadsAreNotLogged(t *testing.T) {
 	for _, operation := range []runtime.ControlPlaneOperation{contract.DescribeTopics{}, contract.FindSegments{}, contract.OffsetFetch{}, contract.DescribeGroup{}, contract.ListGroups{}} {
-		if _, ok := metadata.EntryOf(operation); ok {
+		if _, ok := metadb.EntryOf(operation); ok {
 			t.Fatalf("%T is a read and has no log entry", operation)
 		}
 	}
@@ -156,7 +156,7 @@ func TestReadsAreNotLogged(t *testing.T) {
 
 // TestGroupStoreAdapter runs the group calls through the Store adapter.
 func TestGroupStoreAdapter(t *testing.T) {
-	s := &localStore{a: metadata.NewMem()}
+	s := &localStore{a: metadb.NewMem()}
 	ctx := context.Background()
 	if code, err := callCode(ctx, s, install("g", 1, "m1", "m1")); code != runtime.OK || err != nil {
 		t.Fatalf("install: %v %v", code, err)

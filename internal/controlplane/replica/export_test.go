@@ -1,6 +1,6 @@
 package replica
 
-import "github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+import "github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 
 // TimerCheckpoint is the timer ID that the checkpoint tests fire.
 const TimerCheckpoint = timerCheckpoint
@@ -20,7 +20,7 @@ func (m *Replica) QueueDepth() int { return len(m.queue) }
 func (m *Replica) Booting() bool { return m.booting }
 
 // DecodeGroup exports group decoding for tests (strips the machine envelope).
-func DecodeGroup(data []byte) (string, []metadata.Entry, bool) {
+func DecodeGroup(data []byte) (string, []metadb.Entry, bool) {
 	return decodeGroup(data)
 }
 

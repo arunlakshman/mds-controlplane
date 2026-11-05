@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
@@ -32,7 +32,7 @@ var backends = map[string]func(testing.TB) engine.Engine{
 // test/conformance (metadata over memory and Pebble).
 
 func TestTrimForgetsKeysNotOffsets(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	mustCommit(t, a, 0, commit("old", pb("a", 0, 5)))
 	mustCommit(t, a, 5, commit("new", pb("a", 0, 5)))
 	h := a.StateHash()
@@ -54,7 +54,7 @@ func TestTrimForgetsKeysNotOffsets(t *testing.T) {
 }
 
 func TestInvalidAndUnknown(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	if a.CreateTopic("", 1) != runtime.ErrInvalid || a.CreateTopic("t", 0) != runtime.ErrInvalid {
 		t.Fatal("CreateTopic must reject empty name and non-positive partitions")
 	}
@@ -93,7 +93,7 @@ func TestCreateTopicExclusive(t *testing.T) {
 	}
 	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
-			a := metadata.New(mk(t))
+			a := metadb.New(mk(t))
 			t.Cleanup(func() { _ = a.Close() })
 			for i, s := range steps {
 				before := a.StateHash()
@@ -123,28 +123,28 @@ func TestCreateTopicExclusive(t *testing.T) {
 }
 
 func TestAssignedStates(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	operation := commit("k1", pb("a", 0, 3), pb("a", 1, 2))
 	first := mustCommit(t, a, 5, operation)
 	want := first.Resp.(contract.CommitSegmentResp).Assigned
 
 	rs, st, err := a.Assigned(5, operation)
-	if err != nil || st != metadata.OffsetOwnedHere || !reflect.DeepEqual(rs, want) {
+	if err != nil || st != metadb.OffsetOwnedHere || !reflect.DeepEqual(rs, want) {
 		t.Fatalf("here: %v %v %+v", err, st, rs)
 	}
-	if _, st, _ = a.Assigned(9, operation); st != metadata.OffsetOwnedElsewhere { // a replay at a later slot
+	if _, st, _ = a.Assigned(9, operation); st != metadb.OffsetOwnedElsewhere { // a replay at a later slot
 		t.Fatalf("other slot: %v", st)
 	}
-	if _, st, _ = a.Assigned(5, commit("k1", pb("a", 0, 4))); st != metadata.OffsetOwnedElsewhere { // a conflict
+	if _, st, _ = a.Assigned(5, commit("k1", pb("a", 0, 4))); st != metadb.OffsetOwnedElsewhere { // a conflict
 		t.Fatalf("conflict: %v", st)
 	}
-	if _, st, _ = a.Assigned(5, commit("nope", pb("a", 0, 1))); st != metadata.OffsetOwnerUnknown {
+	if _, st, _ = a.Assigned(5, commit("nope", pb("a", 0, 1))); st != metadb.OffsetOwnerUnknown {
 		t.Fatalf("unknown: %v", st)
 	}
 	if _, err = a.Trim(6); err != nil {
 		t.Fatal(err)
 	}
-	if _, st, _ = a.Assigned(5, operation); st != metadata.OffsetOwnerUnknown { // forgotten by the window
+	if _, st, _ = a.Assigned(5, operation); st != metadb.OffsetOwnerUnknown { // forgotten by the window
 		t.Fatalf("trimmed: %v", st)
 	}
 }
@@ -158,7 +158,7 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 		Loc: runtime.SegmentRef{Key: topic, Off: n * 10, Len: n}}
 }
 
-func mustCommit(t *testing.T, a *metadata.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
+func mustCommit(t *testing.T, a *metadb.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
 	d, err := a.Commit(slot, operation)
 	if err != nil {

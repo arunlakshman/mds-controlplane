@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -194,7 +194,7 @@ func (m *Replica) onObjGetDone(d runtime.ObjectGetDone) []any {
 		return m.armCheckpointRetry()
 	}
 	m.checkpointRetry = false
-	if len(d.Data) > 0 && metadata.CheckSnapshot(d.Data) != nil {
+	if len(d.Data) > 0 && metadb.CheckSnapshot(d.Data) != nil {
 		// A changed byte in the read: the stored object may be fine. Read it again.
 		m.env.Reachable("logcp-sim: checkpoint read had a bad CRC, read again")
 		return m.emitCheckpointGet(m.restoreKey)

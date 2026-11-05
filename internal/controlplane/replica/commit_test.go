@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-func commitCmd(key string, records int64) metadata.Entry {
-	return metadata.Entry{
-		Kind: metadata.KindCommit,
+func commitCmd(key string, records int64) metadb.Entry {
+	return metadb.Entry{
+		Kind: metadb.KindCommit,
 		Op: contract.CommitSegment{
 			SegmentKey: key,
 			Batches: []contract.PendingBatch{

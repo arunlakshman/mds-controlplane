@@ -29,4 +29,4 @@
 //
 // NewMem, Encode/Decode, and Apply/ApplyBytes expose the pure command fold for
 // controlplane/replica Step without Pebble.
-package metadata
+package metadb

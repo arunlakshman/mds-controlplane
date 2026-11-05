@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -338,7 +338,7 @@ func (m *Replica) afterCrashRestart() []any {
 func (m *Replica) emitHeartbeat() []any {
 	m.seq++
 	id := fmt.Sprintf("%s/e%d/%d", m.config.writer(), m.epoch, m.seq)
-	inner := metadata.Encode(metadata.Entry{ID: id, Kind: metadata.KindNoop})
+	inner := metadb.Encode(metadb.Entry{ID: id, Kind: metadb.KindNoop})
 	data := wrap(m.epoch, m.config.writer(), inner)
 	m.nextReq++
 	request := m.nextReq

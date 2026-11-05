@@ -1,4 +1,4 @@
-package metadata_test
+package metadb_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
@@ -35,14 +35,14 @@ var backends = map[string]func(testing.TB) engine.Engine{
 func TestSnapshotRestoreAndReplay(t *testing.T) {
 	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
-			a := metadata.New(mk(t))
+			a := metadb.New(mk(t))
 			first := mustCommit(t, a, 0, commit("k0", pb("a", 0, 3), pb("a", 0, 2), pb("b", 7, 1)))
 			mustCommit(t, a, 1, commit("k1", pb("a", 0, 4)))
 			var buf bytes.Buffer
 			if err := a.Snapshot(&buf, 2); err != nil {
 				t.Fatal(err)
 			}
-			b := metadata.New(mk(t))
+			b := metadb.New(mk(t))
 			slot, err := b.Restore(bytes.NewReader(buf.Bytes()))
 			if err != nil || slot != 2 {
 				t.Fatalf("restore slot %d err %v", slot, err)
@@ -67,7 +67,7 @@ func TestSnapshotRestoreAndReplay(t *testing.T) {
 }
 
 func TestRestoreRejectsDamage(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 2)))
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 1); err != nil {
@@ -76,17 +76,17 @@ func TestRestoreRejectsDamage(t *testing.T) {
 	good := buf.Bytes()
 	cases := map[string][]byte{"empty": nil, "magic": []byte("XXXXXX"), "no end mark": good[:len(good)-1], "cut": good[:len(good)/2], "header only": good[:6]}
 	for name, b := range cases {
-		if _, err := metadata.New(memory.New()).Restore(bytes.NewReader(b)); err == nil {
+		if _, err := metadb.New(memory.New()).Restore(bytes.NewReader(b)); err == nil {
 			t.Errorf("%s: restore accepted a damaged checkpoint", name)
 		}
 	}
 }
 
-// localStore drives a metadata.Store as a single node with no log: a command
+// localStore drives a metadb.Store as a single node with no log: a command
 // gets the next local slot. The log-backed service applies commands at their
 // real slots, not through this adapter.
 type localStore struct {
-	a *metadata.Store
+	a *metadb.Store
 
 	mu   sync.Mutex
 	next int64
@@ -129,7 +129,7 @@ func readOp[R any](ctx context.Context, s *localStore, operation runtime.Control
 
 func TestStoreAdapter(t *testing.T) {
 	ctx := t.Context()
-	s := &localStore{a: metadata.New(memory.New())}
+	s := &localStore{a: metadb.New(memory.New())}
 	if c, err := callCode(ctx, s, contract.CreateTopic{Name: "t", Partitions: 3}); c != runtime.OK || err != nil {
 		t.Fatal(c, err)
 	}
@@ -151,14 +151,14 @@ func TestStoreAdapter(t *testing.T) {
 }
 
 func TestCommitBatchEqualsSequential(t *testing.T) {
-	cmds := []metadata.Command{
+	cmds := []metadb.Command{
 		{Slot: 0, Op: commit("k0", pb("a", 0, 3), pb("a", 1, 2))},
 		{Slot: 1, Op: commit("k1", pb("a", 0, 4))},                // continues partition 0 inside the same transaction
 		{Slot: 2, Op: commit("k0", pb("a", 0, 3), pb("a", 1, 2))}, // a replay of a key committed in this very batch
 		{Slot: 3, Op: commit("k1", pb("a", 0, 1))},                // conflict
 		{Slot: 4, Op: commit("bad")},
 	}
-	one, many := metadata.New(memory.New()), metadata.New(memory.New())
+	one, many := metadb.New(memory.New()), metadb.New(memory.New())
 	got, err := many.CommitBatch(cmds)
 	if err != nil {
 		t.Fatal(err)
@@ -175,23 +175,23 @@ func TestCommitBatchEqualsSequential(t *testing.T) {
 }
 
 func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 2)))
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 1); err != nil {
 		t.Fatal(err)
 	}
 	good := buf.Bytes()
-	if err := metadata.CheckSnapshot(good); err != nil {
+	if err := metadb.CheckSnapshot(good); err != nil {
 		t.Fatalf("good checkpoint refused: %v", err)
 	}
 	for i := range good {
 		bad := bytes.Clone(good)
 		bad[i] ^= 1
-		if metadata.CheckSnapshot(bad) == nil {
+		if metadb.CheckSnapshot(bad) == nil {
 			t.Fatalf("CheckSnapshot accepted a flipped bit at byte %d", i)
 		}
-		if _, err := metadata.New(memory.New()).Restore(bytes.NewReader(bad)); err == nil {
+		if _, err := metadb.New(memory.New()).Restore(bytes.NewReader(bad)); err == nil {
 			t.Fatalf("Restore accepted a flipped bit at byte %d", i)
 		}
 	}
@@ -201,17 +201,17 @@ func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
 // the same answer on every replay: the answer depends only on the state
 // before the entry.
 func TestCreateEntryReplay(t *testing.T) {
-	entries := []metadata.Entry{
-		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadata.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2}),
+	entries := []metadb.Entry{
+		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2}),
 	}
 	want := []runtime.ErrCode{runtime.OK, runtime.ErrTopicExists, runtime.OK}
 	for run := range 2 {
-		a := metadata.NewMem()
+		a := metadb.NewMem()
 		t.Cleanup(func() { _ = a.Close() })
 		for i, e := range entries {
-			d, err := a.ApplyBytes(int64(i), metadata.Encode(e))
+			d, err := a.ApplyBytes(int64(i), metadb.Encode(e))
 			if err != nil || d.Err != want[i] {
 				t.Fatalf("run %d entry %d: %v %v, want %v", run, i, d.Err, err, want[i])
 			}
@@ -220,14 +220,14 @@ func TestCreateEntryReplay(t *testing.T) {
 }
 
 func TestSnapshotAtTagsTheViewsSlot(t *testing.T) {
-	a := metadata.New(memory.New())
+	a := metadb.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 1)))
 	var buf bytes.Buffer
 	called := 0
 	if err := a.SnapshotAt(&buf, func() int64 { called++; return 77 }); err != nil || called != 1 {
 		t.Fatalf("%v %d", err, called)
 	}
-	b := metadata.New(memory.New())
+	b := metadb.New(memory.New())
 	if slot, err := b.Restore(&buf); err != nil || slot != 77 {
 		t.Fatalf("slot %d err %v", slot, err)
 	}
@@ -245,7 +245,7 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 		Loc: runtime.SegmentRef{Key: topic, Off: n * 10, Len: n}}
 }
 
-func mustCommit(t *testing.T, a *metadata.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
+func mustCommit(t *testing.T, a *metadb.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
 	d, err := a.Commit(slot, operation)
 	if err != nil {

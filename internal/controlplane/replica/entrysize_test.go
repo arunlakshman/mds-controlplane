@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -14,7 +14,7 @@ import (
 const dynamoItemLimit = 400 << 10
 
 // sizedCommit is a commit with the given number of batches, one per partition.
-func sizedCommit(key string, batches int) metadata.Entry {
+func sizedCommit(key string, batches int) metadb.Entry {
 	bs := make([]contract.PendingBatch, batches)
 	for i := range bs {
 		bs[i] = contract.PendingBatch{
@@ -22,7 +22,7 @@ func sizedCommit(key string, batches int) metadata.Entry {
 			Loc: runtime.SegmentRef{Key: key, Off: int64(i) * 1000, Len: 1000},
 		}
 	}
-	return metadata.Entry{Kind: metadata.KindCommit, Op: contract.CommitSegment{SegmentKey: key, Batches: bs}}
+	return metadb.Entry{Kind: metadb.KindCommit, Op: contract.CommitSegment{SegmentKey: key, Batches: bs}}
 }
 
 // appendsUntilQueueEmpty finishes each append in turn, so the machine builds

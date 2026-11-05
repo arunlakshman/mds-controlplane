@@ -8,7 +8,7 @@ import "encoding/binary"
 const envelopeMarker byte = 0xC8
 
 // wrap stamps the epoch and the writer name onto an inner payload (group or
-// metadata.Encode).
+// metadb.Encode).
 func wrap(epoch uint64, writer string, payload []byte) []byte {
 	b := []byte{envelopeMarker}
 	b = binary.AppendUvarint(b, epoch)

@@ -1,4 +1,4 @@
-package metadata_test
+package metadb_test
 
 import (
 	"errors"
@@ -6,16 +6,16 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 func TestEntryCodecRoundTrip(t *testing.T) {
-	es := []metadata.Entry{
-		{ID: "w/1", Kind: metadata.KindNoop},
-		{ID: "w/2", Kind: metadata.KindCreateTopic, Op: contract.CreateTopic{Name: "t", Partitions: 5}},
-		{ID: "w/2x", Kind: metadata.KindCreateTopicExclusive, Op: contract.CreateTopic{Name: "t", Partitions: 5, FailIfExists: true}},
-		{ID: "w/3", Kind: metadata.KindCommit, Op: contract.CommitSegment{
+	es := []metadb.Entry{
+		{ID: "w/1", Kind: metadb.KindNoop},
+		{ID: "w/2", Kind: metadb.KindCreateTopic, Op: contract.CreateTopic{Name: "t", Partitions: 5}},
+		{ID: "w/2x", Kind: metadb.KindCreateTopicExclusive, Op: contract.CreateTopic{Name: "t", Partitions: 5, FailIfExists: true}},
+		{ID: "w/3", Kind: metadb.KindCommit, Op: contract.CommitSegment{
 			SegmentKey: "k",
 			Batches: []contract.PendingBatch{
 				{TopicPartition: contract.NewTopicPartition("a", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o", Off: 7, Len: 30}},
@@ -24,7 +24,7 @@ func TestEntryCodecRoundTrip(t *testing.T) {
 		}},
 	}
 	for _, e := range es {
-		got, err := metadata.Decode(metadata.Encode(e))
+		got, err := metadb.Decode(metadb.Encode(e))
 		if err != nil || got.ID != e.ID || got.Kind != e.Kind || !reflect.DeepEqual(got.Op, e.Op) {
 			t.Fatalf("round trip %+v -> %+v (%v)", e, got, err)
 		}
@@ -32,15 +32,15 @@ func TestEntryCodecRoundTrip(t *testing.T) {
 }
 
 func TestApplyBytesNoopAndCommit(t *testing.T) {
-	a := metadata.NewMem()
+	a := metadb.NewMem()
 	t.Cleanup(func() { _ = a.Close() })
-	noop, err := a.ApplyBytes(0, metadata.Encode(metadata.Entry{ID: "n", Kind: metadata.KindNoop}))
+	noop, err := a.ApplyBytes(0, metadb.Encode(metadb.Entry{ID: "n", Kind: metadb.KindNoop}))
 	if err != nil || noop.Err != runtime.OK {
 		t.Fatalf("noop: %+v %v", noop, err)
 	}
 	before := a.StateHash()
-	d, err := a.ApplyBytes(1, metadata.Encode(metadata.Entry{
-		ID: "c", Kind: metadata.KindCommit,
+	d, err := a.ApplyBytes(1, metadb.Encode(metadb.Entry{
+		ID: "c", Kind: metadb.KindCommit,
 		Op: contract.CommitSegment{
 			SegmentKey: "s1",
 			Batches:    []contract.PendingBatch{{TopicPartition: contract.NewTopicPartition("t", 0), Records: 2, Loc: runtime.SegmentRef{Key: "o", Off: 0, Len: 8}}},
@@ -58,7 +58,7 @@ func TestApplyBytesNoopAndCommit(t *testing.T) {
 }
 
 func TestApplyBytesCorrupt(t *testing.T) {
-	a := metadata.NewMem()
+	a := metadb.NewMem()
 	t.Cleanup(func() { _ = a.Close() })
 	if _, err := a.ApplyBytes(0, []byte{9}); err == nil {
 		t.Fatal("corrupt entry accepted")
@@ -68,12 +68,12 @@ func TestApplyBytesCorrupt(t *testing.T) {
 // Every kind belongs to one module, kinds do not repeat, and the no-op (zero) is
 // the kernel's own. A repeated number would make a log entry mean two things.
 func TestKindsAreUniqueAndNonZero(t *testing.T) {
-	seen := map[metadata.Kind]bool{}
-	for _, kind := range []metadata.Kind{
-		metadata.KindCommit, metadata.KindCreateTopic, metadata.KindCreateTopicExclusive,
-		metadata.KindGroupInstall, metadata.KindGroupAssign, metadata.KindGroupRemove, metadata.KindOffsetCommit,
+	seen := map[metadb.Kind]bool{}
+	for _, kind := range []metadb.Kind{
+		metadb.KindCommit, metadb.KindCreateTopic, metadb.KindCreateTopicExclusive,
+		metadb.KindGroupInstall, metadb.KindGroupAssign, metadb.KindGroupRemove, metadb.KindOffsetCommit,
 	} {
-		if kind == metadata.KindNoop {
+		if kind == metadb.KindNoop {
 			t.Fatal("a module kind must not be the no-op")
 		}
 		if seen[kind] {
@@ -84,10 +84,10 @@ func TestKindsAreUniqueAndNonZero(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownKindAndLeftoverBytes(t *testing.T) {
-	if _, err := metadata.Decode([]byte{0xFE, 0}); !errors.Is(err, metadata.ErrCorrupt) {
+	if _, err := metadb.Decode([]byte{0xFE, 0}); !errors.Is(err, metadb.ErrCorrupt) {
 		t.Fatalf("unknown kind: %v", err)
 	}
-	if _, err := metadata.Decode(append(metadata.Encode(metadata.Entry{ID: "n", Kind: metadata.KindNoop}), 0)); !errors.Is(err, metadata.ErrCorrupt) {
+	if _, err := metadb.Decode(append(metadb.Encode(metadb.Entry{ID: "n", Kind: metadb.KindNoop}), 0)); !errors.Is(err, metadb.ErrCorrupt) {
 		t.Fatalf("leftover byte: %v", err)
 	}
 }

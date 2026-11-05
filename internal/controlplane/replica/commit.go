@@ -8,19 +8,19 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // groupMarker prefixes a multi-command commit entry so drain can tell it from a
-// single metadata.Encode payload (kinds 0..2).
+// single metadb.Encode payload (kinds 0..2).
 const groupMarker byte = 0xC5
 
 // ClientOperation is one client command for the commit queue. Prod injects via
 // controlplane/server; sim delivers runtime.ControlPlaneDeliver which becomes Offer here.
 type ClientOperation struct {
 	Req  runtime.RequestID
-	Cmd  metadata.Entry       // ID is assigned when the group is built
+	Cmd  metadb.Entry         // ID is assigned when the group is built
 	From runtime.NodeInstance // broker; empty skips ControlPlaneReply (unit tests)
 }
 
@@ -36,7 +36,7 @@ type ReplyToClient struct {
 type waitingCommand struct {
 	request runtime.RequestID
 	from    runtime.NodeInstance // broker; namespaces Req across brokers
-	cmd     metadata.Entry
+	cmd     metadb.Entry
 }
 
 // inFlightAppend is one in-flight commit LogAppend (at most one).
@@ -163,7 +163,7 @@ func (m *Replica) emitCommitGroup() []any {
 	for _, c := range m.queue[:limit] {
 		e := c.cmd
 		e.ID = id
-		enc := metadata.Encode(e)
+		enc := metadb.Encode(e)
 		cost := len(enc) + binary.MaxVarintLen32
 		if len(encoded) > 0 && size+cost > m.config.maxEntryBytes() {
 			break
@@ -203,10 +203,10 @@ func (m *Replica) entryFixedBytes(id string) int {
 
 // fitsAlone reports whether cmd fits in a log entry of its own. The id is
 // sized for the largest sequence number, so a command that fits now fits later.
-func (m *Replica) fitsAlone(cmd metadata.Entry) bool {
+func (m *Replica) fitsAlone(cmd metadb.Entry) bool {
 	id := m.config.writer() + "/" + strings.Repeat("9", 20)
 	cmd.ID = id
-	size := m.entryFixedBytes(id) + len(metadata.Encode(cmd)) + binary.MaxVarintLen32
+	size := m.entryFixedBytes(id) + len(metadb.Encode(cmd)) + binary.MaxVarintLen32
 	return size <= m.config.maxEntryBytes()
 }
 
@@ -296,7 +296,7 @@ func encodeGroupParts(id string, encoded [][]byte) []byte {
 	return b
 }
 
-func decodeGroup(data []byte) (string, []metadata.Entry, bool) {
+func decodeGroup(data []byte) (string, []metadb.Entry, bool) {
 	_, _, payload, ok := unwrap(data)
 	if !ok {
 		return "", nil, false
@@ -316,13 +316,13 @@ func decodeGroup(data []byte) (string, []metadata.Entry, bool) {
 	if !ok {
 		return "", nil, false
 	}
-	cmds := make([]metadata.Entry, 0, n)
+	cmds := make([]metadb.Entry, 0, n)
 	for range n {
 		ln, r2, ok := takeUvarint(rest)
 		if !ok || ln > uint64(len(r2)) {
 			return "", nil, false
 		}
-		e, err := metadata.Decode(r2[:ln])
+		e, err := metadb.Decode(r2[:ln])
 		if err != nil {
 			return "", nil, false
 		}
@@ -375,7 +375,7 @@ func (m *Replica) applySlot(slot runtime.LogPosition, data []byte) error {
 		return err
 	}
 	// Single-entry catch-up: deliver only if we were waiting on it.
-	if e, err := metadata.Decode(payload); err == nil {
+	if e, err := metadb.Decode(payload); err == nil {
 		m.deliver(e.ID, []runtime.ControlPlaneDone{d})
 	}
 	m.afterApply(slot)

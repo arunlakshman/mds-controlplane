@@ -1,11 +1,11 @@
-package metadata_test
+package metadb_test
 
 import (
 	"bytes"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -16,7 +16,7 @@ import (
 // to re-encode to bytes that decode and re-encode to the same bytes.
 func FuzzDecode(f *testing.F) {
 	tp := contract.NewTopicPartition
-	f.Add(metadata.Encode(metadata.Entry{Kind: metadata.KindNoop, ID: "n"}))
+	f.Add(metadb.Encode(metadb.Entry{Kind: metadb.KindNoop, ID: "n"}))
 	for i, op := range []runtime.ControlPlaneOperation{
 		contract.CreateTopic{Name: "orders", Partitions: 3},
 		contract.CreateTopic{Name: "orders", Partitions: 3, FailIfExists: true},
@@ -31,24 +31,24 @@ func FuzzDecode(f *testing.F) {
 		contract.OffsetCommit{Group: "g", Member: "m", Generation: 1, Offsets: []contract.PartitionOffset{
 			{TopicPartition: tp("t", 0), Offset: 5, LeaderEpoch: 1, Metadata: "md"}}},
 	} {
-		e, ok := metadata.EntryOf(op)
+		e, ok := metadb.EntryOf(op)
 		if !ok {
 			f.Fatalf("seed %d is not a logged operation", i)
 		}
 		e.ID = "id"
-		f.Add(metadata.Encode(e))
+		f.Add(metadb.Encode(e))
 	}
 	f.Fuzz(func(t *testing.T, b []byte) {
-		e, err := metadata.Decode(b)
+		e, err := metadb.Decode(b)
 		if err != nil {
 			return
 		}
-		again := metadata.Encode(e)
-		e2, err := metadata.Decode(again)
+		again := metadb.Encode(e)
+		e2, err := metadb.Decode(again)
 		if err != nil {
 			t.Fatalf("an entry that decoded does not decode after Encode: %v", err)
 		}
-		if !bytes.Equal(metadata.Encode(e2), again) {
+		if !bytes.Equal(metadb.Encode(e2), again) {
 			t.Fatalf("Encode(Decode(Encode(e))) differs from Encode(e)")
 		}
 	})

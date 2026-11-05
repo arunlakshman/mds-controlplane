@@ -1,7 +1,7 @@
 package replica
 
 import (
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -118,13 +118,13 @@ func (c Config) queueMax() int {
 }
 
 // openFold builds a fold over a new empty store: Config.OpenStore, else memory.
-func (c Config) openMetadata() (*metadata.Store, error) {
+func (c Config) openMetadata() (*metadb.Store, error) {
 	if c.OpenStore == nil {
-		return metadata.NewMem(), nil
+		return metadb.NewMem(), nil
 	}
 	keyValue, err := c.OpenStore()
 	if err != nil {
 		return nil, err
 	}
-	return metadata.New(keyValue), nil
+	return metadb.New(keyValue), nil
 }

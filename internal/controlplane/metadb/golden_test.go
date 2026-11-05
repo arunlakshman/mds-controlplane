@@ -1,4 +1,4 @@
-package metadata_test
+package metadb_test
 
 import (
 	"encoding/hex"
@@ -6,20 +6,20 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // goldenEntries are one entry of every kind. Their bytes are part of the log
 // format: a log written by an older node must be read by a newer one, so these
-// bytes may never change. want is the hex of metadata.Encode.
+// bytes may never change. want is the hex of metadb.Encode.
 func goldenEntries() []struct {
 	name  string
-	entry metadata.Entry
+	entry metadb.Entry
 	want  string
 } {
-	of := func(id string, op runtime.ControlPlaneOperation) metadata.Entry {
-		e, ok := metadata.EntryOf(op)
+	of := func(id string, op runtime.ControlPlaneOperation) metadb.Entry {
+		e, ok := metadb.EntryOf(op)
 		if !ok {
 			panic("not a logged operation")
 		}
@@ -34,10 +34,10 @@ func goldenEntries() []struct {
 	}}
 	return []struct {
 		name  string
-		entry metadata.Entry
+		entry metadb.Entry
 		want  string
 	}{
-		{"noop", metadata.Entry{ID: "n1", Kind: metadata.KindNoop}, "00026e31"},
+		{"noop", metadb.Entry{ID: "n1", Kind: metadb.KindNoop}, "00026e31"},
 		{"commit", of("c1", commit), "01026331057365672d31040174056f626a2d310175056f626a2d320300000601143c000204015028020002030012"},
 		{"create topic", of("x1", contract.CreateTopic{Name: "orders", Partitions: 3}), "02027831066f726465727306"},
 		{"create topic exclusive", of("x2", contract.CreateTopic{Name: "orders", Partitions: 3, FailIfExists: true}), "07027832066f726465727306"},
@@ -57,14 +57,14 @@ func goldenEntries() []struct {
 func TestGoldenEntryBytes(t *testing.T) {
 	for _, g := range goldenEntries() {
 		t.Run(g.name, func(t *testing.T) {
-			got := metadata.Encode(g.entry)
+			got := metadb.Encode(g.entry)
 			if g.want == "" {
 				t.Fatalf("no golden bytes yet; encoded: %s", hex.EncodeToString(got))
 			}
 			if hex.EncodeToString(got) != g.want {
 				t.Fatalf("the log format changed:\n got %s\nwant %s", hex.EncodeToString(got), g.want)
 			}
-			back, err := metadata.Decode(got)
+			back, err := metadb.Decode(got)
 			if err != nil || !reflect.DeepEqual(back, g.entry) {
 				t.Fatalf("decode: %+v %v, want %+v", back, err, g.entry)
 			}

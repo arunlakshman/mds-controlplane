@@ -86,8 +86,8 @@ func TestImportRules(t *testing.T) {
 		cp + "topics":         {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "metadata":       {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt},
-		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadata", cp + "module", rt},
+		cp + "metadb":         {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt},
+		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadb", cp + "module", rt},
 		cp + "executor":       {rt},
 	}
 	for dir, allowed := range layers {
@@ -114,7 +114,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"metadb/engine", "membership", "module", "topics", "groups", "groups/storage", "metadata", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "membership", "module", "topics", "groups", "groups/storage", "metadb", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {

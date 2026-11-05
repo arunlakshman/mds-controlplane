@@ -89,7 +89,7 @@ test-race:
 # runs in make test). Go allows one -fuzz target per run, so this loops.
 FUZZTIME ?= 10s
 FUZZ_TARGETS = \
-	./internal/controlplane/metadata:FuzzDecode \
+	./internal/controlplane/metadb:FuzzDecode \
 	./internal/controlplane/topics:FuzzModuleDecode \
 	./internal/controlplane/topics:FuzzDecodeBatchRun \
 	./internal/controlplane/topics:FuzzParseDuplicateCheck \
