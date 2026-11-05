@@ -472,9 +472,13 @@ var grpcLacks = []string{"groupInstall", "groupAssign", "groupRemove", "groupAss
 // the log, so a crash may also drop checkpoints and the state is rebuilt from
 // the log. The second trims the log behind each checkpoint.
 func TestGRPC(t *testing.T) {
-	fewerChecks(t, 30, 20) // each restart starts a node and a server
+	// Each restart starts a node and a server, and the group coordinator
+	// serves again only at its next watch tick (100 ms). So most of the time is
+	// waiting, and the two variants run side by side.
+	fewerChecks(t, 20, 15)
 	for _, trim := range []bool{false, true} {
 		t.Run("trim="+strconv.FormatBool(trim), func(t *testing.T) {
+			t.Parallel()
 			Run(t, func(rt *rapid.T) Target {
 				n := newGRPCNode(rt, trim)
 				return Target{Exec: n.Exec, Reboot: n.Reboot, DirtyReboot: n.DirtyReboot, Checkpoint: n.Checkpoint, Inject: n.Inject, Lacks: grpcLacks}

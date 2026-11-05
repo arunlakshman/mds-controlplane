@@ -60,7 +60,7 @@ func TestMetadataMemory(t *testing.T) {
 // TestMetadataPebble is the metadata store on the Pebble engine. Its reboot
 // closes the engine and opens it again on the same files.
 func TestMetadataPebble(t *testing.T) {
-	fewerChecks(t, 25, 20) // each open and close of Pebble takes tens of ms
+	fewerChecks(t, 20, 20) // each open and close of Pebble takes tens of ms
 	dir, n := t.TempDir(), 0
 	Run(t, func(rt *rapid.T) Target {
 		n++

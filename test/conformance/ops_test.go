@@ -76,7 +76,7 @@ func ops(tg Target) []op {
 			w.do("createTopic", op)
 		}},
 		{name: "groupInstall", once: true, want: []string{"groupInstall/OK", "groupInstall/ErrIllegalGeneration", "groupInstall/ErrInvalid"}, run: groupInstall},
-		{name: "groupAssign", once: true, want: []string{"groupAssign/OK", "groupAssign/ErrUnknownMember", "groupAssign/ErrIllegalGeneration"}, run: groupAssign},
+		{name: "groupAssign", once: true, want: []string{"groupAssign/OK", "groupAssign.unknown/ErrUnknownMember", "groupAssign.stale/ErrIllegalGeneration"}, run: groupAssign},
 		{name: "groupRemove", once: true, want: []string{"groupRemove/OK"}, run: func(w *world) {
 			ids := rapid.SliceOfNDistinct(rapid.SampledFrom(memberNames), 0, 2, rapid.ID).Draw(w.t, "members")
 			w.do("groupRemove", contract.GroupRemove{Group: pick(w.t, "group", groupNames), Members: ids, Reason: "leave", TimeMs: 1})
@@ -96,13 +96,13 @@ func ops(tg Target) []op {
 		list = append(list, op{name: "checkpoint", want: []string{"checkpoint"}, run: func(w *world) { w.target.Checkpoint() }})
 	}
 	if tg.Reboot != nil {
-		list = append(list, op{name: "reboot", want: []string{"reboot", "sweep.replay/OK"}, run: func(w *world) {
+		list = append(list, op{name: "reboot", want: []string{"reboot", "sweep.find/OK", "sweep.describeGroup/OK", "sweep.replay/OK"}, run: func(w *world) {
 			w.target.Reboot()
 			w.afterRestart("forward progress")
 		}})
 	}
 	if tg.DirtyReboot != nil {
-		list = append(list, op{name: "dirtyReboot", want: []string{"dirtyReboot", "sweep.replay/OK"}, run: func(w *world) {
+		list = append(list, op{name: "dirtyReboot", want: []string{"dirtyReboot", "sweep.find/OK", "sweep.describeGroup/OK", "sweep.replay/OK"}, run: func(w *world) {
 			w.target.DirtyReboot(rapid.IntRange(0, 2).Draw(w.t, "checkpoints kept"))
 			w.afterRestart("persistence")
 		}})
@@ -229,8 +229,19 @@ func groupInstall(w *world) {
 func groupAssign(w *world) {
 	group := pick(w.t, "group", groupNames)
 	cur := w.current(group)
+	if cur.Leader == "" && group != "" {
+		// A group with no members would almost never get a leader, an
+		// assignment and an unknown member in one check. So install one first.
+		w.do("groupInstall.setup", contract.GroupInstall{Group: group, ProtocolType: "consumer", Protocol: "range", Generation: cur.Generation + 1,
+			Leader: "m1", TimeMs: 1, Members: []contract.GroupMember{
+				{MemberID: "m1", ClientID: "c-m1", SessionTimeoutMs: 10000, RebalanceTimeoutMs: 30000},
+				{MemberID: "m2", ClientID: "c-m2", SessionTimeoutMs: 10000, RebalanceTimeoutMs: 30000},
+			}})
+		cur = w.current(group)
+	}
 	op := contract.GroupAssign{Group: group, Generation: cur.Generation, Leader: cur.Leader}
-	if rapid.IntRange(0, 3).Draw(w.t, "stale") == 3 {
+	stale := rapid.IntRange(0, 2).Draw(w.t, "stale") == 2
+	if stale {
 		op.Generation--
 	}
 	for _, m := range cur.Members {
@@ -238,10 +249,23 @@ func groupAssign(w *world) {
 			op.Assignments = append(op.Assignments, contract.GroupAssignment{Member: m.MemberID, Bytes: []byte("a-" + m.MemberID)})
 		}
 	}
-	if rare(w.t, "unknown member") {
+	unknown := rapid.IntRange(0, 4).Draw(w.t, "unknown member") == 0
+	if unknown {
 		op.Assignments = append(op.Assignments, contract.GroupAssignment{Member: "zz", Bytes: []byte("z")})
 	}
-	w.do("groupAssign", op)
+	// The generation is checked first, then the leader, then the members. The
+	// two labels are only for a group that has a leader, so that the answer
+	// shows that the generation check and the member check ran, and not the
+	// leader check of a group that does not exist.
+	label := "groupAssign"
+	switch {
+	case cur.Leader == "":
+	case stale:
+		label = "groupAssign.stale"
+	case unknown:
+		label = "groupAssign.unknown"
+	}
+	w.do(label, op)
 }
 
 func offsetCommit(w *world) {

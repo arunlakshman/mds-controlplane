@@ -81,7 +81,7 @@ type world struct {
 // Run checks the conformance property on the targets that newTarget makes.
 // Then it fails if an answer that an operation aims at (op.want) was never
 // seen: that is the evidence that the draws reach every rule.
-func Run(t *testing.T, newTarget func(*rapid.T) Target) {
+func Run(t testing.TB, newTarget func(*rapid.T) Target) {
 	t.Helper()
 	seen := map[string]int{}
 	var want []string

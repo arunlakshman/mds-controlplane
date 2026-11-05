@@ -255,6 +255,7 @@ func TestReplica(t *testing.T) {
 	for _, trim := range []bool{false, true} {
 		for _, failures := range []bool{false, true} {
 			t.Run(fmt.Sprintf("trim=%t,failures=%t", trim, failures), func(t *testing.T) {
+				t.Parallel() // the time goes to waiting (takeover, checkpoints), not to work
 				Run(t, func(rt *rapid.T) Target {
 					n := newReplicaNode(rt, trim)
 					tg := Target{Exec: n.exec, Reboot: n.reboot, DirtyReboot: n.dirtyReboot, Checkpoint: n.checkpoint}
