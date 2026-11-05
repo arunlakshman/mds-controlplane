@@ -1,4 +1,4 @@
-// Package metadata is the kernel of the replicated control-plane state (decision
+// Package metadb is the kernel of the replicated control-plane state (decision
 // 49). It was called stateupdater before. It is the production state machine of
 // design A: the same semantics as spec.ControlPlane, on an embedded ordered
 // KV store instead of in-memory maps. internal/spec stays the independent
