@@ -65,19 +65,10 @@ func (c *crcReader) ReadByte() (byte, error) {
 
 // Snapshot writes a consistent checkpoint of the store, tagged with slot.
 func (a *DB) Snapshot(w io.Writer, slot int64) error {
-	return a.SnapshotAt(w, func() int64 { return slot })
-}
-
-// SnapshotAt is Snapshot with the slot decided once the consistent view
-// exists: begin runs after the view is established and before anything is
-// read, and returns the slot to tag. A replica uses it to read its applied
-// counter at exactly the point the view was taken (it blocks its apply loop
-// until begin returns, not for the whole copy).
-func (a *DB) SnapshotAt(w io.Writer, begin func() int64) error {
 	crc := crc32.NewIEEE()
 	bw := bufio.NewWriter(io.MultiWriter(w, crc))
 	var werr error
-	err := a.keyValue.View(func(transaction engine.Txn) { werr = writeSnapshot(bw, transaction, begin) })
+	err := a.keyValue.View(func(transaction engine.Txn) { werr = writeSnapshot(bw, transaction, slot) })
 	if err = errors.Join(err, werr); err != nil {
 		return err
 	}
@@ -89,10 +80,10 @@ func (a *DB) SnapshotAt(w io.Writer, begin func() int64) error {
 	return err
 }
 
-func writeSnapshot(bw *bufio.Writer, transaction engine.Txn, begin func() int64) error {
+func writeSnapshot(bw *bufio.Writer, transaction engine.Txn, slot int64) error {
 	// bufio.Writer latches write errors; Flush below reports them.
 	_, _ = bw.WriteString(snapshotMarker)
-	_, _ = bw.Write(binary.AppendVarint(nil, begin()))
+	_, _ = bw.Write(binary.AppendVarint(nil, slot))
 	var werr error
 	transaction.Ascend([]byte{0}, nil, func(k, v []byte) bool {
 		werr = writeEntry(bw, k, v)

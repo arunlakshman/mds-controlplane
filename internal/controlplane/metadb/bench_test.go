@@ -35,7 +35,7 @@ func benchSegment(rng *rand.Rand, n, parts int) contract.CommitSegment {
 	return cs
 }
 
-// BenchmarkApply150 applies segments of 150 partitions, 8 commands per
+// BenchmarkApply150 applies segments of 150 partitions, one command per
 // transaction, onto a store holding 2,000 segments already. The reported
 // segs/s is the apply rate to compare with 430 segments/s (docs/applier-bakeoff.md).
 func BenchmarkApply150(b *testing.B) {
@@ -48,15 +48,11 @@ func BenchmarkApply150(b *testing.B) {
 	rng := rand.New(rand.NewSource(1)) //nolint:gosec // G404: deterministic test/sim PRNG
 	n := 0
 	apply := func(k int) {
-		for done := 0; done < k; done += 8 {
-			var batch []metadb.Command
-			for j := 0; j < 8 && done+j < k; j++ {
-				batch = append(batch, metadb.Command{Slot: int64(n), Op: benchSegment(rng, n, 150)})
-				n++
-			}
-			if _, err := a.CommitBatch(batch); err != nil {
+		for range k {
+			if _, err := a.Write(int64(n), benchSegment(rng, n, 150)); err != nil {
 				b.Fatal(err)
 			}
+			n++
 		}
 	}
 	apply(2000)

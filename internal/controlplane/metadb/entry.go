@@ -83,12 +83,6 @@ func EntryOf(operation runtime.ControlPlaneOperation) (Entry, bool) {
 	return Entry{}, false
 }
 
-// CreateEntry is the log entry of a CreateTopic.
-func CreateEntry(operation contract.CreateTopic) Entry {
-	e, _ := EntryOf(operation)
-	return e
-}
-
 // Encode serialises an entry.
 func Encode(en Entry) []byte {
 	w := engine.NewWriter()
@@ -119,11 +113,11 @@ func Decode(b []byte) (Entry, error) {
 }
 
 // NewMem returns a metadb over an in-memory KV. No Pebble. Suitable for the
-// DSM Step fold and for tests that need the pure command fold.
+// replica Step and for tests that need the pure command fold.
 func NewMem() *DB { return New(memory.New()) }
 
 // Apply folds one log entry at slot into the store. No-ops leave state unchanged.
-// A store failure panics (fail-stop), matching Commit.
+// A store failure panics (fail-stop).
 func (a *DB) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
 	if e.Kind == KindNoop {
 		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Outcome: runtime.Applied}

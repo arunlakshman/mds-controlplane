@@ -54,7 +54,11 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 
 func exec(t testing.TB, a *metadb.DB, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	t.Helper()
-	return a.Exec(runtime.ControlPlaneCall{Req: 1, Op: operation}).(runtime.ControlPlaneDone)
+	d, err := (&localStore{a: a}).Exec(t.Context(), operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
 
 func snapshotBytes(t *testing.T, a *metadb.DB) []byte {

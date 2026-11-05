@@ -10,6 +10,8 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -36,10 +38,10 @@ func TestTrimForgetsKeysNotOffsets(t *testing.T) {
 	mustCommit(t, a, 0, commit("old", pb("a", 0, 5)))
 	mustCommit(t, a, 5, commit("new", pb("a", 0, 5)))
 	h := a.StateHash()
-	if n, err := a.Trim(5); err != nil || n != 1 || a.Window() != 1 {
-		t.Fatalf("Trim dropped %d err %v window %d", n, err, a.Window())
+	if n, err := a.Trim(5); err != nil || n != 1 {
+		t.Fatalf("Trim dropped %d err %v", n, err)
 	}
-	if a.StateHash() != h || a.End(contract.NewTopicPartition("a", 0)) != 10 {
+	if a.StateHash() != h || endOf(t, a, contract.NewTopicPartition("a", 0)) != 10 {
 		t.Fatal("trim changed offsets or runs")
 	}
 	// "new" is still in the window: replay answers the original ranges.
@@ -58,18 +60,19 @@ func TestInvalidAndUnknown(t *testing.T) {
 	if a.CreateTopic("", 1) != runtime.ErrInvalid || a.CreateTopic("t", 0) != runtime.ErrInvalid {
 		t.Fatal("CreateTopic must reject empty name and non-positive partitions")
 	}
-	if d := a.Exec(runtime.ControlPlaneCall{Op: contract.FindSegments{From: -1}}).(runtime.ControlPlaneDone); d.Err != runtime.ErrInvalid {
+	if d := exec(t, a, contract.FindSegments{From: -1}); d.Err != runtime.ErrInvalid {
 		t.Fatalf("Lookup From<0: %+v", d)
 	}
-	if d := a.Exec(runtime.ControlPlaneCall{Op: nil}).(runtime.ControlPlaneDone); d.Err != runtime.ErrInvalid {
+	if d := exec(t, a, nil); d.Err != runtime.ErrInvalid {
 		t.Fatalf("unknown op: %+v", d)
 	}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("Exec of a non-ControlPlaneCall must panic")
-		}
-	}()
-	a.Exec(runtime.ObjectPut{})
+	// A read is not a command and a command is not a read.
+	if d, err := a.Write(0, contract.DescribeTopics{}); err != nil || d.Err != runtime.ErrInvalid {
+		t.Fatalf("Write of a read: %+v %v", d, err)
+	}
+	if d, err := a.Read(contract.CreateTopic{Name: "t", Partitions: 1}); err != nil || d.Err != runtime.ErrInvalid {
+		t.Fatalf("Read of a command: %+v %v", d, err)
+	}
 }
 
 // TestCreateTopicExclusive runs the create steps in log order on both stores.
@@ -97,20 +100,20 @@ func TestCreateTopicExclusive(t *testing.T) {
 			t.Cleanup(func() { _ = a.Close() })
 			for i, s := range steps {
 				before := a.StateHash()
-				d := a.Exec(runtime.ControlPlaneCall{Req: runtime.RequestID(i), Op: s.operation}).(runtime.ControlPlaneDone)
+				d, err := a.Write(int64(i), s.operation)
+				if err != nil {
+					t.Fatal(err)
+				}
 				if d.Err != s.code {
 					t.Fatalf("%s: code %v, want %v", s.name, d.Err, s.code)
 				}
 				if s.code != runtime.OK && a.StateHash() != before {
 					t.Fatalf("%s: the state changed on a failed create", s.name)
 				}
-				if s.code == runtime.OK && d.Outcome != runtime.Applied {
-					t.Fatalf("%s: outcome %v, want Applied", s.name, d.Outcome)
-				}
 				if s.parts == 0 {
 					continue
 				}
-				got, err := a.Describe(contract.DescribeTopics{Topics: []string{s.operation.Name}})
+				got, err := a.Read(contract.DescribeTopics{Topics: []string{s.operation.Name}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -123,28 +126,37 @@ func TestCreateTopicExclusive(t *testing.T) {
 }
 
 func TestAssignedStates(t *testing.T) {
-	a := metadb.New(memory.New())
+	engineKV := memory.New()
+	a := metadb.New(engineKV)
+	assigned := func(slot int64, operation contract.CommitSegment) ([]contract.BatchRange, topics.AssignState) {
+		var rs []contract.BatchRange
+		var st topics.AssignState
+		if err := engineKV.View(func(transaction engine.Txn) { rs, st = topics.Assigned(transaction, slot, operation) }); err != nil {
+			t.Fatal(err)
+		}
+		return rs, st
+	}
 	operation := commit("k1", pb("a", 0, 3), pb("a", 1, 2))
 	first := mustCommit(t, a, 5, operation)
 	want := first.Resp.(contract.CommitSegmentResp).Assigned
 
-	rs, st, err := a.Assigned(5, operation)
-	if err != nil || st != metadb.OffsetOwnedHere || !reflect.DeepEqual(rs, want) {
-		t.Fatalf("here: %v %v %+v", err, st, rs)
+	rs, st := assigned(5, operation)
+	if st != topics.OffsetOwnedHere || !reflect.DeepEqual(rs, want) {
+		t.Fatalf("here: %v %+v", st, rs)
 	}
-	if _, st, _ = a.Assigned(9, operation); st != metadb.OffsetOwnedElsewhere { // a replay at a later slot
+	if _, st = assigned(9, operation); st != topics.OffsetOwnedElsewhere { // a replay at a later slot
 		t.Fatalf("other slot: %v", st)
 	}
-	if _, st, _ = a.Assigned(5, commit("k1", pb("a", 0, 4))); st != metadb.OffsetOwnedElsewhere { // a conflict
+	if _, st = assigned(5, commit("k1", pb("a", 0, 4))); st != topics.OffsetOwnedElsewhere { // a conflict
 		t.Fatalf("conflict: %v", st)
 	}
-	if _, st, _ = a.Assigned(5, commit("nope", pb("a", 0, 1))); st != metadb.OffsetOwnerUnknown {
+	if _, st = assigned(5, commit("nope", pb("a", 0, 1))); st != topics.OffsetOwnerUnknown {
 		t.Fatalf("unknown: %v", st)
 	}
-	if _, err = a.Trim(6); err != nil {
+	if _, err := a.Trim(6); err != nil {
 		t.Fatal(err)
 	}
-	if _, st, _ = a.Assigned(5, operation); st != metadb.OffsetOwnerUnknown { // forgotten by the window
+	if _, st = assigned(5, operation); st != topics.OffsetOwnerUnknown { // forgotten by the window
 		t.Fatalf("trimmed: %v", st)
 	}
 }
@@ -160,9 +172,38 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 
 func mustCommit(t *testing.T, a *metadb.DB, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
-	d, err := a.Commit(slot, operation)
+	d, err := a.Write(slot, operation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// exec runs an operation as a command or a read, whichever the store says it is.
+func exec(t testing.TB, a *metadb.DB, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+	t.Helper()
+	var d runtime.ControlPlaneDone
+	var err error
+	switch a.Mode(operation) {
+	case module.Logged:
+		d, err = a.Write(0, operation)
+	case module.ReadOnly:
+		d, err = a.Read(operation)
+	default:
+		d.Err = runtime.ErrInvalid
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// endOf is the next offset of a partition, read through FindSegments.
+func endOf(t testing.TB, a *metadb.DB, tp contract.TopicPartition) contract.Offset {
+	t.Helper()
+	d := exec(t, a, contract.FindSegments{TopicPartition: tp})
+	if d.Err != runtime.OK {
+		t.Fatalf("FindSegments: %v", d.Err)
+	}
+	return runtime.ResponseAs[contract.FindSegmentsResp](d).End
 }

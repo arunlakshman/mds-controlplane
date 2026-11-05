@@ -47,8 +47,8 @@ func TestSnapshotRestoreAndReplay(t *testing.T) {
 			if err != nil || slot != 2 {
 				t.Fatalf("restore slot %d err %v", slot, err)
 			}
-			if a.StateHash() != b.StateHash() || b.Window() != 2 {
-				t.Fatalf("restored state differs: hash %x vs %x, window %d", a.StateHash(), b.StateHash(), b.Window())
+			if a.StateHash() != b.StateHash() {
+				t.Fatalf("restored state differs: hash %x vs %x", a.StateHash(), b.StateHash())
 			}
 			// A replay of a window key answers with the ORIGINAL ranges after restore.
 			if got := mustCommit(t, b, 9, commit("k0", pb("a", 0, 3), pb("a", 0, 2), pb("b", 7, 1))); !reflect.DeepEqual(got, first) {
@@ -150,30 +150,6 @@ func TestStoreAdapter(t *testing.T) {
 	}
 }
 
-func TestCommitBatchEqualsSequential(t *testing.T) {
-	cmds := []metadb.Command{
-		{Slot: 0, Op: commit("k0", pb("a", 0, 3), pb("a", 1, 2))},
-		{Slot: 1, Op: commit("k1", pb("a", 0, 4))},                // continues partition 0 inside the same transaction
-		{Slot: 2, Op: commit("k0", pb("a", 0, 3), pb("a", 1, 2))}, // a replay of a key committed in this very batch
-		{Slot: 3, Op: commit("k1", pb("a", 0, 1))},                // conflict
-		{Slot: 4, Op: commit("bad")},
-	}
-	one, many := metadb.New(memory.New()), metadb.New(memory.New())
-	got, err := many.CommitBatch(cmds)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i, c := range cmds {
-		want := mustCommit(t, one, c.Slot, c.Op)
-		if !reflect.DeepEqual(got[i], want) {
-			t.Fatalf("command %d: batch %+v, sequential %+v", i, got[i], want)
-		}
-	}
-	if one.StateHash() != many.StateHash() || one.Window() != many.Window() {
-		t.Fatal("state differs")
-	}
-}
-
 func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
 	a := metadb.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 2)))
@@ -202,9 +178,9 @@ func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
 // before the entry.
 func TestCreateEntryReplay(t *testing.T) {
 	entries := []metadb.Entry{
-		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
-		metadb.CreateEntry(contract.CreateTopic{Name: "t", Partitions: 2}),
+		entryOf(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		entryOf(contract.CreateTopic{Name: "t", Partitions: 2, FailIfExists: true}),
+		entryOf(contract.CreateTopic{Name: "t", Partitions: 2}),
 	}
 	want := []runtime.ErrCode{runtime.OK, runtime.ErrTopicExists, runtime.OK}
 	for run := range 2 {
@@ -219,23 +195,6 @@ func TestCreateEntryReplay(t *testing.T) {
 	}
 }
 
-func TestSnapshotAtTagsTheViewsSlot(t *testing.T) {
-	a := metadb.New(memory.New())
-	mustCommit(t, a, 0, commit("k", pb("a", 0, 1)))
-	var buf bytes.Buffer
-	called := 0
-	if err := a.SnapshotAt(&buf, func() int64 { called++; return 77 }); err != nil || called != 1 {
-		t.Fatalf("%v %d", err, called)
-	}
-	b := metadb.New(memory.New())
-	if slot, err := b.Restore(&buf); err != nil || slot != 77 {
-		t.Fatalf("slot %d err %v", slot, err)
-	}
-	if a.StateHash() != b.StateHash() {
-		t.Fatal("state differs")
-	}
-}
-
 func commit(key string, bs ...contract.PendingBatch) contract.CommitSegment {
 	return contract.CommitSegment{SegmentKey: key, Batches: bs}
 }
@@ -247,9 +206,19 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 
 func mustCommit(t *testing.T, a *metadb.DB, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
-	d, err := a.Commit(slot, operation)
+	d, err := a.Write(slot, operation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// endOf is the next offset of a partition, read through FindSegments.
+func endOf(t testing.TB, a *metadb.DB, tp contract.TopicPartition) contract.Offset {
+	t.Helper()
+	d, err := a.Read(contract.FindSegments{TopicPartition: tp})
+	if err != nil || d.Err != runtime.OK {
+		t.Fatalf("FindSegments: %v %v", d.Err, err)
+	}
+	return runtime.ResponseAs[contract.FindSegmentsResp](d).End
 }

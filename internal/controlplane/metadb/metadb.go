@@ -3,10 +3,8 @@ package metadb
 import (
 	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -74,51 +72,4 @@ func (a *DB) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPlane
 	var d runtime.ControlPlaneDone
 	err := a.keyValue.View(func(transaction engine.Txn) { d = m.Read(transaction, operation) })
 	return d, err
-}
-
-// Exec runs one ControlPlaneCall like spec.ControlPlane.Apply. For a CommitSegment the
-// call's Req is the log slot (it orders the idempotency window for Trim). A
-// store failure panics.
-func (a *DB) Exec(act runtime.IOCall) runtime.IOResult {
-	call, ok := act.(runtime.ControlPlaneCall)
-	if !ok {
-		panic("metadata: not a ControlPlaneCall")
-	}
-	var d runtime.ControlPlaneDone
-	var err error
-	switch a.Mode(call.Op) {
-	case module.Logged:
-		d, err = a.Write(int64(call.Req), call.Op)
-		if _, isCreate := call.Op.(contract.CreateTopic); isCreate && d.Err == runtime.OK {
-			d.Outcome = runtime.Applied
-		}
-	case module.ReadOnly:
-		d, err = a.Read(call.Op)
-	default:
-		d.Err = runtime.ErrInvalid
-	}
-	mustStore(err)
-	d.Req = call.Req
-	return d
-}
-
-// Command is one CommitSegment at its log slot.
-type Command struct {
-	Slot int64
-	Op   contract.CommitSegment
-}
-
-// CommitBatch applies commands in order in ONE store transaction (each sees
-// the writes of the ones before it) and returns their answers. It is what a
-// replica uses to apply the slots one tail read delivered: the same state as
-// applying them one by one, with far fewer page writes in the store.
-func (a *DB) CommitBatch(cmds []Command) ([]runtime.ControlPlaneDone, error) {
-	var out []runtime.ControlPlaneDone
-	err := a.keyValue.Update(func(transaction engine.Txn) {
-		out = make([]runtime.ControlPlaneDone, len(cmds))
-		for i, c := range cmds {
-			out[i] = topics.Commit(transaction, c.Slot, c.Op)
-		}
-	})
-	return out, err
 }

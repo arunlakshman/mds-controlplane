@@ -70,8 +70,9 @@ func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 			t.Fatalf("answer[%d] = %+v", i, a)
 		}
 	}
-	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 4 { // g0 + 3 packed
-		t.Fatalf("end = %d, want 4", m.Metadata().End(contract.NewTopicPartition("t", 0)))
+	d, err := m.Metadata().Read(contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 0)})
+	if end := runtime.ResponseAs[contract.FindSegmentsResp](d).End; err != nil || end != 4 { // g0 + 3 packed
+		t.Fatalf("end = %d (err %v), want 4", end, err)
 	}
 }
 

@@ -52,8 +52,8 @@ func TestApplyBytesNoopAndCommit(t *testing.T) {
 	if a.StateHash() == before {
 		t.Fatal("commit left StateHash unchanged")
 	}
-	if a.End(contract.NewTopicPartition("t", 0)) != 2 {
-		t.Fatalf("end = %d, want 2", a.End(contract.NewTopicPartition("t", 0)))
+	if end := endOf(t, a, contract.NewTopicPartition("t", 0)); end != 2 {
+		t.Fatalf("end = %d, want 2", end)
 	}
 }
 

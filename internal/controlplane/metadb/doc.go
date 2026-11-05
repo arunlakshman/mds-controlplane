@@ -1,20 +1,20 @@
-// Package metadb is the kernel of the replicated control-plane state (decision
-// 49). It was called stateupdater before. It is the production state machine of
-// design A: the same semantics as spec.ControlPlane, on an embedded ordered
-// KV store instead of in-memory maps. internal/spec stays the independent
-// reference model (decision 21); this package is tested against it.
+// Package metadb is the kernel of the replicated control-plane state. It has
+// the same rules as the reference model in internal/spec, but it keeps the
+// state in an embedded ordered key-value store instead of in-memory maps.
+// internal/spec stays the independent reference; this package is tested
+// against it.
 //
 // The kernel holds a list of modules (module.Module): topics for topics and
 // segments, and groups/storage for consumer groups. Each module owns its own
 // key prefixes and its own rules. The kernel does four things:
-//   - It sends every operation to the module that owns it (Mode, Write, Read, Exec).
+//   - It sends every operation to the module that owns it (Mode, Write, Read).
 //     A new context is a new module in the list, not a new switch.
 //   - It owns the envelope of a log entry (Entry, Encode, Decode, EntryOf): the
 //     kind and the id. The module that owns a kind writes and reads the payload,
 //     so a new context brings its own encoding. The kernel applies the entries
-//     in log order (Apply, ApplyBytes, CommitBatch).
+//     in log order (Apply, ApplyBytes).
 //   - It writes and restores the checkpoint (Snapshot, Restore). The checkpoint
-//     carries every key of every module; its format did not change.
+//     carries every key of every module.
 //   - It computes the state hash, which leaves out the idempotency window.
 //
 // The key layout is in the packages that own the keys: T, E, R, K and S in
@@ -23,7 +23,7 @@
 // It is I/O shell code, outside the determinism closure, but its behaviour is
 // a pure function of the commands applied in order.
 //
-// A store failure is fail-stop: Exec and Apply panic (the replica's
+// A store failure is fail-stop: Apply and CreateTopic panic (the replica's
 // memory-equivalent state is no longer trustworthy); the error-returning
 // methods are for callers that handle it.
 //
