@@ -133,13 +133,31 @@ func drawPartition(t *rapid.T) contract.TopicPartition {
 	return contract.NewTopicPartition(pick(t, "topic", topicNames), int32(rapid.IntRange(0, 2).Draw(t, "partition")))
 }
 
-func drawBatch(t *rapid.T) contract.PendingBatch {
+// known are the partitions that exist in the model now.
+func (w *world) known() []contract.TopicPartition {
+	var tps []contract.TopicPartition
+	for _, topic := range w.model.Apply(contract.DescribeTopics{}).Resp.(contract.DescribeTopicsResp).Topics {
+		for p := range topic.Partitions {
+			tps = append(tps, contract.NewTopicPartition(topic.Name, p))
+		}
+	}
+	return tps
+}
+
+// drawBatch draws a partition that exists 3 times in 4, if there is one. A
+// commit to a partition that does not exist is ErrInvalid, so without this a
+// commit that succeeds, and then a replay of it, would be rare.
+func drawBatch(t *rapid.T, known []contract.TopicPartition) contract.PendingBatch {
 	records := int64(rapid.IntRange(1, 4).Draw(t, "records"))
 	if rare(t, "no records") {
 		records = 0
 	}
 	loc := runtime.SegmentRef{Key: "seg", Off: int64(rapid.IntRange(0, 50).Draw(t, "off")), Len: int64(rapid.IntRange(1, 12).Draw(t, "len"))}
-	return contract.PendingBatch{TopicPartition: drawPartition(t), Records: records, Loc: loc}
+	tp := drawPartition(t)
+	if len(known) > 0 && rapid.IntRange(0, 3).Draw(t, "partition exists") < 3 {
+		tp = rapid.SampledFrom(known).Draw(t, "existing partition")
+	}
+	return contract.PendingBatch{TopicPartition: tp, Records: records, Loc: loc}
 }
 
 func find(w *world) {
@@ -186,7 +204,9 @@ func commit(w *world) {
 		w.do("commit.conflict", other)
 		return
 	}
-	op := contract.CommitSegment{SegmentKey: pick(w.t, "key", segmentKeys), Batches: rapid.SliceOfN(rapid.Custom(drawBatch), 1, 4).Draw(w.t, "batches")}
+	known := w.known()
+	batch := rapid.Custom(func(t *rapid.T) contract.PendingBatch { return drawBatch(t, known) })
+	op := contract.CommitSegment{SegmentKey: pick(w.t, "key", segmentKeys), Batches: rapid.SliceOfN(batch, 1, 4).Draw(w.t, "batches")}
 	if rare(w.t, "no batches") {
 		op.Batches = nil
 	}
