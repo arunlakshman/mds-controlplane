@@ -18,9 +18,9 @@ import (
 //
 //   - groups/coordinator.go, group.go, clock.go: the coordinator
 //     logic. It keeps the phase of each group, the parked calls and the timers.
-//   - server/groups.go: this file. It holds the gRPC group handlers and the
+//   - server/groups_handler.go: this file. It holds the gRPC group handlers and the
 //     log and read side of the coordinator (nodeGroups, over Node.Exec in
-//     server/topics.go).
+//     server/topics_handler.go).
 //   - the end of this file: maps group requests and responses to and from the
 //     wire types.
 //   - groups/storage/module.go, write.go: the group module: the fold of

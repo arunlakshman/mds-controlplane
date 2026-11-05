@@ -7,8 +7,8 @@
 // (decision 21).
 //
 // Broker membership (heartbeat and the live broker set) is one feature in
-// several packages. Its file is brokers.go in each; the map is at the top of
-// server/brokers.go.
+// several packages. Its file is brokers_handler.go in each; the map is at the top of
+// server/brokers_handler.go.
 //
 // All tests and test support live in controlplanetest (see its doc.go). Helpers under
 // this tree (metadata, executor) support the
@@ -23,7 +23,8 @@
 //   - server: the gRPC adapter for the control-plane machine. Each handler reads the
 //     generated api/v1 message and builds the contract value itself (the conversions
 //     sit at the end of its file). It has one file
-//     per context: topics.go, groups.go, brokers.go and status.go. node.go is
+//     per context: topics_handler.go, groups_handler.go, brokers_handler.go and
+//     status_handler.go. node.go is
 //     only the node's life: start, stop, the run loop and the roles.
 //   - (outside this tree) internal/system/live: the production runner of a dst
 //     process. One goroutine owns Step, timers and inject work. It imports only dst
