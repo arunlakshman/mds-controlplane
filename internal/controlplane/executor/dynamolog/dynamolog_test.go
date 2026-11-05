@@ -1,3 +1,5 @@
+//go:build integration
+
 package dynamolog_test
 
 import (
@@ -11,22 +13,66 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/fakedynamodb"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/dynamolog"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/logtest"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
+	"github.com/manifesterio/mds-controlplane/internal/testinfra"
 )
 
-// newDynFake returns a fake DynamoDB with the log table "cp".
-func newDynFake(t *testing.T) *fakedynamodb.FakeDynamoDB {
+func TestMain(m *testing.M) { testinfra.Main(m) }
+
+// newDB returns a client for DynamoDB Local and the name of a fresh log table.
+func newDB(t *testing.T) (*dynamodb.Client, string) {
 	t.Helper()
-	db := fakedynamodb.New()
-	if _, err := db.CreateTable(t.Context(), &dynamodb.CreateTableInput{TableName: aws.String("cp")}); err != nil {
+	info := testinfra.DynamoDB(t)
+	return info.Client, info.Table
+}
+
+// failDB passes calls to Client, except those for which Fail returns an error:
+// DynamoDB Local cannot be made to fail, so the failure is injected here.
+type failDB struct {
+	dynamolog.Client
+	Fail func(call string) error
+}
+
+func (f *failDB) failing(call string) error {
+	if f.Fail == nil {
+		return nil
+	}
+	return f.Fail(call)
+}
+
+func (f *failDB) PutItem(ctx context.Context, in *dynamodb.PutItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	if err := f.failing("PutItem"); err != nil {
+		return nil, err
+	}
+	return f.Client.PutItem(ctx, in, opts...)
+}
+
+func (f *failDB) GetItem(ctx context.Context, in *dynamodb.GetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	if err := f.failing("GetItem"); err != nil {
+		return nil, err
+	}
+	return f.Client.GetItem(ctx, in, opts...)
+}
+
+func (f *failDB) UpdateItem(ctx context.Context, in *dynamodb.UpdateItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	if err := f.failing("UpdateItem"); err != nil {
+		return nil, err
+	}
+	return f.Client.UpdateItem(ctx, in, opts...)
+}
+
+// count returns how many items the table holds.
+func count(t *testing.T, db *dynamodb.Client, table string) int {
+	t.Helper()
+	out, err := db.Scan(t.Context(), &dynamodb.ScanInput{TableName: &table, Select: types.SelectCount, ConsistentRead: aws.Bool(true)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return db
+	return int(out.Count)
 }
 
 // recDB records the names of the DynamoDB calls it passes on, in order.
@@ -71,15 +117,15 @@ func indexOf(calls []string, name string) int {
 }
 
 func TestClaimEpochError(t *testing.T) {
-	db := newDynFake(t)
+	real, table := newDB(t)
 	boom := errors.New("boom")
-	db.Fail = func(call string) error {
+	db := &failDB{Client: real, Fail: func(call string) error {
 		if call == "UpdateItem" {
 			return boom
 		}
 		return nil
-	}
-	l := dynamolog.New(db, "cp", dynamolog.Options{})
+	}}
+	l := dynamolog.New(db, table, dynamolog.Options{})
 	_, _, won, err := l.ClaimEpoch(t.Context(), 0, "cp-0")
 	if !errors.Is(err, boom) || won {
 		t.Fatalf("got won=%v err=%v, want boom and not won", won, err)
@@ -88,9 +134,9 @@ func TestClaimEpochError(t *testing.T) {
 
 func TestTrimRaisesFloorBeforeDelete(t *testing.T) {
 	ctx := t.Context()
-	db := newDynFake(t)
+	db, table := newDB(t)
 	rec := &recDB{Client: db}
-	l := dynamolog.New(rec, "cp", dynamolog.Options{})
+	l := dynamolog.New(rec, table, dynamolog.Options{})
 	for slot := range 3 {
 		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
@@ -105,56 +151,58 @@ func TestTrimRaisesFloorBeforeDelete(t *testing.T) {
 		t.Fatalf("call order %v: want UpdateItem (floor) before BatchWriteItem (delete)", rec.calls)
 	}
 	// Two items: the live row at slot 2 and the floor item.
-	if got := db.Count("cp"); got != 2 {
+	if got := count(t, db, table); got != 2 {
 		t.Fatalf("items after trim = %d, want 2 (row at slot 2 and the floor item)", got)
 	}
-	floor := db.Item("cp", map[string]types.AttributeValue{
+	got, err := db.GetItem(ctx, &dynamodb.GetItemInput{TableName: &table, ConsistentRead: aws.Bool(true), Key: map[string]types.AttributeValue{
 		"pk": &types.AttributeValueMemberS{Value: "META"}, "sk": &types.AttributeValueMemberS{Value: "FLOOR"},
-	})
-	if got := floor["floor"].(*types.AttributeValueMemberN).Value; got != "1" {
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := got.Item["floor"].(*types.AttributeValueMemberN).Value; got != "1" {
 		t.Fatalf("floor = %s, want 1", got)
 	}
 }
 
 func TestTrimKeepsRowsWhenFloorFails(t *testing.T) {
 	ctx := t.Context()
-	db := newDynFake(t)
-	l := dynamolog.New(db, "cp", dynamolog.Options{})
+	db, table := newDB(t)
+	l := dynamolog.New(db, table, dynamolog.Options{})
 	for slot := range 3 {
 		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
 		}
 	}
 	boom := errors.New("boom")
-	rec := &recDB{Client: db}
-	db.Fail = func(call string) error {
+	rec := &recDB{Client: &failDB{Client: db, Fail: func(call string) error {
 		if call == "UpdateItem" {
 			return boom
 		}
 		return nil
-	}
-	l = dynamolog.New(rec, "cp", dynamolog.Options{})
+	}}}
+	l = dynamolog.New(rec, table, dynamolog.Options{})
 	if err := l.TrimThrough(ctx, 1); !errors.Is(err, boom) {
 		t.Fatalf("trim err = %v, want boom", err)
 	}
 	if indexOf(rec.calls, "BatchWriteItem") >= 0 {
 		t.Fatalf("rows deleted although the floor was not raised: %v", rec.calls)
 	}
-	if got := db.Count("cp"); got != 3 {
+	if got := count(t, db, table); got != 3 {
 		t.Fatalf("rows = %d, want all 3 kept", got)
 	}
 }
 
 func TestAppendFloorReadFails(t *testing.T) {
-	db := newDynFake(t)
+	real, table := newDB(t)
 	boom := errors.New("boom")
-	db.Fail = func(call string) error {
+	db := &failDB{Client: real, Fail: func(call string) error {
 		if call == "GetItem" {
 			return boom
 		}
 		return nil
-	}
-	l := dynamolog.New(db, "cp", dynamolog.Options{})
+	}}
+	l := dynamolog.New(db, table, dynamolog.Options{})
 	_, _, err := l.Append(t.Context(), 0, []byte("x"))
 	if !errors.Is(err, boom) {
 		t.Fatalf("append err = %v, want boom", err)
@@ -167,8 +215,8 @@ func TestAppendFloorReadFails(t *testing.T) {
 
 func TestReadFloorAfterQuery(t *testing.T) {
 	ctx := t.Context()
-	db := newDynFake(t)
-	l := dynamolog.New(db, "cp", dynamolog.Options{})
+	db, table := newDB(t)
+	l := dynamolog.New(db, table, dynamolog.Options{})
 	for slot := range 3 {
 		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("x")); err != nil {
 			t.Fatal(err)
@@ -188,7 +236,7 @@ func TestReadFloorAfterQuery(t *testing.T) {
 	}
 
 	rec := &recDB{Client: db}
-	l = dynamolog.New(rec, "cp", dynamolog.Options{})
+	l = dynamolog.New(rec, table, dynamolog.Options{})
 	ents, err := l.Read(ctx, 0, 10)
 	if err != nil || len(ents) != 2 || ents[0].Slot != 1 || ents[1].Slot != 2 {
 		t.Fatalf("read: %+v %v, want slots 1 and 2 only", ents, err)
@@ -202,9 +250,9 @@ func TestReadFloorAfterQuery(t *testing.T) {
 // path. It is one extra consistent GetItem each time.
 func TestAppendFloorReadOnlyAfterPut(t *testing.T) {
 	ctx := t.Context()
-	db := newDynFake(t)
+	db, table := newDB(t)
 	rec := &recDB{Client: db}
-	l := dynamolog.New(rec, "cp", dynamolog.Options{})
+	l := dynamolog.New(rec, table, dynamolog.Options{})
 	for slot := range 2 {
 		if _, _, err := l.Append(ctx, runtime.LogPosition(slot), []byte("a")); err != nil {
 			t.Fatal(err)
@@ -234,11 +282,8 @@ func TestAppendFloorReadOnlyAfterPut(t *testing.T) {
 
 func TestDynLog(t *testing.T) {
 	ctx := t.Context()
-	db := fakedynamodb.New()
-	if _, err := db.CreateTable(ctx, &dynamodb.CreateTableInput{TableName: aws.String("cp")}); err != nil {
-		t.Fatal(err)
-	}
-	l := dynamolog.New(db, "cp", dynamolog.Options{TTL: time.Hour, Clock: fakeclock.New(time.Unix(1_700_000_000, 0))})
+	db, table := newDB(t)
+	l := dynamolog.New(db, table, dynamolog.Options{TTL: time.Hour, Clock: fakeclock.New(time.Unix(1_700_000_000, 0))})
 	if _, taken, err := l.Append(ctx, 0, []byte("x")); err != nil || taken {
 		t.Fatalf("append: taken=%v err=%v", taken, err)
 	}
@@ -267,5 +312,8 @@ func TestDynLog(t *testing.T) {
 }
 
 func TestConformance(t *testing.T) {
-	logtest.Run(t, func(t *testing.T) executor.Log { return dynamolog.New(newDynFake(t), "cp", dynamolog.Options{}) })
+	logtest.Run(t, func(t *testing.T) executor.Log {
+		db, table := newDB(t)
+		return dynamolog.New(db, table, dynamolog.Options{})
+	})
 }
