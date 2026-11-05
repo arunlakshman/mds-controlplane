@@ -1,4 +1,4 @@
-package membership_test
+package broker_test
 
 import (
 	"reflect"
@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/broker"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -20,7 +20,7 @@ func ids(bs []contract.BrokerAddr) []int32 {
 
 func TestRegisterRenewExpire(t *testing.T) {
 	const ttl = 5 * time.Second
-	s := membership.New(ttl)
+	s := broker.New(ttl)
 	t0 := runtime.NodeTime(1000 * time.Second)
 	b1 := contract.BrokerAddr{NodeID: 1, Host: "h1", Port: 9092}
 
@@ -46,7 +46,7 @@ func TestRegisterRenewExpire(t *testing.T) {
 }
 
 func TestRenewNewAddressReplaces(t *testing.T) {
-	s := membership.New(time.Minute)
+	s := broker.New(time.Minute)
 	t0 := runtime.NodeTime(0)
 	s.Renew(contract.BrokerAddr{NodeID: 2, Host: "old", Port: 1}, t0)
 	s.Renew(contract.BrokerAddr{NodeID: 2, Host: "new", Port: 2}, t0)
@@ -57,7 +57,7 @@ func TestRenewNewAddressReplaces(t *testing.T) {
 }
 
 func TestLiveSortedByNodeID(t *testing.T) {
-	s := membership.New(time.Minute)
+	s := broker.New(time.Minute)
 	t0 := runtime.NodeTime(0)
 	for _, id := range []int32{3, 1, 2} {
 		s.Renew(contract.BrokerAddr{NodeID: id, Host: "h", Port: 9092}, t0)
@@ -71,7 +71,7 @@ func TestLiveSortedByNodeID(t *testing.T) {
 
 func TestOnlyFreshLeasesLive(t *testing.T) {
 	const ttl = 3 * time.Second
-	s := membership.New(ttl)
+	s := broker.New(ttl)
 	t0 := runtime.NodeTime(0)
 	s.Renew(contract.BrokerAddr{NodeID: 1, Host: "a"}, t0)
 	s.Renew(contract.BrokerAddr{NodeID: 2, Host: "b"}, at(t0, 2*time.Second))
@@ -87,7 +87,7 @@ func at(t0 runtime.NodeTime, d time.Duration) runtime.NodeTime { return t0 + run
 
 func TestValid(t *testing.T) {
 	ok := contract.BrokerAddr{NodeID: 1, Host: "h", Port: 9092}
-	if !membership.Valid(ok) {
+	if !broker.Valid(ok) {
 		t.Fatal("a good address was refused")
 	}
 	for name, b := range map[string]contract.BrokerAddr{
@@ -95,7 +95,7 @@ func TestValid(t *testing.T) {
 		"no host":    {NodeID: 1, Port: 9092},
 		"no port":    {NodeID: 1, Host: "h"},
 	} {
-		if membership.Valid(b) {
+		if broker.Valid(b) {
 			t.Errorf("%s was accepted", name)
 		}
 	}

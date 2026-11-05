@@ -6,7 +6,7 @@ package server
 // Where the pieces live:
 //   - wire messages: api/v1 (BrokerInfo, BrokerHeartbeat*)
 //   - conversions: package wire
-//   - membership: the lease rules (who is alive)
+//   - broker: the lease rules (who is alive)
 //   - this file: the handler
 //   - broker side: system/production/lease.go sends the heartbeat and turns the
 //     answer into a runtime.LiveBrokers event
@@ -19,7 +19,7 @@ import (
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/broker"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -30,7 +30,7 @@ import (
 // standby answers Unavailable and the broker client tries the next address.
 func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbeatRequest) (*cpv1.BrokerHeartbeatResponse, error) {
 	b := wire.BrokerHeartbeatRequestToCore(request).Broker
-	if !membership.Valid(b) {
+	if !broker.Valid(b) {
 		return nil, wire.ToRPCError(runtime.ErrInvalid, runtime.NotApplied)
 	}
 	type result struct {

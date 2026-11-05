@@ -1,4 +1,4 @@
-// Package membership is the broker membership context of the control plane:
+// Package broker is the broker context of the control plane:
 // which brokers are alive. Each broker sends a heartbeat to renew its lease, and
 // the active control-plane node answers with the live broker set (decision Q4,
 // Q7b).
@@ -9,7 +9,7 @@
 //
 // Time comes from the caller, as runtime.NodeTime, so the rules are the same with
 // the real clock and the fake one.
-package membership
+package broker
 
 import (
 	"cmp"

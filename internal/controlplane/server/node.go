@@ -14,9 +14,9 @@ import (
 
 	"github.com/manifesterio/dst/sched"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/broker"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/membership"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/live"
@@ -50,7 +50,7 @@ type Node struct {
 	inject chan live.InjectFunc
 	m      atomic.Pointer[replica.Replica]
 	health *health.Server
-	leases *membership.Leases  // run loop only; empty until brokers heartbeat
+	leases *broker.Leases      // run loop only; empty until brokers heartbeat
 	groups *groups.Coordinator // serves group calls while this node is active
 
 	mu        sync.Mutex
@@ -88,14 +88,14 @@ func New(config Config) *Node {
 		config.StopGrace = runtime.Duration(15e9) // 15s
 	}
 	if config.BrokerLeaseTTL <= 0 {
-		config.BrokerLeaseTTL = membership.DefaultTTL
+		config.BrokerLeaseTTL = broker.DefaultTTL
 	}
 	n := &Node{
 		config:   config,
 		inbox:    live.NewInbox(),
 		inject:   make(chan live.InjectFunc, 64),
 		health:   health.NewServer(),
-		leases:   membership.New(config.BrokerLeaseTTL),
+		leases:   broker.New(config.BrokerLeaseTTL),
 		waiters:  map[runtime.RequestID]chan runtime.ControlPlaneDone{},
 		shutdown: make(chan struct{}),
 		loopDone: make(chan struct{}),
