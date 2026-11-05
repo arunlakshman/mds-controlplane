@@ -99,10 +99,19 @@ func TestImportRules(t *testing.T) {
 	for _, a := range []string{"dynamolog", "sqllog"} {
 		onlyImports(t, pkgs, cp+"executor/"+a, []string{cp + "executor", rt, "internal/system/realclock"}, false)
 	}
+	// The log entries and the shared messages do not pull in grpc: only the service package does.
+	onlyImports(t, pkgs, cp+"api/controlplane/log/v1", []string{cp + "api/controlplane/shared/v1"}, false)
+	for _, dir := range []string{cp + "api/controlplane/log/v1", cp + "api/controlplane/shared/v1"} {
+		for _, imp := range pkgs[dir].imports {
+			if strings.HasPrefix(imp, "google.golang.org/grpc") {
+				t.Errorf("%s imports %s: only the service package may use grpc", dir, imp)
+			}
+		}
+	}
 	// runtime never imports contract, and neither imports the wire packages (tests included).
 	for _, dir := range []string{rt, cp + "contract"} {
 		for _, imp := range append(slices.Clone(pkgs[dir].imports), pkgs[dir].tests...) {
-			if rel := local(imp); rel == cp+"api/v1" || rel == cp+"wire" || (dir == rt && rel == cp+"contract") {
+			if rel := local(imp); strings.HasPrefix(rel, cp+"api/") || rel == cp+"wire" || (dir == rt && rel == cp+"contract") {
 				t.Errorf("%s imports %s: not allowed", dir, rel)
 			}
 		}

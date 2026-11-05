@@ -12,7 +12,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
@@ -81,9 +82,9 @@ func TestCommitLookupRoundTrip(t *testing.T) {
 	}
 	cr, err := cli.CommitSegment(t.Context(), &cpv1.CommitSegmentRequest{
 		SegmentKey: "s1",
-		Batches: []*cpv1.PendingBatch{{
-			Tp: &cpv1.TopicPartition{Topic: "t", Partition: 0}, Records: 3,
-			Loc: &cpv1.SegmentRef{Key: "s1", Off: 0, Len: 9},
+		Batches: []*sharedv1.PendingBatch{{
+			Tp: &sharedv1.TopicPartition{Topic: "t", Partition: 0}, Records: 3,
+			Loc: &sharedv1.SegmentRef{Key: "s1", Off: 0, Len: 9},
 		}},
 	})
 	if err != nil {
@@ -93,7 +94,7 @@ func TestCommitLookupRoundTrip(t *testing.T) {
 		t.Fatalf("assigned = %+v", cr.Assigned)
 	}
 	lr, err := cli.Lookup(t.Context(), &cpv1.LookupRequest{
-		Tp: &cpv1.TopicPartition{Topic: "t", Partition: 0}, MaxBytes: 100,
+		Tp: &sharedv1.TopicPartition{Topic: "t", Partition: 0}, MaxBytes: 100,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,9 +122,9 @@ func TestStandbyCommitUnavailable(t *testing.T) {
 	defer stop()
 	_, err := cli.CommitSegment(t.Context(), &cpv1.CommitSegmentRequest{
 		SegmentKey: "x",
-		Batches: []*cpv1.PendingBatch{{
-			Tp: &cpv1.TopicPartition{Topic: "t", Partition: 0}, Records: 1,
-			Loc: &cpv1.SegmentRef{Key: "x"},
+		Batches: []*sharedv1.PendingBatch{{
+			Tp: &sharedv1.TopicPartition{Topic: "t", Partition: 0}, Records: 1,
+			Loc: &sharedv1.SegmentRef{Key: "x"},
 		}},
 	})
 	if err == nil {

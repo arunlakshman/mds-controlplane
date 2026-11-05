@@ -17,7 +17,8 @@ import (
 	"google.golang.org/grpc/status"
 	"pgregory.net/rapid"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
@@ -271,7 +272,7 @@ func (n *grpcNode) send(ctx context.Context, op runtime.ControlPlaneOperation) (
 	case contract.CommitSegment:
 		req := &cpv1.CommitSegmentRequest{SegmentKey: op.SegmentKey}
 		for _, b := range op.Batches {
-			req.Batches = append(req.Batches, &cpv1.PendingBatch{Tp: tpToWire(b.TopicPartition), Records: b.Records, Loc: refToWire(b.Loc)})
+			req.Batches = append(req.Batches, &sharedv1.PendingBatch{Tp: tpToWire(b.TopicPartition), Records: b.Records, Loc: refToWire(b.Loc)})
 		}
 		var r *cpv1.CommitSegmentResponse
 		if r, err = n.api.CommitSegment(ctx, req); err == nil {
@@ -384,15 +385,15 @@ func answerOf(err error) (runtime.ControlPlaneDone, error) {
 	return runtime.ControlPlaneDone{}, err
 }
 
-func tpToWire(tp contract.TopicPartition) *cpv1.TopicPartition {
-	return &cpv1.TopicPartition{Topic: tp.Topic, Partition: tp.Partition}
+func tpToWire(tp contract.TopicPartition) *sharedv1.TopicPartition {
+	return &sharedv1.TopicPartition{Topic: tp.Topic, Partition: tp.Partition}
 }
 
-func refToWire(r runtime.SegmentRef) *cpv1.SegmentRef {
-	return &cpv1.SegmentRef{Key: r.Key, Off: r.Off, Len: r.Len}
+func refToWire(r runtime.SegmentRef) *sharedv1.SegmentRef {
+	return &sharedv1.SegmentRef{Key: r.Key, Off: r.Off, Len: r.Len}
 }
 
-func rangeFromWire(b *cpv1.BatchRange) contract.BatchRange {
+func rangeFromWire(b *sharedv1.BatchRange) contract.BatchRange {
 	return contract.BatchRange{
 		TopicPartition: contract.NewTopicPartition(b.GetTp().GetTopic(), b.GetTp().GetPartition()),
 		Base:           contract.Offset(b.GetBase()), Count: b.GetCount(),

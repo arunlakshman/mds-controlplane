@@ -13,7 +13,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 )
 
 // client is a small test client over the generated gRPC client, with the
@@ -113,15 +114,15 @@ func (c *client) createTopic(t *testing.T, name string, partitions int32) {
 func (c *client) commit(t *testing.T, key, topic string, partition int32, records int64) (*cpv1.CommitSegmentResponse, error) {
 	return call(t, c, cpv1.ControlPlaneClient.CommitSegment, &cpv1.CommitSegmentRequest{
 		SegmentKey: key,
-		Batches: []*cpv1.PendingBatch{{
-			Tp: &cpv1.TopicPartition{Topic: topic, Partition: partition}, Records: records,
-			Loc: &cpv1.SegmentRef{Key: key, Len: 10},
+		Batches: []*sharedv1.PendingBatch{{
+			Tp: &sharedv1.TopicPartition{Topic: topic, Partition: partition}, Records: records,
+			Loc: &sharedv1.SegmentRef{Key: key, Len: 10},
 		}},
 	})
 }
 
 func (c *client) lookup(t *testing.T, topic string, partition int32, from int64) (*cpv1.LookupResponse, error) {
 	return call(t, c, cpv1.ControlPlaneClient.Lookup, &cpv1.LookupRequest{
-		Tp: &cpv1.TopicPartition{Topic: topic, Partition: partition}, From: from, MaxBytes: 1 << 30,
+		Tp: &sharedv1.TopicPartition{Topic: topic, Partition: partition}, From: from, MaxBytes: 1 << 30,
 	})
 }

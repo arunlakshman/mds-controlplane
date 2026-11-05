@@ -6,7 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -203,6 +204,6 @@ func TestNilAndEmptyInputs(t *testing.T) {
 	sameValue(t, "empty live set", brokerHeartbeatRespToCore(brokerHeartbeatRespFromCore(nil)), []contract.BrokerAddr(nil))
 
 	// A batch with missing parts keeps its place and gets zero values.
-	got := wire.CommitSegmentRequestToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*cpv1.PendingBatch{{Records: 2}}})
+	got := wire.CommitSegmentRequestToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*sharedv1.PendingBatch{{Records: 2}}})
 	sameValue(t, "partial batch", got, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{{Records: 2}}})
 }

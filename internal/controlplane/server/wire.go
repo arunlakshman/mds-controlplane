@@ -1,7 +1,7 @@
 package server
 
 import (
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 

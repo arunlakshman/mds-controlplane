@@ -18,7 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
+	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor/sqllog"
 	"github.com/manifesterio/mds-controlplane/internal/testinfra"
 )
@@ -149,7 +150,7 @@ func TestThreeNodesTakeover(t *testing.T) {
 
 			c := newClient(t, n0, n1, n2) // the brokers' list: preferred node first
 			c.createTopic(t, "t", 3)
-			a := &acks{ranges: map[string][]*cpv1.BatchRange{}}
+			a := &acks{ranges: map[string][]*sharedv1.BatchRange{}}
 			var count atomic.Int64
 			stop := make(chan struct{})
 			errs := make(chan error, 3)
@@ -268,7 +269,7 @@ func TestStoreAndLookup(t *testing.T) {
 // acks records what the control plane acknowledged: segment key -> ranges.
 type acks struct {
 	mu     sync.Mutex
-	ranges map[string][]*cpv1.BatchRange
+	ranges map[string][]*sharedv1.BatchRange
 }
 
 // commitLoop commits new segments until stop is closed. Each commit is retried
