@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # CI gate for the deterministic packages of the control plane:
 #   internal/runtime, internal/controlplane/contract, and the control-plane
-#   domain packages that pass the check today (module, groups/storage, replica),
+#   domain packages that pass the check today (module, groups/storage, replica, metadb/engine),
 #   and the reference model (internal/spec). Test code is not in the gate, so
 #   the property-based tests (pgregory.net/rapid) are not either.
 # The simulator engine (internal/verify/simulator) is checked too, with one more
 # allowed import: context, because the in-memory log API takes a context. Its
 # campaign runner (cmd/cpsim) uses goroutines and wall time on purpose,
 # to run many seeds at once, so it is not in the gate.
-# Other control-plane packages (engine, topics, groups, metadata, membership) use sync,
+# Other control-plane packages (engine/memory, topics, groups, metadata, membership) use sync,
 # time or other banned things and are not in this gate yet.
 #   1. determinismcheck: exact-path import allow-list plus banned constructs.
 #   2. Every third-party module they depend on has a reviewed audit record
@@ -19,6 +19,7 @@ cd "$(dirname "$0")/../.."
 pkgs=(
   ./internal/runtime/...
   ./internal/controlplane/contract/...
+  ./internal/controlplane/metadb/engine
   ./internal/controlplane/module
   ./internal/controlplane/groups/storage
   ./internal/controlplane/replica
