@@ -22,9 +22,6 @@ type Bug string
 // The planted bugs.
 const (
 	BugNone Bug = ""
-	// BugWriterOffsets turns on the mutant of the replica itself
-	// (replica.InjectedBugWriterOffsets): the writer picks offsets, not apply.
-	BugWriterOffsets Bug = "writer-offsets"
 	// BugLogOverwrite makes the log say "stored" for a put into a slot that is
 	// already taken, and keep the old bytes.
 	BugLogOverwrite Bug = "log-overwrite"

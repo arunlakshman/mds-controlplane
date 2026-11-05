@@ -40,9 +40,6 @@ type Entry struct {
 	Kind Kind
 	// Op is the logged operation that the entry carries. It is nil for KindNoop.
 	Op runtime.ControlPlaneOperation
-	// WriterBases, when set and equal in length to the commit's batches, forces
-	// those bases at apply (sim BugWriterOffsets). Not on the wire.
-	WriterBases []contract.Offset
 }
 
 // CommitSegment is the CommitSegment that the entry carries. It is false for any
@@ -129,11 +126,6 @@ func NewMem() *Store { return New(kv.NewMemory()) }
 func (a *Store) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
 	if e.Kind == KindNoop {
 		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Outcome: runtime.Applied}
-	}
-	if c, ok := e.Op.(contract.CommitSegment); ok && len(e.WriterBases) == len(c.Batches) && len(e.WriterBases) > 0 {
-		d := a.commitWithBases(slot, c, e.WriterBases)
-		d.Req = runtime.RequestID(slot)
-		return d
 	}
 	if e.Op == nil {
 		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Err: runtime.ErrInvalid}

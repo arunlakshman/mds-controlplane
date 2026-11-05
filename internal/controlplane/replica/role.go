@@ -272,7 +272,6 @@ func (m *Replica) clearLocal() {
 	m.waiters = map[string][]waitingCommand{}
 	m.buf = map[runtime.LogPosition][]byte{}
 	m.pending, m.pendingKind = 0, pendingNone
-	m.proj = nil
 	m.checkpointRequest, m.checkpointStage, m.trimThrough = 0, 0, 0
 	m.checkpointPending, m.checkpointData = 0, nil
 }

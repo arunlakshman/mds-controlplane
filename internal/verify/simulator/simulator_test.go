@@ -107,16 +107,13 @@ func TestFaultsAreInjected(t *testing.T) {
 }
 
 // TestPlantedBugsAreFound is why we can trust the simulator: when one known bug
-// is planted, some seed in a few hundred must fail. The bug is in the replica
-// (writer-offsets) or in the fake log (the other two).
+// is planted, some seed in a few hundred must fail. Both bugs are in the fake log.
 func TestPlantedBugsAreFound(t *testing.T) {
 	scenario := map[mutant.Bug]string{
-		mutant.Bug(BugWriterOffsets):   "basic",
 		mutant.Bug(BugLogOverwrite):    "chaos",
 		mutant.Bug(BugClaimAlwaysWins): "leader-fencing",
 	}
 	bugs := []mutant.Bug{
-		mutant.Bug(BugWriterOffsets),
 		mutant.Bug(BugLogOverwrite),
 		mutant.Bug(BugClaimAlwaysWins),
 	}

@@ -5,7 +5,6 @@ import (
 
 	"github.com/manifesterio/dst/sched"
 	"github.com/manifesterio/dst/sim"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -71,8 +70,7 @@ type Replica struct {
 	inFlightAppends map[runtime.RequestID]*inFlightAppend // in-flight commit LogAppends (at most one)
 	waiters         map[string][]waitingCommand
 	answers         []ReplyToClient
-	proj            map[contract.TopicPartition]contract.Offset // InjectedBugWriterOffsets projection
-	trimFloor       runtime.LogPosition                         // slots below are trimmed
+	trimFloor       runtime.LogPosition // slots below are trimmed
 	stallUntil      runtime.NodeTime
 	downUntil       runtime.NodeTime
 	crashed         bool

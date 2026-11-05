@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -179,9 +178,6 @@ func (m *Replica) emitCommitGroup() []any {
 	for i := range cmds {
 		e := cmds[i].cmd
 		e.ID = id
-		if commit, ok := e.CommitSegment(); ok && m.config.InjectedBug == InjectedBugWriterOffsets {
-			e.WriterBases = m.projectBases(commit)
-		}
 		cmds[i].cmd = e
 	}
 	inner := encodeGroupParts(id, encoded)
@@ -212,24 +208,6 @@ func (m *Replica) fitsAlone(cmd metadata.Entry) bool {
 	cmd.ID = id
 	size := m.entryFixedBytes(id) + len(metadata.Encode(cmd)) + binary.MaxVarintLen32
 	return size <= m.config.maxEntryBytes()
-}
-
-// projectBases is InjectedBugWriterOffsets: skip one offset per partition so a retry
-// leaves an empty slot in the committed log.
-func (m *Replica) projectBases(c contract.CommitSegment) []contract.Offset {
-	if m.proj == nil {
-		m.proj = map[contract.TopicPartition]contract.Offset{}
-	}
-	bases := make([]contract.Offset, len(c.Batches))
-	for i, b := range c.Batches {
-		e, ok := m.proj[b.TopicPartition]
-		if !ok {
-			e = m.meta.End(b.TopicPartition) + 1 // skip one
-		}
-		bases[i] = e
-		m.proj[b.TopicPartition] = e + contract.Offset(b.Records)
-	}
-	return bases
 }
 
 func (m *Replica) alloc() runtime.LogPosition {
@@ -384,13 +362,6 @@ func (m *Replica) applySlot(slot runtime.LogPosition, data []byte) error {
 	}
 
 	if id, cmds, ok := decodeGroup(payload); ok {
-		if ps, ok := m.waiters[id]; ok {
-			for i := range cmds {
-				if i < len(ps) && len(ps[i].cmd.WriterBases) > 0 {
-					cmds[i].WriterBases = ps[i].cmd.WriterBases
-				}
-			}
-		}
 		dones := make([]runtime.ControlPlaneDone, len(cmds))
 		for i, c := range cmds {
 			dones[i] = m.meta.Apply(int64(slot), c)
@@ -417,13 +388,6 @@ func (m *Replica) afterApply(slot runtime.LogPosition) {
 	stride := m.config.TrimStride
 	if stride <= 0 {
 		stride = 16
-	}
-	if m.config.InjectedBug == InjectedBugPerReplicaWindow && window > 0 {
-		// Mutant: forget by this replica's applied clock, not log stride.
-		_, _ = m.meta.Trim(int64(slot) - window + 1)
-		m.env.Always(false, "logcp-sim: a replica's state equals the replay of the log at its slot",
-			runtime.ContextPair{Key: "window", Value: window})
-		return
 	}
 	if window > 0 && int64(slot)%stride == 0 && int64(slot) >= window {
 		_, _ = m.meta.Trim(int64(slot) - window)

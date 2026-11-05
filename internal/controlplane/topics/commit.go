@@ -87,19 +87,6 @@ func PartitionCount(transaction kv.Transaction, topic string) int64 {
 	return readVarint(transaction.Get(topicKey(topic)))
 }
 
-// CommitWithBases is the BugWriterOffsets apply path: the bases come from the
-// writer instead of from the partition ends.
-func CommitWithBases(transaction kv.Transaction, slot int64, operation contract.CommitSegment, bases []contract.Offset) runtime.ControlPlaneDone {
-	dig := checksum(operation.Batches)
-	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
-		return replay(rec, dig, operation)
-	}
-	if !validCommit(operation) || len(bases) != len(operation.Batches) {
-		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
-	}
-	return storeCommit(transaction, slot, operation, dig, assignAt(transaction, operation.Batches, bases))
-}
-
 // InWindow reports whether key belongs to the idempotency window (the K and S
 // keys). The state hash leaves these out, because Trim may drop them.
 func InWindow(key []byte) bool { return key[0] == prefixKey || key[0] == prefixSlot }
@@ -291,17 +278,6 @@ func assign(transaction kv.Transaction, bs []contract.PendingBatch) []contract.B
 			base = readVarint(transaction.Get(endKey(b.TopicPartition)))
 		}
 		out = append(out, p.add(b, base))
-	}
-	p.write(transaction)
-	return out
-}
-
-// assignAt is assign with writer-chosen bases (BugWriterOffsets).
-func assignAt(transaction kv.Transaction, bs []contract.PendingBatch, bases []contract.Offset) []contract.BatchRange {
-	p := newOffsetPlan()
-	out := make([]contract.BatchRange, 0, len(bs))
-	for i, b := range bs {
-		out = append(out, p.add(b, int64(bases[i])))
 	}
 	p.write(transaction)
 	return out

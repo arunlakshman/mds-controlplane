@@ -132,30 +132,6 @@ func TestAssignedStates(t *testing.T) {
 	}
 }
 
-func TestCommitWithWriterBases(t *testing.T) {
-	a := metadata.NewMem()
-	operation := contract.CommitSegment{
-		SegmentKey: "seg/1",
-		Batches: []contract.PendingBatch{
-			{TopicPartition: contract.NewTopicPartition("t", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o", Off: 0, Len: 1}},
-		},
-	}
-	d := a.Apply(1, metadata.Entry{
-		ID: "w/1", Kind: metadata.KindCommit, Op: operation,
-		WriterBases: []contract.Offset{5},
-	})
-	if d.Err != runtime.OK || d.Outcome != runtime.Applied {
-		t.Fatal(d)
-	}
-	response := runtime.ResponseAs[contract.CommitSegmentResp](d)
-	if len(response.Assigned) != 1 || response.Assigned[0].Base != 5 || response.Assigned[0].Count != 3 {
-		t.Fatalf("%+v", response)
-	}
-	if a.End(contract.NewTopicPartition("t", 0)) != 8 {
-		t.Fatal(a.End(contract.NewTopicPartition("t", 0)))
-	}
-}
-
 func commit(key string, bs ...contract.PendingBatch) contract.CommitSegment {
 	return contract.CommitSegment{SegmentKey: key, Batches: bs}
 }

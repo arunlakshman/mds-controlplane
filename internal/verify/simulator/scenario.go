@@ -95,9 +95,6 @@ func replicaConfig(idx int, f Faults, bug Bug) replica.Config {
 		cfg.StallDur = [2]runtime.Duration{100 * runtime.Millisecond, 800 * runtime.Millisecond}
 		cfg.DownDur = [2]runtime.Duration{100 * runtime.Millisecond, 800 * runtime.Millisecond}
 	}
-	if bug == BugWriterOffsets {
-		cfg.InjectedBug = replica.InjectedBugWriterOffsets
-	}
 	return cfg
 }
 

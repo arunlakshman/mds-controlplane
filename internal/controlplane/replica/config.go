@@ -69,8 +69,6 @@ type Config struct {
 	// in-memory store. The machine itself never imports a database.
 	OpenStore func() (kv.Store, error)
 
-	// InjectedBug selects a sim mutant (fakelogservice.Bug* constants). Zero is none.
-	InjectedBug uint8
 	// WindowSlots is the idempotency window length. Keys older than this many
 	// slots are forgotten at TrimStride boundaries (decision 48). Zero skips.
 	WindowSlots int64
@@ -83,14 +81,6 @@ type Config struct {
 	StallProb, CrashProb float64
 	StallDur, DownDur    [2]runtime.Duration
 }
-
-// InjectedBug constants match sim/engines/fakelogservice (kept numeric for LogParams.Bug).
-const (
-	InjectedBugNone             uint8 = iota
-	InjectedBugWriterOffsets          // offsets chosen by the writer instead of by apply
-	_                                 // 2 is retired (it was the trim-delete mutant)
-	InjectedBugPerReplicaWindow       // each replica forgets keys on its own clock
-)
 
 func (c Config) readLimit() int32 {
 	if c.ReadLimit > 0 {

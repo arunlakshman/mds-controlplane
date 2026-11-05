@@ -70,15 +70,16 @@ run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 }
 @@ end
 
-# writer-offsets: the writer picks the offsets before it appends, from state that
-# may be stale, so a retried commit leaves a gap.
+# writer-offsets: the offsets are not taken from the partition end at apply, but
+# from a base that is one too high (as if the writer had picked it from stale
+# state before the append), so every commit leaves a gap in the committed log.
 mutant writer-offsets
-file internal/controlplane/replica/commit.go
+file internal/controlplane/topics/commit.go
 run go test ./internal/verify/simulator -run ^TestScenariosPass$ -count=1
 @@ old
-		if commit, ok := e.CommitSegment(); ok && m.config.InjectedBug == InjectedBugWriterOffsets {
+			base = readVarint(transaction.Get(endKey(b.TopicPartition)))
 @@ new
-		if commit, ok := e.CommitSegment(); ok {
+			base = readVarint(transaction.Get(endKey(b.TopicPartition))) + 1
 @@ end
 
 # per-replica-window: each replica forgets idempotency keys on its own clock, not
@@ -87,9 +88,13 @@ mutant per-replica-window
 file internal/controlplane/replica/commit.go
 run go test ./internal/controlplane/replica -run ^TestWindowForgetsKeysOnlyOnLogStride$ -count=1
 @@ old
-	if m.config.InjectedBug == InjectedBugPerReplicaWindow && window > 0 {
+	if window > 0 && int64(slot)%stride == 0 && int64(slot) >= window {
+		_, _ = m.meta.Trim(int64(slot) - window)
+	}
 @@ new
 	if window > 0 {
+		_, _ = m.meta.Trim(int64(slot) - window + 1)
+	}
 @@ end
 
 # Group state: the generation check of GroupAssign is dropped.

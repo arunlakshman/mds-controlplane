@@ -115,7 +115,7 @@ func TestOfferRetargetsInFlightCommit(t *testing.T) {
 
 // Keys leave the idempotency window only at slots that are a multiple of
 // TrimStride, so every replica forgets the same keys at the same slot. A replica
-// that forgets on its own clock (InjectedBugPerReplicaWindow) lets a replay
+// that forgets on its own clock lets a replay
 // commit again as a new segment, with new offsets.
 func TestWindowForgetsKeysOnlyOnLogStride(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w", WindowSlots: 4, TrimStride: 8})

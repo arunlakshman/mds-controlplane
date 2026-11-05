@@ -36,13 +36,6 @@ func (a *Store) KnownCommit(operation contract.CommitSegment) (runtime.ControlPl
 	return d, ok, err
 }
 
-// commitWithBases is the BugWriterOffsets apply path.
-func (a *Store) commitWithBases(slot int64, operation contract.CommitSegment, bases []contract.Offset) runtime.ControlPlaneDone {
-	var d runtime.ControlPlaneDone
-	mustStore(a.keyValue.Update(func(transaction kv.Transaction) { d = topics.CommitWithBases(transaction, slot, operation, bases) }))
-	return d
-}
-
 // Lookup answers a Lookup from the stored runs.
 func (a *Store) Lookup(operation contract.FindSegments) (runtime.ControlPlaneDone, error) {
 	return a.Read(operation)
