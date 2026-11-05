@@ -143,3 +143,4 @@ T4.4 | done | cherry-picked b5ee9c5,5f49ee1,f69a194,21c3764(RE-PIN) + my fix cf5
 - T4.2 merged. Next: T4.3 clean up the API (sonnet).
 - T4.3 merged. P4 so far green. Next: T4.4 log entries in protobuf (opus, higher, RE-PIN, needs audit-go-dependency for protobuf in deterministic path; stop and ask if the audit finds a real problem).
 - T4.4 merged + race fix. P4 gate: build ok, mutants 8/8 ok; race x3 and campaign 2000 running (build/p4-*.txt).
+- P4 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 (hashes unchanged), make it (build/p4-*.txt). P4 complete. Starting P5: T5.1 schema + topic context (serial, opus, higher).
