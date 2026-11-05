@@ -28,8 +28,12 @@ T2.5 | done | cherry-picked a734faa,48961b6,6d68f8b | merged tree: make build gr
 T3.1 | done | cherry-picked 9beaf14,07a28a1,1af3c31,7489a49 | merged tree: make build green, make mutants 8/8, go vet -tags integration clean; agent also ran make it green | kv -> metadb/engine (+engine/memory, engine/pebble); Store->Engine, Transaction->Txn; engine added to determinism gate (listed without /..., so memory and pebble stay outside); golden unchanged
 T3.2 | done | cherry-picked aee78d3,1c2655c,3fef79b,cc235ba | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent make it green | metadata -> metadb, Store -> DB; 47 files +234/-234; golden unchanged
 T3.3 | done | cherry-picked 95a60d7,9e23946 | merged tree: make build green, make mutants 8/8, golden unchanged; agent: vet -tags integration + make it green | metadb pruned: Exec, Command, CommitBatch, Commit, Lookup, Describe, CreateTopicIf, End, Window, Assigned, AssignState, OffsetOwner*, OffsetFetch, DescribeGroup, ListGroups, SnapshotAt, CreateEntry deleted; production +28/-165, tests +119/-93
+T4.1 | done | cherry-picked 2031464,c13557e,933a843,59d5aa0 | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent: make it green + fresh clone make build green; golden unchanged | api/controlplane/{shared/v1 (sharedv1), v1 (controlplanev1/cpv1), log/v1 (logv1)}; Log prefix dropped; PartitionOffset+GroupSummary merged into shared; log pkg has 0 grpc deps; wiregen adapted (duplicate short-name check)
 
 ## Deferred items
+
+- T4.1: log OffsetFetch/ListGroups messages duplicate service messages (same fields, different names); merging = API rename, left to T4.3. ErrCode/Outcome/ErrorDetail stay in service package. SegmentRef/PendingBatch/BatchRange/TopicInfo in shared by design for T4.4.
+- T4.1: edge list in ci-determinism.sh not exercised until T4.4 makes metadb import logv1. buf lint warnings (service suffix, enum zero value) pre-existing.
 
 - T3.3: plan was wrong: replica does NOT use CommitBatch (applies entry by entry); it was dead in production. Two tests deleted with their features (TestCommitBatchEqualsSequential, TestSnapshotAtTagsTheViewsSlot); no mutant covers metadb unit tests so judged by hand.
 - T3.3: topics.End, Window, Assigned, AssignState, OffsetOwner* now have no production caller (only TestAssignedStates). Prune with the T5.1 topic context work.
@@ -120,3 +124,4 @@ T3.3 | done | cherry-picked 95a60d7,9e23946 | merged tree: make build green, mak
 - T3.2 merged. Next: T3.3 prune metadb (sonnet).
 - T3.3 merged; P3 gate: build ok, mutants 8/8 ok; race x3 + campaign 2000 running (build/p3-*.txt).
 - P3 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 (build/p3-*.txt); make it green per agents. P3 complete. Starting P4: T4.1 split proto files (serial, sonnet).
+- T4.1 merged. Next: T4.2 wiregen -> protoc plugin (serial, opus, higher).
