@@ -15,6 +15,45 @@ option (controlplane.options.v1.no_converters) = true;
 // the plugin protoc-gen-mdswire writes the Go structs of package contract from
 // them (and no converters, see no_converters above).
 // This package imports controlplane.shared.v1 only, never the service package.
+//
+// Entry, CommitSegment and CreateTopic are the bytes of the log itself.
+// metadb.Encode writes an Entry with deterministic marshaling, and
+// metadb.Decode reads it back. They have no plugin options: metadb converts
+// them to the contract types by hand (metadb/entry_codec.go). No message
+// that an Entry holds has a map field, because the order of a map in the bytes
+// is not fixed.
+
+// Entry is one entry of the replicated log: an id and at most one command. An
+// entry with no command is a no-op (the replica writes those as heartbeats and
+// fences). The field numbers of Entry stay below 16, so the first byte of an
+// entry is never the group marker (0xC5) or the envelope marker (0xC8) that the
+// replica puts in front of entries.
+message Entry {
+  string id = 1;
+  oneof command {
+    CommitSegment commit_segment = 2;
+    CreateTopic create_topic = 3;
+    GroupInstall group_install = 4;
+    GroupAssign group_assign = 5;
+    GroupRemove group_remove = 6;
+    OffsetCommit offset_commit = 7;
+  }
+}
+
+// CommitSegment is the command of contract.CommitSegment: it registers one
+// uploaded object. The offsets of its batches are not in the command; they are
+// decided when the command is applied.
+message CommitSegment {
+  string segment_key = 1;
+  repeated controlplane.shared.v1.PendingBatch batches = 2;
+}
+
+// CreateTopic is the command of contract.CreateTopic.
+message CreateTopic {
+  string name = 1;
+  int32 partitions = 2;
+  bool fail_if_exists = 3;
+}
 
 // GroupMember is one member of a consumer group, as the join phase gives it.
 // Metadata is the subscription of the protocol the group chose.
