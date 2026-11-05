@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -14,14 +15,19 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var minioSvc service
+var seaweedSvc service
+
+// weed runs master, volume server, filer and S3 gateway in one process. With no
+// S3 config file, the gateway does not check credentials.
+var weedCmd = []string{"server", "-dir=/data", "-s3", "-s3.port=8333", "-volume.max=50"}
 
 const (
-	minioUser = "minioadmin"
-	minioPass = "minioadmin"
+	// The gateway ignores them; the SDK needs some.
+	s3User = "mds"
+	s3Pass = "mds"
 )
 
-// S3Info says how to reach one fresh MinIO bucket.
+// S3Info says how to reach one fresh SeaweedFS bucket.
 type S3Info struct {
 	Endpoint string     // http://host:port, for s3store.Config.Endpoint and -s3-endpoint
 	Region   string     // us-east-1
@@ -29,37 +35,42 @@ type S3Info struct {
 	Client   *s3.Client // ready to use, path-style, against Endpoint
 }
 
-// S3 starts (once per package) a MinIO container and returns a new empty
-// bucket. MinIO needs real credentials, so S3 sets AWS_ACCESS_KEY_ID and
-// AWS_SECRET_ACCESS_KEY for the test (with t.Setenv: do not use t.Parallel).
-// s3store.New then picks them up. Use PathStyle: true. The bucket is deleted
-// when the test ends. It fails the test if Docker is not running.
+// S3 starts (once per package) a SeaweedFS container (S3 gateway on) and
+// returns a new empty bucket. SeaweedFS runs without authentication, so the
+// dummy key of s3store.New is enough. Use PathStyle: true. The bucket is
+// deleted when the test ends. It fails the test if Docker is not running.
 func S3(t testing.TB) S3Info {
 	t.Helper()
-	addr, err := minioSvc.start(testcontainers.GenericContainerRequest{ContainerRequest: testcontainers.ContainerRequest{
-		Image:        MinIOImage,
-		ExposedPorts: []string{"9000/tcp"},
-		Env:          map[string]string{"MINIO_ROOT_USER": minioUser, "MINIO_ROOT_PASSWORD": minioPass},
-		WaitingFor:   wait.ForHTTP("/minio/health/ready").WithPort("9000/tcp"),
-	}}, "9000/tcp")
+	addr, err := seaweedSvc.start(testcontainers.GenericContainerRequest{ContainerRequest: testcontainers.ContainerRequest{
+		Image:        SeaweedFSImage,
+		Cmd:          weedCmd,
+		ExposedPorts: []string{"8333/tcp"},
+		WaitingFor:   wait.ForHTTP("/").WithPort("8333/tcp").WithStartupTimeout(2 * time.Minute),
+	}}, "8333/tcp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AWS_ACCESS_KEY_ID", minioUser)
-	t.Setenv("AWS_SECRET_ACCESS_KEY", minioPass)
 	endpoint := "http://" + addr
 	client := s3.New(s3.Options{
 		Region:                     "us-east-1",
 		BaseEndpoint:               aws.String(endpoint),
 		UsePathStyle:               true,
-		Credentials:                credentials.NewStaticCredentialsProvider(minioUser, minioPass, ""),
+		Credentials:                credentials.NewStaticCredentialsProvider(s3User, s3Pass, ""),
 		RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
 		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenRequired,
 	})
 	// Bucket names allow lower case letters, digits and "-", not "_".
 	bucket := strings.ReplaceAll(unique("bucket"), "_", "-")
-	if _, err := client.CreateBucket(context.Background(), &s3.CreateBucketInput{Bucket: &bucket}); err != nil {
-		t.Fatalf("testinfra: create bucket %s: %v", bucket, err)
+	// The port answers a little before the filer and a volume are ready.
+	var err2 error
+	for range 60 {
+		if _, err2 = client.CreateBucket(context.Background(), &s3.CreateBucketInput{Bucket: &bucket}); err2 == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if err2 != nil {
+		t.Fatalf("testinfra: create bucket %s: %v", bucket, err2)
 	}
 	t.Cleanup(func() { emptyAndDelete(client, bucket) })
 	return S3Info{Endpoint: endpoint, Region: "us-east-1", Bucket: bucket, Client: client}

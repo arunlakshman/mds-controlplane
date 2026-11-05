@@ -1,7 +1,7 @@
 //go:build integration
 
 // Package testinfra starts the real services the integration tests need:
-// DynamoDB Local, PostgreSQL and MinIO, in Docker, through testcontainers.
+// DynamoDB Local, PostgreSQL and SeaweedFS, in Docker, through testcontainers.
 //
 // Each service starts at most once per test package, the first time a test asks
 // for it. Every test then gets its own fresh table, schema or bucket, so tests
@@ -29,9 +29,9 @@ import (
 
 // Image versions are pinned on purpose. Change them here only.
 const (
-	DynamoDBImage = "amazon/dynamodb-local:3.1.0"
-	PostgresImage = "postgres:17.11-alpine"
-	MinIOImage    = "bitnamilegacy/minio:2025.7.23-debian-12-r3"
+	DynamoDBImage  = "amazon/dynamodb-local:3.1.0"
+	PostgresImage  = "postgres:17.11-alpine"
+	SeaweedFSImage = "chrislusf/seaweedfs:4.48"
 )
 
 // service is one shared container, started on first use.
