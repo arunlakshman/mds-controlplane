@@ -1,0 +1,55 @@
+package metadata_test
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
+)
+
+// FuzzDecode: Decode returns an entry or an error on any bytes, and never
+// panics. The log is the one input that a node reads from outside its own
+// state, so a damaged entry has to be an error, not a crash. The encoding is not
+// canonical (a varint may be written long), so a decoded entry is checked only
+// to re-encode to bytes that decode and re-encode to the same bytes.
+func FuzzDecode(f *testing.F) {
+	tp := contract.NewTopicPartition
+	f.Add(metadata.Encode(metadata.Entry{Kind: metadata.KindNoop, ID: "n"}))
+	for i, op := range []runtime.ControlPlaneOperation{
+		contract.CreateTopic{Name: "orders", Partitions: 3},
+		contract.CreateTopic{Name: "orders", Partitions: 3, FailIfExists: true},
+		contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{
+			{TopicPartition: tp("t", 0), Records: 3, Loc: runtime.SegmentRef{Key: "o", Off: 10, Len: 30}},
+			{TopicPartition: tp("t", 1), Records: 2, Loc: runtime.SegmentRef{Key: "o", Off: 40, Len: 20}},
+		}},
+		contract.GroupInstall{Group: "g", ProtocolType: "consumer", Protocol: "range", Generation: 1, Leader: "m",
+			Members: []contract.GroupMember{{MemberID: "m", ClientID: "c", SessionTimeoutMs: 10, RebalanceTimeoutMs: 20, Metadata: []byte("x")}}},
+		contract.GroupAssign{Group: "g", Generation: 1, Leader: "m", Assignments: []contract.GroupAssignment{{Member: "m", Bytes: []byte("a")}}},
+		contract.GroupRemove{Group: "g", Reason: "r", Members: []string{"m"}},
+		contract.OffsetCommit{Group: "g", Member: "m", Generation: 1, Offsets: []contract.PartitionOffset{
+			{TopicPartition: tp("t", 0), Offset: 5, LeaderEpoch: 1, Metadata: "md"}}},
+	} {
+		e, ok := metadata.EntryOf(op)
+		if !ok {
+			f.Fatalf("seed %d is not a logged operation", i)
+		}
+		e.ID = "id"
+		f.Add(metadata.Encode(e))
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		e, err := metadata.Decode(b)
+		if err != nil {
+			return
+		}
+		again := metadata.Encode(e)
+		e2, err := metadata.Decode(again)
+		if err != nil {
+			t.Fatalf("an entry that decoded does not decode after Encode: %v", err)
+		}
+		if !bytes.Equal(metadata.Encode(e2), again) {
+			t.Fatalf("Encode(Decode(Encode(e))) differs from Encode(e)")
+		}
+	})
+}
