@@ -118,7 +118,7 @@ func Decode(b []byte) (Entry, error) {
 	return en, nil
 }
 
-// NewMem returns a metadata store over an in-memory KV. No Pebble. Suitable for the
+// NewMem returns a metadb over an in-memory KV. No Pebble. Suitable for the
 // DSM Step fold and for tests that need the pure command fold.
 func NewMem() *DB { return New(memory.New()) }
 

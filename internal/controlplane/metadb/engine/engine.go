@@ -5,7 +5,7 @@ package engine
 
 import "bytes"
 
-// Engine is the embedded ordered key-value engine the metadata store keeps its state in.
+// Engine is the embedded ordered key-value engine the metadb keeps its state in.
 // It is a deliberately small seam: a read transaction, an atomic write
 // transaction, nothing else. Durability is not required (state is rebuilt from
 // the log and a checkpoint), so an implementation may skip fsync.

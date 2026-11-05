@@ -19,7 +19,7 @@ type DB struct {
 	modules  []module.Module
 }
 
-// New returns a metadata store over the engine (empty, or restored from a checkpoint).
+// New returns a metadb over the engine (empty, or restored from a checkpoint).
 func New(keyValue engine.Engine) *DB {
 	return &DB{keyValue: keyValue, modules: registry.list}
 }
@@ -28,7 +28,7 @@ func New(keyValue engine.Engine) *DB {
 func (a *DB) Close() error { return a.keyValue.Close() }
 
 // mustStore panics when a store call failed. This is on purpose: the
-// metadata store stops (fail-stop) instead of going on with bad state.
+// metadb stops (fail-stop) instead of going on with bad state.
 func mustStore(err error) {
 	if err != nil {
 		panic(fmt.Errorf("metadata: store failed: %w", err))

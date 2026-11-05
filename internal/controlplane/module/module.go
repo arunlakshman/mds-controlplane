@@ -1,5 +1,5 @@
 // Package module is the one interface that every control-plane context (topics,
-// groups) implements to take part in the replicated state. The metadata package
+// groups) implements to take part in the replicated state. The metadb
 // holds a list of modules and sends every operation to the one that owns it.
 // Adding a context means writing a Module, not editing a switch in four places.
 package module

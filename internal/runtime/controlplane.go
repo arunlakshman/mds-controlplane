@@ -6,7 +6,7 @@ package runtime
 // to import them.
 //
 // The wire protocol for new work is gRPC (`controlplane/api/v1`, decision 57);
-// the contract types remain the in-process vocabulary until cutover. The metadata store is still invisible
+// the contract types remain the in-process vocabulary until cutover. The metadb is still invisible
 // to the broker. The invariants below are not provisional.
 //
 // Brokers are stateless (decision 44): there is no registration, epoch or

@@ -252,8 +252,8 @@ Each live lane runs on its own cloud VM at the PR head. Drive through `control-c
 
 **Files.**
 
-- [ ] Edit `internal/controlplane/replica` apply path (rules currently in `internal/controlplane/metadata` pure subset and `logsm`/`logcp` replica observe/apply).
-- [ ] Edit or wrap `internal/controlplane/metadata` so the pure fold is callable without Pebble.
+- [ ] Edit `internal/controlplane/replica` apply path (rules currently in `internal/controlplane/metadb` pure subset and `logsm`/`logcp` replica observe/apply).
+- [ ] Edit or wrap `internal/controlplane/metadb` so the pure fold is callable without Pebble.
 - [ ] Create lockstep tests machine-vs-veritas for commit sequences.
 - [ ] Do not delete `logcp` loops yet.
 

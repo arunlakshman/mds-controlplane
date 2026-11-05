@@ -27,8 +27,8 @@ import (
 //     GroupInstall, GroupAssign, GroupRemove and OffsetCommit, on the key-value store.
 //   - groups/storage/read.go: the group reads (OffsetFetch, DescribeGroup
 //     and ListGroups).
-//   - metadata/metadata.go: the kernel routes each group operation to the module.
-//   - metadata/entry.go: the log format of the group entries.
+//   - metadb/metadb.go: the kernel routes each group operation to the module.
+//   - metadb/entry.go: the log format of the group entries.
 //   - replica/client.go: passes the group calls to the replica.
 //   - replica/commit.go: encodes and decodes the group entries in the log.
 //   - replica/replay.go: decodes group entries when it replays the log.

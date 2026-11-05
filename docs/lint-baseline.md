@@ -12,7 +12,7 @@ Original rule set (errcheck, revive, errorlint, staticcheck, gocritic, nakedret,
 usestdlibvars, copyloopvar): still clean everywhere.
 
 Panic remains allowed only where the config excludes it: `internal/runtime/`, `internal/verify/simulator/`,
-`ops/tools/`, `internal/controlplane/metadata/` (mirrors
+`ops/tools/`, `internal/controlplane/metadb/` (mirrors
 the model), and `*_test.go`. The former `logcp`/`logsm` `time.Now` ban was
 removed with those packages.
 

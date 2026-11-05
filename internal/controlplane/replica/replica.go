@@ -129,7 +129,7 @@ func New(config Config) Factory {
 	}
 }
 
-// Metadata is the metadata store after the applied prefix. Tests compare its
+// Metadata is the metadb after the applied prefix. Tests compare its
 // digest to an independent oracle.
 func (m *Replica) Metadata() *metadb.DB { return m.meta }
 
@@ -406,7 +406,7 @@ func (m *Replica) stop() []any {
 }
 
 // StateHash folds every field that influences behaviour, including the applied
-// metadata store digest (comparable across machines that folded the same prefix).
+// metadb digest (comparable across machines that folded the same prefix).
 func (m *Replica) StateHash() uint64 {
 	h := runtime.NewHasher()
 	h.Bool(m.started)

@@ -74,7 +74,7 @@ Historical: `speccheck`, `speccheck/checker` and `specsystem` were removed. The 
 | `httppool` | `httpconnections` |
 | `controlplane/exec` | `controlplane/executor` |
 | `controlplane/run` | `controlplane/runloop` |
-| `controlplane/applier` | `controlplane/metadata` |
+| `controlplane/applier` | `controlplane/metadb` |
 | `controlplane/machine` | `controlplane/replica` |
 | `controlplane/cpclient` | `controlplane/controlplaneclient` |
 | `controlplane/cpobs` | `controlplane/controlplanemetrics` |

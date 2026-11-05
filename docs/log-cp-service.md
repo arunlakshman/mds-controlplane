@@ -41,7 +41,7 @@ Only one epoch owns the log at a time (section 16 of `docs/writer-fencing-design
 
 Item: `pk=LOG`, `sk=%020d`, `d` (B) = entry, plus `v`, `w` (writer), `id`, `ts`, `n` (commands), `ttl`. Entry v1:
 envelope (first byte 0xC8; it carries the epoch and the writer), rank, append ID, ts (ms, advisory, never state), count, then each command as
-`internal/controlplane/metadata` codec (key table, batches). Zero commands is a no-op (heartbeat only; gap fills were removed, decision 61). Size guard: entry plus 256 B
+`internal/controlplane/metadb` codec (key table, batches). Zero commands is a no-op (heartbeat only; gap fills were removed, decision 61). Size guard: entry plus 256 B
 of item overhead <= 350 KB; a single command that cannot fit is answered `ErrTooLarge` and never queued; the group
 stops growing at the guard.
 **Versioning rule (the open question):** the first byte is the format version. A reader that meets a version above

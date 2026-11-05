@@ -112,7 +112,7 @@ sim:
 sim-campaign:
 	go run ./cmd/cpsim -seeds $(SIM_SEEDS) -scenario all
 
-# The conformance tests (test/conformance: the metadata store, the replica with
+# The conformance tests (test/conformance: the metadb, the replica with
 # crashes and failure injection, the gRPC stack) and the test doubles, with 2000
 # checks each (rapid default is 100). Not part of build. To replay one failure,
 # see internal/spec/README.md.

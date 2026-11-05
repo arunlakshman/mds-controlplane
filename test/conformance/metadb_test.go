@@ -37,7 +37,7 @@ func (s *slots) exec(ctx context.Context, op runtime.ControlPlaneOperation) (run
 	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
 }
 
-// TestMetadataMemory is the metadata store on the memory engine. Its reboot
+// TestMetadataMemory is the metadb on the memory engine. Its reboot
 // writes a checkpoint, and a new store on a new engine starts from it.
 func TestMetadataMemory(t *testing.T) {
 	Run(t, func(rt *rapid.T) Target {
@@ -57,7 +57,7 @@ func TestMetadataMemory(t *testing.T) {
 	})
 }
 
-// TestMetadataPebble is the metadata store on the Pebble engine. Its reboot
+// TestMetadataPebble is the metadb on the Pebble engine. Its reboot
 // closes the engine and opens it again on the same files.
 func TestMetadataPebble(t *testing.T) {
 	fewerChecks(t, 20, 20) // each open and close of Pebble takes tens of ms

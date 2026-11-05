@@ -1,6 +1,6 @@
 // Package pebble is the production engine.Engine over Pebble
 // (github.com/cockroachdb/pebble). It is the only package that imports the
-// store. Commits do not fsync: the metadata store's state is rebuilt from the log and a
+// store. Commits do not fsync: the metadb's state is rebuilt from the log and a
 // checkpoint into a fresh directory, never trusted after a crash.
 package pebble
 

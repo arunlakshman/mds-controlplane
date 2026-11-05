@@ -45,7 +45,7 @@ Coverage per package (own tests only, `go test -coverprofile`; files in `build/`
 | internal/controlplane/metadb/engine | 100.0% |
 | internal/controlplane/metadb/engine/pebble | 85.2% |
 | internal/controlplane/membership | 100.0% |
-| internal/controlplane/metadata | 79.2% |
+| internal/controlplane/metadb | 79.2% |
 | internal/controlplane/replica | 85.5% |
 | internal/controlplane/server | 73.5% |
 | internal/controlplane/topics | 92.8% |

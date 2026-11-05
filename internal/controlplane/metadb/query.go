@@ -9,7 +9,7 @@ import (
 )
 
 // StateHash is a digest of the materialised state (topics, ends, runs), not of
-// the idempotency window: two metadata stores that applied the same commands in the
+// the idempotency window: two metadb instances that applied the same commands in the
 // same order agree, whatever they trimmed. The model has no state hash.
 func (a *DB) StateHash() uint64 {
 	h := fnv.New64a()
