@@ -7,6 +7,7 @@ import (
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -382,5 +383,175 @@ func BrokerInfoFromCore(v contract.BrokerAddr) *cpv1.BrokerInfo {
 		NodeId: v.NodeID,
 		Host:   v.Host,
 		Port:   v.Port,
+	}
+}
+
+// GroupProtocolToCore rebuilds a groups.Protocol from a GroupProtocol message.
+func GroupProtocolToCore(m *cpv1.GroupProtocol) groups.Protocol {
+	return groups.Protocol{
+		Name:     m.GetName(),
+		Metadata: slices.Clone(m.GetMetadata()),
+	}
+}
+
+// GroupProtocolFromCore builds a GroupProtocol message from a groups.Protocol.
+func GroupProtocolFromCore(v groups.Protocol) *cpv1.GroupProtocol {
+	return &cpv1.GroupProtocol{
+		Name:     v.Name,
+		Metadata: slices.Clone(v.Metadata),
+	}
+}
+
+// JoinGroupRequestToCore rebuilds a groups.JoinReq from a JoinGroupRequest message.
+func JoinGroupRequestToCore(m *cpv1.JoinGroupRequest) groups.JoinReq {
+	return groups.JoinReq{
+		Group:              m.GetGroup(),
+		MemberID:           m.GetMemberId(),
+		GroupInstanceID:    m.GetGroupInstanceId(),
+		ClientID:           m.GetClientId(),
+		ClientHost:         m.GetClientHost(),
+		SessionTimeoutMs:   m.GetSessionTimeoutMs(),
+		RebalanceTimeoutMs: m.GetRebalanceTimeoutMs(),
+		ProtocolType:       m.GetProtocolType(),
+		Protocols:          mapSlice(m.GetProtocols(), GroupProtocolToCore),
+	}
+}
+
+// JoinGroupRequestFromCore builds a JoinGroupRequest message from a groups.JoinReq.
+func JoinGroupRequestFromCore(v groups.JoinReq) *cpv1.JoinGroupRequest {
+	return &cpv1.JoinGroupRequest{
+		Group:              v.Group,
+		MemberId:           v.MemberID,
+		GroupInstanceId:    v.GroupInstanceID,
+		ClientId:           v.ClientID,
+		ClientHost:         v.ClientHost,
+		SessionTimeoutMs:   v.SessionTimeoutMs,
+		RebalanceTimeoutMs: v.RebalanceTimeoutMs,
+		ProtocolType:       v.ProtocolType,
+		Protocols:          mapSlice(v.Protocols, GroupProtocolFromCore),
+	}
+}
+
+// GroupMemberToCore rebuilds a groups.Member from a GroupMember message.
+func GroupMemberToCore(m *cpv1.GroupMember) groups.Member {
+	return groups.Member{
+		ID:         m.GetMemberId(),
+		InstanceID: m.GetGroupInstanceId(),
+		Metadata:   slices.Clone(m.GetMetadata()),
+	}
+}
+
+// GroupMemberFromCore builds a GroupMember message from a groups.Member.
+func GroupMemberFromCore(v groups.Member) *cpv1.GroupMember {
+	return &cpv1.GroupMember{
+		MemberId:        v.ID,
+		GroupInstanceId: v.InstanceID,
+		Metadata:        slices.Clone(v.Metadata),
+	}
+}
+
+// GroupAssignmentToCore rebuilds a groups.Assignment from a GroupAssignment message.
+func GroupAssignmentToCore(m *cpv1.GroupAssignment) groups.Assignment {
+	return groups.Assignment{
+		Member: m.GetMemberId(),
+		Bytes:  slices.Clone(m.GetAssignment()),
+	}
+}
+
+// GroupAssignmentFromCore builds a GroupAssignment message from a groups.Assignment.
+func GroupAssignmentFromCore(v groups.Assignment) *cpv1.GroupAssignment {
+	return &cpv1.GroupAssignment{
+		MemberId:   v.Member,
+		Assignment: slices.Clone(v.Bytes),
+	}
+}
+
+// SyncGroupRequestToCore rebuilds a groups.SyncReq from a SyncGroupRequest message.
+func SyncGroupRequestToCore(m *cpv1.SyncGroupRequest) groups.SyncReq {
+	return groups.SyncReq{
+		Group:       m.GetGroup(),
+		MemberID:    m.GetMemberId(),
+		Generation:  m.GetGeneration(),
+		Assignments: mapSlice(m.GetAssignments(), GroupAssignmentToCore),
+	}
+}
+
+// SyncGroupRequestFromCore builds a SyncGroupRequest message from a groups.SyncReq.
+func SyncGroupRequestFromCore(v groups.SyncReq) *cpv1.SyncGroupRequest {
+	return &cpv1.SyncGroupRequest{
+		Group:       v.Group,
+		MemberId:    v.MemberID,
+		Generation:  v.Generation,
+		Assignments: mapSlice(v.Assignments, GroupAssignmentFromCore),
+	}
+}
+
+// GroupHeartbeatRequestToCore rebuilds a groups.HeartbeatReq from a GroupHeartbeatRequest message.
+func GroupHeartbeatRequestToCore(m *cpv1.GroupHeartbeatRequest) groups.HeartbeatReq {
+	return groups.HeartbeatReq{
+		Group:      m.GetGroup(),
+		MemberID:   m.GetMemberId(),
+		Generation: m.GetGeneration(),
+	}
+}
+
+// GroupHeartbeatRequestFromCore builds a GroupHeartbeatRequest message from a groups.HeartbeatReq.
+func GroupHeartbeatRequestFromCore(v groups.HeartbeatReq) *cpv1.GroupHeartbeatRequest {
+	return &cpv1.GroupHeartbeatRequest{
+		Group:      v.Group,
+		MemberId:   v.MemberID,
+		Generation: v.Generation,
+	}
+}
+
+// LeaveGroupRequestToCore rebuilds a groups.LeaveReq from a LeaveGroupRequest message.
+func LeaveGroupRequestToCore(m *cpv1.LeaveGroupRequest) groups.LeaveReq {
+	return groups.LeaveReq{
+		Group:   m.GetGroup(),
+		Members: slices.Clone(m.GetMembers()),
+	}
+}
+
+// LeaveGroupRequestFromCore builds a LeaveGroupRequest message from a groups.LeaveReq.
+func LeaveGroupRequestFromCore(v groups.LeaveReq) *cpv1.LeaveGroupRequest {
+	return &cpv1.LeaveGroupRequest{
+		Group:   v.Group,
+		Members: slices.Clone(v.Members),
+	}
+}
+
+// JoinGroupResponseToCore rebuilds a groups.JoinResp from a JoinGroupResponse message.
+func JoinGroupResponseToCore(m *cpv1.JoinGroupResponse) groups.JoinResp {
+	return groups.JoinResp{
+		MemberID:   m.GetMemberId(),
+		Generation: m.GetGeneration(),
+		Protocol:   m.GetProtocol(),
+		Leader:     m.GetLeader(),
+		Members:    mapSlice(m.GetMembers(), GroupMemberToCore),
+	}
+}
+
+// JoinGroupResponseFromCore builds a JoinGroupResponse message from a groups.JoinResp.
+func JoinGroupResponseFromCore(v groups.JoinResp) *cpv1.JoinGroupResponse {
+	return &cpv1.JoinGroupResponse{
+		MemberId:   v.MemberID,
+		Generation: v.Generation,
+		Protocol:   v.Protocol,
+		Leader:     v.Leader,
+		Members:    mapSlice(v.Members, GroupMemberFromCore),
+	}
+}
+
+// SyncGroupResponseToCore rebuilds a groups.SyncResp from a SyncGroupResponse message.
+func SyncGroupResponseToCore(m *cpv1.SyncGroupResponse) groups.SyncResp {
+	return groups.SyncResp{
+		Assignment: slices.Clone(m.GetAssignment()),
+	}
+}
+
+// SyncGroupResponseFromCore builds a SyncGroupResponse message from a groups.SyncResp.
+func SyncGroupResponseFromCore(v groups.SyncResp) *cpv1.SyncGroupResponse {
+	return &cpv1.SyncGroupResponse{
+		Assignment: slices.Clone(v.Assignment),
 	}
 }

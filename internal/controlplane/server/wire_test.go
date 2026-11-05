@@ -26,54 +26,6 @@ func brokerHeartbeatRespToCore(r *cpv1.BrokerHeartbeatResponse) []contract.Broke
 	return mapSlice(r.GetBrokers(), wire.BrokerInfoToCore)
 }
 
-// joinGroupFromCore builds a JoinGroupRequest from a join call.
-func joinGroupFromCore(r groups.JoinReq) *cpv1.JoinGroupRequest {
-	return &cpv1.JoinGroupRequest{
-		Group: r.Group, MemberId: r.MemberID, GroupInstanceId: r.GroupInstanceID,
-		ClientId: r.ClientID, ClientHost: r.ClientHost,
-		SessionTimeoutMs: r.SessionTimeoutMs, RebalanceTimeoutMs: r.RebalanceTimeoutMs,
-		ProtocolType: r.ProtocolType,
-		Protocols: mapSlice(r.Protocols, func(p groups.Protocol) *cpv1.GroupProtocol {
-			return &cpv1.GroupProtocol{Name: p.Name, Metadata: p.Metadata}
-		}),
-	}
-}
-
-// joinGroupRespToCore rebuilds a join answer from a response.
-func joinGroupRespToCore(r *cpv1.JoinGroupResponse) groups.JoinResp {
-	return groups.JoinResp{
-		MemberID: r.GetMemberId(), Generation: r.GetGeneration(), Protocol: r.GetProtocol(), Leader: r.GetLeader(),
-		Members: mapSlice(r.GetMembers(), func(m *cpv1.GroupMember) groups.Member {
-			return groups.Member{ID: m.GetMemberId(), InstanceID: m.GetGroupInstanceId(), Metadata: m.GetMetadata()}
-		}),
-	}
-}
-
-// syncGroupFromCore builds a SyncGroupRequest from a sync call.
-func syncGroupFromCore(r groups.SyncReq) *cpv1.SyncGroupRequest {
-	return &cpv1.SyncGroupRequest{
-		Group: r.Group, MemberId: r.MemberID, Generation: r.Generation,
-		Assignments: mapSlice(r.Assignments, func(a groups.Assignment) *cpv1.GroupAssignment {
-			return &cpv1.GroupAssignment{MemberId: a.Member, Assignment: a.Bytes}
-		}),
-	}
-}
-
-// syncGroupRespToCore rebuilds a sync answer from a response.
-func syncGroupRespToCore(r *cpv1.SyncGroupResponse) groups.SyncResp {
-	return groups.SyncResp{Assignment: r.GetAssignment()}
-}
-
-// heartbeatFromCore builds a GroupHeartbeatRequest.
-func heartbeatFromCore(r groups.HeartbeatReq) *cpv1.GroupHeartbeatRequest {
-	return &cpv1.GroupHeartbeatRequest{Group: r.Group, MemberId: r.MemberID, Generation: r.Generation}
-}
-
-// leaveGroupFromCore builds a LeaveGroupRequest.
-func leaveGroupFromCore(r groups.LeaveReq) *cpv1.LeaveGroupRequest {
-	return &cpv1.LeaveGroupRequest{Group: r.Group, Members: slices.Clone(r.Members)}
-}
-
 // leaveGroupRespToCore rebuilds the codes of a leave answer.
 func leaveGroupRespToCore(r *cpv1.LeaveGroupResponse) []runtime.ErrCode {
 	return mapSlice(r.GetErrs(), wire.ErrCodeToCore)
@@ -158,19 +110,19 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 		SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, ProtocolType: "consumer",
 		Protocols: []groups.Protocol{{Name: "range", Metadata: []byte{1}}, {Name: "rr", Metadata: []byte{2}}},
 	}
-	sameValue(t, "join", joinGroupToCore(joinGroupFromCore(join)), join)
+	sameValue(t, "join", wire.JoinGroupRequestToCore(wire.JoinGroupRequestFromCore(join)), join)
 
 	sync := groups.SyncReq{
 		Group: "g", MemberID: "m", Generation: 3,
 		Assignments: []groups.Assignment{{Member: "a", Bytes: []byte{1}}, {Member: "b", Bytes: []byte{2}}},
 	}
-	sameValue(t, "sync", syncGroupToCore(syncGroupFromCore(sync)), sync)
+	sameValue(t, "sync", wire.SyncGroupRequestToCore(wire.SyncGroupRequestFromCore(sync)), sync)
 
 	beat := groups.HeartbeatReq{Group: "g", MemberID: "m", Generation: 4}
-	sameValue(t, "heartbeat", heartbeatToCore(heartbeatFromCore(beat)), beat)
+	sameValue(t, "heartbeat", wire.GroupHeartbeatRequestToCore(wire.GroupHeartbeatRequestFromCore(beat)), beat)
 
 	leave := groups.LeaveReq{Group: "g", Members: []string{"a", "b"}}
-	sameValue(t, "leave", leaveGroupToCore(leaveGroupFromCore(leave)), leave)
+	sameValue(t, "leave", wire.LeaveGroupRequestToCore(wire.LeaveGroupRequestFromCore(leave)), leave)
 
 	commit := contract.OffsetCommit{
 		Group: "g", Member: "m", Generation: 5,
@@ -196,10 +148,10 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 		MemberID: "m", Generation: 3, Protocol: "range", Leader: "l",
 		Members: []groups.Member{{ID: "a", InstanceID: "i", Metadata: []byte{1}}, {ID: "b"}},
 	}
-	sameValue(t, "join resp", joinGroupRespToCore(joinGroupRespFromCore(join)), join)
+	sameValue(t, "join resp", wire.JoinGroupResponseToCore(wire.JoinGroupResponseFromCore(join)), join)
 
 	sync := groups.SyncResp{Assignment: []byte{7, 8}}
-	sameValue(t, "sync resp", syncGroupRespToCore(syncGroupRespFromCore(sync)), sync)
+	sameValue(t, "sync resp", wire.SyncGroupResponseToCore(wire.SyncGroupResponseFromCore(sync)), sync)
 
 	codes := []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}
 	sameValue(t, "leave resp", leaveGroupRespToCore(leaveGroupRespFromCore(codes)), codes)
@@ -245,8 +197,8 @@ func TestNilAndEmptyInputs(t *testing.T) {
 	sameValue(t, "nil commit", wire.CommitSegmentRequestToCore(nil), contract.CommitSegment{})
 	sameValue(t, "nil lookup", wire.LookupRequestToCore(nil), contract.FindSegments{})
 	sameValue(t, "nil describe", wire.DescribeTopicsRequestToCore(nil), contract.DescribeTopics{})
-	sameValue(t, "nil join", joinGroupToCore(nil), groups.JoinReq{})
-	sameValue(t, "nil join resp", joinGroupRespToCore(nil), groups.JoinResp{})
+	sameValue(t, "nil join", wire.JoinGroupRequestToCore(nil), groups.JoinReq{})
+	sameValue(t, "nil join resp", wire.JoinGroupResponseToCore(nil), groups.JoinResp{})
 	sameValue(t, "nil broker heartbeat", brokerHeartbeatToCore(nil), contract.BrokerAddr{})
 	sameValue(t, "empty live set", brokerHeartbeatRespToCore(brokerHeartbeatRespFromCore(nil)), []contract.BrokerAddr(nil))
 

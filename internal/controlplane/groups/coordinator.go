@@ -74,33 +74,9 @@ const (
 // ErrClosed is returned by Rebuild after Close.
 var ErrClosed = errors.New("groups: closed")
 
-// Protocol is one protocol a member supports, with its metadata.
-type Protocol struct {
-	Name     string
-	Metadata []byte
-}
-
-// JoinReq is a JoinGroup call. An empty MemberID asks for a new member.
-type JoinReq struct {
-	Group              string
-	MemberID           string
-	GroupInstanceID    string
-	ClientID           string
-	ClientHost         string
-	SessionTimeoutMs   int32
-	RebalanceTimeoutMs int32 // 0 means the session timeout
-	ProtocolType       string
-	Protocols          []Protocol
-}
-
-// Member is one member in the join result. Only the leader gets the list.
-type Member struct {
-	ID         string
-	InstanceID string
-	Metadata   []byte
-}
-
 // JoinResp is the answer to a JoinGroup call. Err is the group error.
+// The struct is written by hand because it carries Err, which the wire message
+// does not. wire.JoinGroupResponseToCore fills the other fields (generated).
 type JoinResp struct {
 	Err        runtime.ErrCode
 	Generation int32
@@ -110,37 +86,12 @@ type JoinResp struct {
 	Members    []Member
 }
 
-// Assignment is the bytes the leader gives one member.
-type Assignment struct {
-	Member string
-	Bytes  []byte
-}
-
-// SyncReq is a SyncGroup call. Assignments is used by the leader only.
-type SyncReq struct {
-	Group       string
-	MemberID    string
-	Generation  int32
-	Assignments []Assignment
-}
-
 // SyncResp is the answer to a SyncGroup call. Err is the group error.
+// The struct is written by hand because it carries Err, which the wire message
+// does not. wire.SyncGroupResponseToCore fills the other fields (generated).
 type SyncResp struct {
 	Err        runtime.ErrCode
 	Assignment []byte
-}
-
-// HeartbeatReq is a Heartbeat call.
-type HeartbeatReq struct {
-	Group      string
-	MemberID   string
-	Generation int32
-}
-
-// LeaveReq is a LeaveGroup call.
-type LeaveReq struct {
-	Group   string
-	Members []string
 }
 
 // GroupDescription is one group of a DescribeGroups answer.

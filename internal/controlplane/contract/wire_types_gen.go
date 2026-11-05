@@ -2,7 +2,9 @@
 
 package contract
 
-import "github.com/manifesterio/mds-controlplane/internal/runtime"
+import (
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
+)
 
 // TopicPartition names one partition of a topic.
 type TopicPartition struct {

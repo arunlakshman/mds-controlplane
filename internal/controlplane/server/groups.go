@@ -192,9 +192,9 @@ func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out
 
 var (
 	groupJoin = groupReplyCall[groups.JoinReq, groups.JoinResp, *cpv1.JoinGroupResponse]{
-		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, joinGroupRespFromCore}
+		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, wire.JoinGroupResponseFromCore}
 	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
-		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, syncGroupRespFromCore}
+		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, wire.SyncGroupResponseFromCore}
 	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
 		(*groups.Coordinator).OffsetCommit, groupOutcome, wire.GroupOffsetCommitResponseFromCore}
 	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
@@ -212,12 +212,12 @@ func notApplied(runtime.ErrCode) runtime.Outcome { return runtime.NotApplied }
 
 // JoinGroup implements ControlPlane.
 func (n *Node) JoinGroup(ctx context.Context, request *cpv1.JoinGroupRequest) (*cpv1.JoinGroupResponse, error) {
-	return groupJoin.run(ctx, n, joinGroupToCore(request))
+	return groupJoin.run(ctx, n, wire.JoinGroupRequestToCore(request))
 }
 
 // SyncGroup implements ControlPlane.
 func (n *Node) SyncGroup(ctx context.Context, request *cpv1.SyncGroupRequest) (*cpv1.SyncGroupResponse, error) {
-	return groupSync.run(ctx, n, syncGroupToCore(request))
+	return groupSync.run(ctx, n, wire.SyncGroupRequestToCore(request))
 }
 
 // GroupHeartbeat implements ControlPlane.
@@ -226,7 +226,7 @@ func (n *Node) GroupHeartbeat(ctx context.Context, request *cpv1.GroupHeartbeatR
 	if err != nil {
 		return nil, err
 	}
-	if code := c.Heartbeat(ctx, heartbeatToCore(request)); code != runtime.OK {
+	if code := c.Heartbeat(ctx, wire.GroupHeartbeatRequestToCore(request)); code != runtime.OK {
 		return nil, toRPCError(code, groupOutcome(code))
 	}
 	return &cpv1.GroupHeartbeatResponse{}, nil
@@ -238,7 +238,7 @@ func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return leaveGroupRespFromCore(c.LeaveGroup(ctx, leaveGroupToCore(request))), nil
+	return leaveGroupRespFromCore(c.LeaveGroup(ctx, wire.LeaveGroupRequestToCore(request))), nil
 }
 
 // GroupOffsetCommit implements ControlPlane. The answer has one code per partition.
@@ -281,55 +281,8 @@ func (n *Node) ListGroups(ctx context.Context, _ *cpv1.ListGroupsRequest) (*cpv1
 
 // Conversions for the consumer group context.
 
-// joinGroupToCore rebuilds a join call from a request.
-func joinGroupToCore(request *cpv1.JoinGroupRequest) groups.JoinReq {
-	return groups.JoinReq{
-		Group: request.GetGroup(), MemberID: request.GetMemberId(), GroupInstanceID: request.GetGroupInstanceId(),
-		ClientID: request.GetClientId(), ClientHost: request.GetClientHost(),
-		SessionTimeoutMs: request.GetSessionTimeoutMs(), RebalanceTimeoutMs: request.GetRebalanceTimeoutMs(),
-		ProtocolType: request.GetProtocolType(),
-		Protocols: mapSlice(request.GetProtocols(), func(p *cpv1.GroupProtocol) groups.Protocol {
-			return groups.Protocol{Name: p.GetName(), Metadata: p.GetMetadata()}
-		}),
-	}
-}
-
-// joinGroupRespFromCore builds a JoinGroupResponse. The caller checks Err first.
-func joinGroupRespFromCore(r groups.JoinResp) *cpv1.JoinGroupResponse {
-	return &cpv1.JoinGroupResponse{
-		MemberId: r.MemberID, Generation: r.Generation, Protocol: r.Protocol, Leader: r.Leader,
-		Members: mapSlice(r.Members, func(m groups.Member) *cpv1.GroupMember {
-			return &cpv1.GroupMember{MemberId: m.ID, GroupInstanceId: m.InstanceID, Metadata: m.Metadata}
-		}),
-	}
-}
-
-// syncGroupToCore rebuilds a sync call from a request.
-func syncGroupToCore(request *cpv1.SyncGroupRequest) groups.SyncReq {
-	return groups.SyncReq{
-		Group: request.GetGroup(), MemberID: request.GetMemberId(), Generation: request.GetGeneration(),
-		Assignments: mapSlice(request.GetAssignments(), func(a *cpv1.GroupAssignment) groups.Assignment {
-			return groups.Assignment{Member: a.GetMemberId(), Bytes: a.GetAssignment()}
-		}),
-	}
-}
-
-// syncGroupRespFromCore builds a SyncGroupResponse. The caller checks Err first.
-func syncGroupRespFromCore(r groups.SyncResp) *cpv1.SyncGroupResponse {
-	return &cpv1.SyncGroupResponse{Assignment: r.Assignment}
-}
-
-// heartbeatToCore rebuilds a heartbeat call from a request.
-func heartbeatToCore(request *cpv1.GroupHeartbeatRequest) groups.HeartbeatReq {
-	return groups.HeartbeatReq{Group: request.GetGroup(), MemberID: request.GetMemberId(), Generation: request.GetGeneration()}
-}
-
-// leaveGroupToCore rebuilds a leave call from a request.
-func leaveGroupToCore(request *cpv1.LeaveGroupRequest) groups.LeaveReq {
-	return groups.LeaveReq{Group: request.GetGroup(), Members: slices.Clone(request.GetMembers())}
-}
-
-// leaveGroupRespFromCore builds a LeaveGroupResponse from one code per member.
+// leaveGroupRespFromCore builds a LeaveGroupResponse from one code per member. It
+// stays by hand: the answer is a list of codes, with no struct to generate.
 func leaveGroupRespFromCore(errs []runtime.ErrCode) *cpv1.LeaveGroupResponse {
 	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, wire.ErrCodeFromCore)}
 }
@@ -344,6 +297,11 @@ func describeGroupsRespFromCore(groups []groups.GroupDescription) *cpv1.Describe
 	return &cpv1.DescribeGroupsResponse{Groups: mapSlice(groups, groupDescriptionFromCore)}
 }
 
+// groupDescriptionFromCore stays by hand. The wire GroupDescription and
+// GroupMemberInfo are flat, while the contract nests the group fields inside
+// GroupDescription and the member inside GroupMemberInfo, so a field-by-field
+// generator cannot map them. The shapes differ on purpose: the wire is flat for
+// clients, the contract nests to reuse the member type.
 func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription {
 	return &cpv1.GroupDescription{
 		Name: g.Name, Exists: g.Exists, Generation: g.Generation, ProtocolType: g.ProtocolType,
