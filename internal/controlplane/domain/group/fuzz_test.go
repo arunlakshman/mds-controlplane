@@ -1,4 +1,4 @@
-package storage
+package group
 
 import (
 	"bytes"
@@ -34,10 +34,10 @@ func corruptOrValue(t *testing.T, decode func()) bool {
 // FuzzDecodeHeader: a stored group header decodes, or panics with errCorrupt
 // (the intended fail-stop). A header that decoded encodes to the same header.
 func FuzzDecodeHeader(f *testing.F) {
-	f.Add(groupHeader{generation: 3, protoType: "consumer", protocol: "range", leader: "m", assignedGen: 2}.encode())
+	f.Add(Header{Generation: 3, ProtocolType: "consumer", Protocol: "range", Leader: "m", AssignedGeneration: 2}.encode())
 	f.Add([]byte{})
 	f.Fuzz(func(t *testing.T, b []byte) {
-		var h groupHeader
+		var h Header
 		if !corruptOrValue(t, func() { h = decodeHeader("g", b) }) {
 			return
 		}
