@@ -1,37 +1,42 @@
-package engine
+// Package memory is the in-memory engine.Engine: the default engine of the machine
+// in the simulator and in tests. It is its own package so that the engine
+// interface package imports no sync.
+package memory
 
 import (
 	"bytes"
 	"slices"
 	"sync"
+
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 )
 
-// Memory is an in-memory KV: a sorted slice copied on every write transaction.
+// Engine is an in-memory engine.Engine: a sorted slice copied on every write transaction.
 // It is the default store of the machine in the simulator and in tests. Production
 // mdscontrolplane passes Pebble instead (see metadb/engine/pebble and replica.Config.OpenStore).
-type Memory struct {
+type Engine struct {
 	mu      sync.RWMutex
 	entries []memoryEntry
 }
 
 type memoryEntry struct{ key, value []byte }
 
-// NewMemory returns an empty store.
-func NewMemory() *Memory { return &Memory{} }
+// New returns an empty engine.
+func New() *Engine { return &Engine{} }
 
-// Close implements Engine.
-func (m *Memory) Close() error { return nil }
+// Close implements engine.Engine.
+func (m *Engine) Close() error { return nil }
 
-// View implements Engine.
-func (m *Memory) View(fn func(Txn)) error {
+// View implements engine.Engine.
+func (m *Engine) View(fn func(engine.Txn)) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	fn(&memoryTxn{entries: m.entries})
 	return nil
 }
 
-// Update implements Engine.
-func (m *Memory) Update(fn func(Txn)) error {
+// Update implements engine.Engine.
+func (m *Engine) Update(fn func(engine.Txn)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	transaction := &memoryTxn{entries: slices.Clone(m.entries)}

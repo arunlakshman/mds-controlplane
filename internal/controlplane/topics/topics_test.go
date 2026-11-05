@@ -8,6 +8,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -15,7 +16,7 @@ import (
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
 var backends = map[string]func(testing.TB) engine.Engine{
-	"mem": func(testing.TB) engine.Engine { return engine.NewMemory() },
+	"mem": func(testing.TB) engine.Engine { return memory.New() },
 	"pebble": func(t testing.TB) engine.Engine {
 		t.Helper()
 		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
@@ -31,7 +32,7 @@ var backends = map[string]func(testing.TB) engine.Engine{
 // test/conformance (metadata over memory and Pebble).
 
 func TestTrimForgetsKeysNotOffsets(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	mustCommit(t, a, 0, commit("old", pb("a", 0, 5)))
 	mustCommit(t, a, 5, commit("new", pb("a", 0, 5)))
 	h := a.StateHash()
@@ -53,7 +54,7 @@ func TestTrimForgetsKeysNotOffsets(t *testing.T) {
 }
 
 func TestInvalidAndUnknown(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	if a.CreateTopic("", 1) != runtime.ErrInvalid || a.CreateTopic("t", 0) != runtime.ErrInvalid {
 		t.Fatal("CreateTopic must reject empty name and non-positive partitions")
 	}
@@ -122,7 +123,7 @@ func TestCreateTopicExclusive(t *testing.T) {
 }
 
 func TestAssignedStates(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	operation := commit("k1", pb("a", 0, 3), pb("a", 1, 2))
 	first := mustCommit(t, a, 5, operation)
 	want := first.Resp.(contract.CommitSegmentResp).Assigned

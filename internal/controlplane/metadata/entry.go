@@ -6,6 +6,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -119,7 +120,7 @@ func Decode(b []byte) (Entry, error) {
 
 // NewMem returns a metadata store over an in-memory KV. No Pebble. Suitable for the
 // DSM Step fold and for tests that need the pure command fold.
-func NewMem() *Store { return New(engine.NewMemory()) }
+func NewMem() *Store { return New(memory.New()) }
 
 // Apply folds one log entry at slot into the store. No-ops leave state unchanged.
 // A store failure panics (fail-stop), matching Commit.

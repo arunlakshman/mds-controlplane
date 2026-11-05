@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
 // trackedStore is an in-memory store that remembers whether it was closed.
 type trackedStore struct {
-	*engine.Memory
+	*memory.Engine
 	closed bool
 }
 
@@ -31,7 +32,7 @@ func (s *storeSource) open() (engine.Engine, error) {
 	if s.failOn == len(s.opened)+1 {
 		return nil, errors.New("disk is full")
 	}
-	st := &trackedStore{Memory: engine.NewMemory()}
+	st := &trackedStore{Engine: memory.New()}
 	s.opened = append(s.opened, st)
 	return st, nil
 }

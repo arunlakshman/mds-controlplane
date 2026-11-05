@@ -10,7 +10,7 @@ import (
 	"pgregory.net/rapid"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -41,13 +41,13 @@ func (s *slots) exec(ctx context.Context, op runtime.ControlPlaneOperation) (run
 // writes a checkpoint, and a new store on a new engine starts from it.
 func TestMetadataMemory(t *testing.T) {
 	Run(t, func(rt *rapid.T) Target {
-		s := &slots{store: metadata.New(engine.NewMemory())}
+		s := &slots{store: metadata.New(memory.New())}
 		return Target{Exec: s.exec, Reboot: func() {
 			var b bytes.Buffer
 			if err := s.store.Snapshot(&b, s.next); err != nil {
 				rt.Fatalf("checkpoint: %v", err)
 			}
-			s.store = metadata.New(engine.NewMemory())
+			s.store = metadata.New(memory.New())
 			next, err := s.store.Restore(&b)
 			if err != nil {
 				rt.Fatalf("restore: %v", err)

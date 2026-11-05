@@ -86,7 +86,7 @@ func TestImportRules(t *testing.T) {
 		cp + "topics":         {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "metadata":       {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "module", cp + "topics", rt},
+		cp + "metadata":       {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt},
 		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadata", cp + "module", rt},
 		cp + "executor":       {rt},
 	}

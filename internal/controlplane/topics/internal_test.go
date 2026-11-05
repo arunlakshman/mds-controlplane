@@ -6,6 +6,7 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -44,7 +45,7 @@ func TestIdemRecordCorruption(t *testing.T) {
 }
 
 func TestCorruptStoredRecordsPanic(t *testing.T) {
-	store := engine.NewMemory()
+	store := memory.New()
 	topicPartition := contract.NewTopicPartition("t", 0)
 	_ = store.Update(func(transaction engine.Txn) {
 		transaction.Set(batchRunKey(topicPartition, 0), []byte{9, 9})

@@ -11,6 +11,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -19,7 +20,7 @@ import (
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
 var backends = map[string]func(testing.TB) engine.Engine{
-	"mem": func(testing.TB) engine.Engine { return engine.NewMemory() },
+	"mem": func(testing.TB) engine.Engine { return memory.New() },
 	"pebble": func(t testing.TB) engine.Engine {
 		t.Helper()
 		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
@@ -66,7 +67,7 @@ func TestSnapshotRestoreAndReplay(t *testing.T) {
 }
 
 func TestRestoreRejectsDamage(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 2)))
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 1); err != nil {
@@ -75,7 +76,7 @@ func TestRestoreRejectsDamage(t *testing.T) {
 	good := buf.Bytes()
 	cases := map[string][]byte{"empty": nil, "magic": []byte("XXXXXX"), "no end mark": good[:len(good)-1], "cut": good[:len(good)/2], "header only": good[:6]}
 	for name, b := range cases {
-		if _, err := metadata.New(engine.NewMemory()).Restore(bytes.NewReader(b)); err == nil {
+		if _, err := metadata.New(memory.New()).Restore(bytes.NewReader(b)); err == nil {
 			t.Errorf("%s: restore accepted a damaged checkpoint", name)
 		}
 	}
@@ -128,7 +129,7 @@ func readOp[R any](ctx context.Context, s *localStore, operation runtime.Control
 
 func TestStoreAdapter(t *testing.T) {
 	ctx := t.Context()
-	s := &localStore{a: metadata.New(engine.NewMemory())}
+	s := &localStore{a: metadata.New(memory.New())}
 	if c, err := callCode(ctx, s, contract.CreateTopic{Name: "t", Partitions: 3}); c != runtime.OK || err != nil {
 		t.Fatal(c, err)
 	}
@@ -157,7 +158,7 @@ func TestCommitBatchEqualsSequential(t *testing.T) {
 		{Slot: 3, Op: commit("k1", pb("a", 0, 1))},                // conflict
 		{Slot: 4, Op: commit("bad")},
 	}
-	one, many := metadata.New(engine.NewMemory()), metadata.New(engine.NewMemory())
+	one, many := metadata.New(memory.New()), metadata.New(memory.New())
 	got, err := many.CommitBatch(cmds)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +175,7 @@ func TestCommitBatchEqualsSequential(t *testing.T) {
 }
 
 func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 2)))
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 1); err != nil {
@@ -190,7 +191,7 @@ func TestSnapshotCRCFindsOneFlippedBit(t *testing.T) {
 		if metadata.CheckSnapshot(bad) == nil {
 			t.Fatalf("CheckSnapshot accepted a flipped bit at byte %d", i)
 		}
-		if _, err := metadata.New(engine.NewMemory()).Restore(bytes.NewReader(bad)); err == nil {
+		if _, err := metadata.New(memory.New()).Restore(bytes.NewReader(bad)); err == nil {
 			t.Fatalf("Restore accepted a flipped bit at byte %d", i)
 		}
 	}
@@ -219,14 +220,14 @@ func TestCreateEntryReplay(t *testing.T) {
 }
 
 func TestSnapshotAtTagsTheViewsSlot(t *testing.T) {
-	a := metadata.New(engine.NewMemory())
+	a := metadata.New(memory.New())
 	mustCommit(t, a, 0, commit("k", pb("a", 0, 1)))
 	var buf bytes.Buffer
 	called := 0
 	if err := a.SnapshotAt(&buf, func() int64 { called++; return 77 }); err != nil || called != 1 {
 		t.Fatalf("%v %d", err, called)
 	}
-	b := metadata.New(engine.NewMemory())
+	b := metadata.New(memory.New())
 	if slot, err := b.Restore(&buf); err != nil || slot != 77 {
 		t.Fatalf("slot %d err %v", slot, err)
 	}

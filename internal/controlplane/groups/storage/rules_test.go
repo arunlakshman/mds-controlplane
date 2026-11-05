@@ -10,6 +10,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -58,7 +59,7 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
 var backends = map[string]func(testing.TB) engine.Engine{
-	"mem": func(testing.TB) engine.Engine { return engine.NewMemory() },
+	"mem": func(testing.TB) engine.Engine { return memory.New() },
 	"pebble": func(t testing.TB) engine.Engine {
 		t.Helper()
 		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
