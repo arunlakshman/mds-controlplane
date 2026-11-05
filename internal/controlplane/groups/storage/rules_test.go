@@ -8,20 +8,52 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/groupfix"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-var (
-	install  = groupfix.Install
-	assign   = groupfix.Assign
-	remove   = groupfix.Remove
-	pair     = groupfix.Pair
-	commitOp = groupfix.CommitOp
-)
+// groupMember is a group member with fixed client fields.
+func groupMember(id string) contract.GroupMember {
+	return contract.GroupMember{
+		MemberID: id, ClientID: "client-" + id, ClientHost: "/10.0.0.1",
+		SessionTimeoutMs: 10000, RebalanceTimeoutMs: 30000, Metadata: []byte("sub-" + id),
+	}
+}
+
+// install is a GroupInstall of the members ids.
+func install(group string, gen int32, leader string, ids ...string) contract.GroupInstall {
+	operation := contract.GroupInstall{Group: group, ProtocolType: "consumer", Protocol: "range", Generation: gen, Leader: leader, TimeMs: 1000}
+	for _, id := range ids {
+		operation.Members = append(operation.Members, groupMember(id))
+	}
+	return operation
+}
+
+// assign is a GroupAssign. pairs are member, bytes, member, bytes, and so on.
+func assign(group string, gen int32, leader string, pairs ...string) contract.GroupAssign {
+	operation := contract.GroupAssign{Group: group, Generation: gen, Leader: leader, TimeMs: 2000}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		operation.Assignments = append(operation.Assignments, contract.GroupAssignment{Member: pairs[i], Bytes: []byte(pairs[i+1])})
+	}
+	return operation
+}
+
+// remove is a GroupRemove of the members ids.
+func remove(group string, ids ...string) contract.GroupRemove {
+	return contract.GroupRemove{Group: group, Members: ids, TimeMs: 3000, Reason: "leave"}
+}
+
+// pair is one partition offset.
+func pair(topic string, p int32, off int64) contract.PartitionOffset {
+	return contract.PartitionOffset{TopicPartition: contract.NewTopicPartition(topic, p), Offset: off, LeaderEpoch: 7, Metadata: "m"}
+}
+
+// commitOp is an OffsetCommit.
+func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset) contract.OffsetCommit {
+	return contract.OffsetCommit{Group: group, Member: member, Generation: gen, TimeMs: 4000, Offsets: offs}
+}
 
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.

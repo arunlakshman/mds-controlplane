@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/groupfix"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
@@ -15,10 +14,10 @@ import (
 func TestCodecRoundTrip(t *testing.T) {
 	m := storage.NewModule(nil)
 	for _, operation := range []runtime.ControlPlaneOperation{
-		groupfix.Install("g", 2, "m1", "m1", "m2"),
-		groupfix.Assign("g", 2, "m1", "m1", "a1", "m2", "a2"),
-		groupfix.Remove("g", "m1", "m2"),
-		groupfix.CommitOp("g", "m1", 2, groupfix.Pair("t", 0, 5), groupfix.Pair("t", 1, 9)),
+		install("g", 2, "m1", "m1", "m2"),
+		assign("g", 2, "m1", "m1", "a1", "m2", "a2"),
+		remove("g", "m1", "m2"),
+		commitOp("g", "m1", 2, pair("t", 0, 5), pair("t", 1, 9)),
 	} {
 		kind, ok := m.KindOf(operation)
 		if !ok {
