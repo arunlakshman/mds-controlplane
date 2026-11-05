@@ -33,7 +33,7 @@ func TestSameSeedSameHash(t *testing.T) {
 			for seed := uint64(1); seed <= uint64(seedCount(4, 25)); seed++ {
 				a := mustRun(t, Config{Scenario: sc, Seed: seed})
 				b := mustRun(t, Config{Scenario: sc, Seed: seed})
-				if a.Hash != b.Hash || !reflect.DeepEqual(a.Stats, b.Stats) || !reflect.DeepEqual(a.Coverage, b.Coverage) {
+				if a.Hash != b.Hash || !reflect.DeepEqual(a.Stats, b.Stats) || !reflect.DeepEqual(a.Coverage, b.Coverage) || !reflect.DeepEqual(a.Sites, b.Sites) {
 					t.Fatalf("seed %d: two runs differ: hash %x vs %x, stats %+v vs %+v", seed, a.Hash, b.Hash, a.Stats, b.Stats)
 				}
 			}
@@ -63,6 +63,28 @@ func TestDifferentSeedsDiffer(t *testing.T) {
 	b := mustRun(t, Config{Scenario: "chaos", Seed: 2})
 	if a.Hash == b.Hash {
 		t.Fatalf("seeds 1 and 2 have the same hash %x", a.Hash)
+	}
+}
+
+// TestSitesFire: over a few runs of every scenario, each buggify site is asked,
+// switched on in some runs, and fires, and the runs keep every property.
+func TestSitesFire(t *testing.T) {
+	fired := map[string]uint64{}
+	for _, sc := range ScenarioNames() {
+		for seed := uint64(1); seed <= uint64(seedCount(5, 20)); seed++ {
+			res := mustRun(t, Config{Scenario: sc, Seed: seed})
+			if !res.OK() {
+				t.Fatal(Report(res))
+			}
+			for name, c := range res.Sites {
+				fired[name] += c.Fired
+			}
+		}
+	}
+	for _, name := range SiteNames() {
+		if fired[name] == 0 {
+			t.Errorf("site %q never fired", name)
+		}
 	}
 }
 

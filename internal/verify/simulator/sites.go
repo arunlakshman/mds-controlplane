@@ -1,5 +1,11 @@
 package simulator
 
+import (
+	"github.com/manifesterio/dst/fault"
+	"github.com/manifesterio/dst/rng"
+	"github.com/manifesterio/mds-controlplane/internal/runtime"
+)
+
 // The buggify sites of the simulator. Each is a place where the fake log or
 // the fake object store does something that the real one may do too. A site is
 // switched on for some runs and off for others, and when on it fires now and
@@ -16,6 +22,37 @@ const (
 	// comes back late.
 	SiteObjectsSlowAnswer = "sim.objects.slow-answer"
 )
+
+// slowAnswer is the extra delay of the reply to call: zero, or (when the site
+// for the log or the object store fires) the same range as the Slow fault. The
+// call has taken effect already, so this only moves the reply later.
+func (st *storage) slowAnswer(r *rng.Rand, call runtime.IOCall) runtime.Duration {
+	site := SiteObjectsSlowAnswer
+	if isLogCall(call) {
+		site = SiteLogSlowAnswer
+	}
+	if !st.s.env.inj.Maybe(fault.Site(site)) {
+		return 0
+	}
+	return runtime.Duration(r.Between(int64(slowMin), int64(slowMax)))
+}
+
+// shortPage may cut a page of log entries to a shorter one that still has the
+// first entry. The reader asks again from where the page ended.
+func (st *storage) shortPage(ents []runtime.LogEntry) []runtime.LogEntry {
+	if len(ents) < 2 || !st.s.env.inj.Maybe(fault.Site(SiteLogShortPage)) {
+		return ents
+	}
+	return ents[:1+st.s.rand.Intn(len(ents)-1)]
+}
+
+func isLogCall(call runtime.IOCall) bool {
+	switch call.(type) {
+	case runtime.LogAppend, runtime.LogRead, runtime.LogGetEnd, runtime.LogDeleteOld, runtime.LogClaimEpoch:
+		return true
+	}
+	return false
+}
 
 // SiteNames returns the names of all buggify sites of the simulator, in order.
 func SiteNames() []string {

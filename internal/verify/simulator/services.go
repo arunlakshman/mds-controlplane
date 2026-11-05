@@ -45,6 +45,8 @@ const (
 	callTimeoutAfter = 1 * runtime.Second
 	netMin           = 1 * runtime.Millisecond
 	netMax           = 4 * runtime.Millisecond
+	slowMin          = 50 * runtime.Millisecond // extra delay of a slow call or a slow answer
+	slowMax          = 400 * runtime.Millisecond
 )
 
 // storage is the shared fake log and the fake object store. Calls reach it
@@ -76,7 +78,7 @@ func newStorage(s *sim) *storage {
 func (st *storage) netDelay(r *rng.Rand) runtime.Duration {
 	d := runtime.Duration(r.Between(int64(netMin), int64(netMax)))
 	if r.Chance(st.s.faults.Slow) {
-		d += runtime.Duration(r.Between(int64(50*runtime.Millisecond), int64(400*runtime.Millisecond)))
+		d += runtime.Duration(r.Between(int64(slowMin), int64(slowMax)))
 	}
 	return d
 }
@@ -160,7 +162,8 @@ func (st *storage) execute(cx eng.Context, call runtime.IOCall) (runtime.IOResul
 		st.apply(call)
 		return timeoutReply()
 	}
-	return st.apply(call), st.netDelay(cx.Rand())
+	res := st.apply(call)
+	return res, st.netDelay(cx.Rand()) + st.slowAnswer(cx.Rand(), call)
 }
 
 // errorReply is the failure completion that matches call.
@@ -201,7 +204,7 @@ func (st *storage) apply(call runtime.IOCall) runtime.IOResult {
 		if err != nil {
 			return st.failed(call, err)
 		}
-		return runtime.LogReadDone{Req: c.Req, Entries: ents, Err: runtime.OK, Outcome: runtime.Applied}
+		return runtime.LogReadDone{Req: c.Req, Entries: st.shortPage(ents), Err: runtime.OK, Outcome: runtime.Applied}
 	case runtime.LogGetEnd:
 		tail, err := st.log.CheckTail(st.ctx)
 		if err != nil {
