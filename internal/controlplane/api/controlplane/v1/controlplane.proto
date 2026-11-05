@@ -159,11 +159,13 @@ message BrokerInfo {
 // BrokerHeartbeatRequest renews the lease of the calling broker. Only the
 // active control plane keeps the live set (decision Q4, Q7b).
 message BrokerHeartbeatRequest {
+  option (controlplane.options.v1.go_struct) = "contract.BrokerHeartbeat";
   BrokerInfo broker = 1;
 }
 
 // BrokerHeartbeatResponse lists every live broker, sorted by node id.
 message BrokerHeartbeatResponse {
+  option (controlplane.options.v1.go_struct) = "contract.BrokerHeartbeatResp";
   repeated BrokerInfo brokers = 1;
 }
 
@@ -252,7 +254,8 @@ message LeaveGroupRequest {
 
 // LeaveGroupResponse has one code per request member, in request order.
 message LeaveGroupResponse {
-  repeated ErrCode errs = 1;
+  option (controlplane.options.v1.go_struct) = "groups.LeaveResp";
+  repeated ErrCode errs = 1 [(controlplane.options.v1.go_type) = "runtime.ErrCode"];
 }
 
 message PartitionOffsetCommit {
@@ -289,37 +292,58 @@ message OffsetFetchResponse {
   repeated controlplane.shared.v1.PartitionOffset offsets = 1;
 }
 
+// DescribeGroupsRequest names the groups to describe.
 message DescribeGroupsRequest {
+  option (controlplane.options.v1.go_struct) = "groups.DescribeGroupsReq";
   repeated string groups = 1;
 }
 
-message GroupMemberInfo {
+// GroupMemberJoin is what a member told the group when it joined. It is the
+// part of GroupMemberInfo that the join phase decides.
+message GroupMemberJoin {
+  option (controlplane.options.v1.go_existing) = "contract.GroupMember";
   string member_id = 1;
   string client_id = 2;
   string client_host = 3;
   string group_instance_id = 4;
   int32 session_timeout_ms = 5;
   int32 rebalance_timeout_ms = 6;
-  int64 joined_time_ms = 7;
-  bytes metadata = 8;
-  bytes assignment = 9;
+  bytes metadata = 7;
 }
 
-// GroupDescription is one group of DescribeGroups. Exists is false for a group
-// that was never installed; the other fields are then empty.
+// GroupMemberInfo is a member as the state keeps it: what it said when it joined,
+// its join time and its assignment.
+message GroupMemberInfo {
+  option (controlplane.options.v1.go_existing) = "contract.GroupMemberInfo";
+  GroupMemberJoin member = 1 [(controlplane.options.v1.go_embed) = true];
+  int64 joined_time_ms = 2;
+  bytes assignment = 3;
+}
+
+// GroupDetails is what the state keeps about one group. Exists is false for a
+// group that was never installed; the other fields are then empty.
+message GroupDetails {
+  option (controlplane.options.v1.go_existing) = "contract.DescribeGroupResp";
+  bool exists = 1;
+  int32 generation = 2;
+  string protocol_type = 3;
+  string protocol = 4;
+  string leader = 5;
+  int32 assigned_generation = 6;
+  string state = 7;
+  repeated GroupMemberInfo members = 8;
+}
+
+// GroupDescription is one group of DescribeGroups: its name and its details.
 message GroupDescription {
+  option (controlplane.options.v1.go_existing) = "groups.GroupDescription";
   string name = 1;
-  bool exists = 2;
-  int32 generation = 3;
-  string protocol_type = 4;
-  string protocol = 5;
-  string leader = 6;
-  int32 assigned_generation = 7;
-  string state = 8;
-  repeated GroupMemberInfo members = 9;
+  GroupDetails details = 2 [(controlplane.options.v1.go_embed) = true];
 }
 
+// DescribeGroupsResponse has one description per request group, in request order.
 message DescribeGroupsResponse {
+  option (controlplane.options.v1.go_struct) = "groups.DescribeGroupsResp";
   repeated GroupDescription groups = 1;
 }
 
