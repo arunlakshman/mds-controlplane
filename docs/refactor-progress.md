@@ -15,8 +15,12 @@ T1.2 | done | cherry-picked 23abd70 | make build green, make mutants 8/8, confor
 T1.3 | done | cherry-picked 2cb69b3 | make build green, make mutants 8/8 (37s, old suite), -race x3 green, golden unchanged | replica target 269 lines, TestReplica 8.4s vs old 8.7s
 T1.4 | done | cherry-picked ac33ff4,31939d6 | make build green on merged tree (with T1.3), make mutants 8/8 | grpc_test.go 484 lines; added Target.Lacks (4 lines in shared harness); TestGRPC ~18s
 T1.5 | done | cherry-picked 8 commits 6e003d8..ff1e25b | make build green, make mutants 8/8 (26.6s, all on new suite, no rapid seed), golden unchanged | old suite + memorystore deleted (-1256 lines); test/conformance 1364 -> 1488 lines; diff 237+/1355-
+T1.6 | done | cherry-picked 30cf03b | make build green, make mutants 8/8 (35s), golden hashes unchanged, grep for removed names empty | 13 files +14/-130; also edited topics_test.go and ops/mutants.txt (outside Touch, needed)
 
 ## Deferred items
+
+- T1.6 FIDELITY NOTE: writer-offsets mutant is now a "gap" edit in topics/commit.go assign (base +1, every commit leaves a gap), not literally "writer decides outcomes from stale state before append". Killed by TestScenariosPass. Revisit when rebalance/decide-at-apply work (P5) lands, if a closer mutant is wanted.
+- T1.6: docs may still mention removed names (InjectedBug etc.); T7.1 sweep.
 
 - T1.5 TRADEOFF (accepted): to keep new suite no slower than old, gRPC target is now 1 variant (trim on, crashes only, no clean Reboot, 10 checks x 40 steps); TestReplica keeps all 4 variants. Restoring gRPC restarts costs 3-5s.
 - T1.5: controlplanetest.Client has no direct test now (TestRoundTrip gone); StartMem/Start in controlplanetest/grpcserver.go have no users - T1.7/T2.5 decide.
@@ -55,3 +59,4 @@ T1.5 | done | cherry-picked 8 commits 6e003d8..ff1e25b | make build green, make 
 - T1.2 merged. Next: T1.3 (replica target) and T1.4 (gRPC target) in parallel, Group B; both touch test/conformance, harness edits must be minimal.
 - T1.3 and T1.4 merged; make build + make mutants green on merged tree. Next: T1.5 (serial, sonnet, higher): point mutants/doubles at new suite, then delete old suite.
 - T1.5 merged, old suite deleted, worktrees cleaned. Next: T1.6 (serial; the rule-4 exception in replica), then Group C: T1.7, T1.8, T1.9.
+- T1.6 merged. replica diff vs main so far: commit.go/config.go/replica.go/role.go deletions (rule 4 exception) + commit_test.go test. Next: Group C T1.7, T1.8, T1.9 in parallel.
