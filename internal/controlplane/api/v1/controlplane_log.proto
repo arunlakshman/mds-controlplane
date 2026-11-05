@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package controlplane.v1;
+
+option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1;controlplanev1";
+
+// The messages in this file are internal. They describe the group operations
+// that go into the replicated log and the answers of the group reads. They are
+// NOT part of the ControlPlane service and are never sent over gRPC. They live
+// in the .proto so that the .proto is the one source of the contract value types:
+// ops/tools/wiregen writes the Go structs of package contract from them.
+// Names start with Log so they do not clash with the wire messages.
+
+// LogGroupMember is one member of a consumer group, as the join phase gives it.
+message LogGroupMember {
+  string member_id = 1;
+  string client_id = 2;
+  string client_host = 3;
+  string group_instance_id = 4;
+  int32 session_timeout_ms = 5;
+  int32 rebalance_timeout_ms = 6;
+  bytes metadata = 7;
+}
+
+// LogGroupMemberInfo is a member as the state keeps it.
+message LogGroupMemberInfo {
+  LogGroupMember member = 1;
+  int64 joined_time_ms = 2;
+  bytes assignment = 3;
+}
+
+// LogGroupAssignment is the assignment bytes of one member.
+message LogGroupAssignment {
+  string member = 1;
+  bytes data = 2;
+}
+
+// LogGroupInstall is the result of a join phase.
+message LogGroupInstall {
+  string group = 1;
+  string protocol_type = 2;
+  string protocol = 3;
+  int32 generation = 4;
+  string leader = 5;
+  int64 time_ms = 6;
+  repeated LogGroupMember members = 7;
+}
+
+// LogGroupAssign stores the leader's assignment for a generation.
+message LogGroupAssign {
+  string group = 1;
+  int32 generation = 2;
+  string leader = 3;
+  int64 time_ms = 4;
+  repeated LogGroupAssignment assignments = 5;
+}
+
+// LogGroupRemove removes members from a group.
+message LogGroupRemove {
+  string group = 1;
+  repeated string members = 2;
+  int64 time_ms = 3;
+  string reason = 4;
+}
+
+// LogDescribeGroup reads one group.
+message LogDescribeGroup {
+  string group = 1;
+}
+
+// LogDescribeGroupResponse answers LogDescribeGroup.
+message LogDescribeGroupResponse {
+  bool exists = 1;
+  int32 generation = 2;
+  string protocol_type = 3;
+  string protocol = 4;
+  string leader = 5;
+  int32 assigned_generation = 6;
+  string state = 7;
+  repeated LogGroupMemberInfo members = 8;
+}
