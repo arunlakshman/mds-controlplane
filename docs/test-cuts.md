@@ -1,5 +1,7 @@
 # Test cuts: plan and evidence
 
+Note: docs/greenfield-refactor-plan.md replaces this file's later steps.
+
 Goal: cut the test code from about 12,000 lines (plus about 1,400 of test support) without losing the
 ability to catch bugs. This file is the plan (step 0). Nothing is deleted yet.
 
