@@ -88,14 +88,14 @@ func New(config Config) *Node {
 		config.StopGrace = runtime.Duration(15e9) // 15s
 	}
 	if config.BrokerLeaseTTL <= 0 {
-		config.BrokerLeaseTTL = broker.DefaultTTL
+		config.BrokerLeaseTTL = time.Duration(broker.DefaultTTL)
 	}
 	n := &Node{
 		config:   config,
 		inbox:    live.NewInbox(),
 		inject:   make(chan live.InjectFunc, 64),
 		health:   health.NewServer(),
-		leases:   broker.New(config.BrokerLeaseTTL),
+		leases:   broker.New(runtime.Duration(config.BrokerLeaseTTL)),
 		waiters:  map[runtime.RequestID]chan runtime.ControlPlaneDone{},
 		shutdown: make(chan struct{}),
 		loopDone: make(chan struct{}),
