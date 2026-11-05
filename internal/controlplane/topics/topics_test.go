@@ -1,18 +1,34 @@
 package topics_test
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/kvtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
+// backends are the stores that a semantic test runs on, by name: the in-memory
+// one and Pebble in a temporary folder.
+var backends = map[string]func(testing.TB) kv.Store{
+	"mem": func(testing.TB) kv.Store { return kv.NewMemory() },
+	"pebble": func(t testing.TB) kv.Store {
+		t.Helper()
+		store, err := pebblestore.Open(filepath.Join(t.TempDir(), "state"), pebblestore.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return store
+	},
+}
+
 // The topics rules are compared with the model by the conformance tests in
-// internal/controlplane/controlplanetest (metadata over memory and Pebble).
+// test/conformance (metadata over memory and Pebble).
 
 func TestTrimForgetsKeysNotOffsets(t *testing.T) {
 	a := metadata.New(kv.NewMemory())
@@ -74,7 +90,7 @@ func TestCreateTopicExclusive(t *testing.T) {
 		{"exclusive create, empty name", contract.CreateTopic{Name: "", Partitions: 1, FailIfExists: true}, runtime.ErrInvalid, 0},
 		{"exclusive create, zero partitions", contract.CreateTopic{Name: "z", Partitions: 0, FailIfExists: true}, runtime.ErrInvalid, 0},
 	}
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := metadata.New(mk(t))
 			t.Cleanup(func() { _ = a.Close() })

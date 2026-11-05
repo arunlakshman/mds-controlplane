@@ -2,14 +2,15 @@ package storage_test
 
 import (
 	"bytes"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/groupfix"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/kvtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -21,6 +22,21 @@ var (
 	pair     = groupfix.Pair
 	commitOp = groupfix.CommitOp
 )
+
+// backends are the stores that a semantic test runs on, by name: the in-memory
+// one and Pebble in a temporary folder.
+var backends = map[string]func(testing.TB) kv.Store{
+	"mem": func(testing.TB) kv.Store { return kv.NewMemory() },
+	"pebble": func(t testing.TB) kv.Store {
+		t.Helper()
+		store, err := pebblestore.Open(filepath.Join(t.TempDir(), "state"), pebblestore.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return store
+	},
+}
 
 // tooBig is a byte field that makes a group command pass 256 KiB.
 var tooBig = bytes.Repeat([]byte{'x'}, 300<<10)
@@ -72,7 +88,7 @@ func describe(t *testing.T, a *metadata.Store, group string) contract.DescribeGr
 }
 
 func TestGroupInstallRules(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			noLeader := install("g", 1, "m9", "m1", "m2")
@@ -108,7 +124,7 @@ func withMetadata(operation contract.GroupInstall, b []byte) contract.GroupInsta
 }
 
 func TestGroupAssignRules(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{
@@ -139,7 +155,7 @@ func withBytes(operation contract.GroupAssign, b []byte) contract.GroupAssign {
 }
 
 func TestGroupRemoveRules(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{
@@ -160,7 +176,7 @@ func TestGroupRemoveRules(t *testing.T) {
 }
 
 func TestGroupRemoveLeavesEmpty(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{
@@ -183,7 +199,7 @@ func TestGroupRemoveLeavesEmpty(t *testing.T) {
 }
 
 func TestOffsetCommitRules(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			ok, unk, bad := runtime.OK, runtime.ErrUnknownPartition, runtime.ErrInvalid
@@ -230,7 +246,7 @@ func withMeta(operation contract.OffsetCommit, b []byte) contract.OffsetCommit {
 }
 
 func TestOffsetFetchReads(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{
@@ -259,7 +275,7 @@ func TestOffsetFetchReads(t *testing.T) {
 }
 
 func TestGroupStatesAndList(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{
@@ -283,7 +299,7 @@ func TestGroupStatesAndList(t *testing.T) {
 // the rule counts 101 bytes besides the metadata.
 func TestGroupLimitBoundary(t *testing.T) {
 	const fixed = 101
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := newGroupStore(t, mk)
 			runSteps(t, a, []step{{"install", install("g", 1, "m1", "m1"), runtime.OK, nil}})
@@ -299,7 +315,7 @@ func TestGroupLimitBoundary(t *testing.T) {
 
 // TestGroupTooLargeWritesNothing checks that a refused command leaves the state as it was.
 func TestGroupTooLargeWritesNothing(t *testing.T) {
-	a := newGroupStore(t, kvtest.Backends["mem"])
+	a := newGroupStore(t, backends["mem"])
 	runSteps(t, a, []step{
 		{"install", install("g", 1, "m1", "m1", "m2"), runtime.OK, nil},
 		{"assign", assign("g", 1, "m1", "m1", "a"), runtime.OK, nil},

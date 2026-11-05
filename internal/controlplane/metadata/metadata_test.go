@@ -2,20 +2,36 @@ package metadata_test
 
 import (
 	"bytes"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/kvtest"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
+// backends are the stores that a semantic test runs on, by name: the in-memory
+// one and Pebble in a temporary folder.
+var backends = map[string]func(testing.TB) kv.Store{
+	"mem": func(testing.TB) kv.Store { return kv.NewMemory() },
+	"pebble": func(t testing.TB) kv.Store {
+		t.Helper()
+		store, err := pebblestore.Open(filepath.Join(t.TempDir(), "state"), pebblestore.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return store
+	},
+}
+
 func TestSnapshotRestoreAndReplay(t *testing.T) {
-	for name, mk := range kvtest.Backends {
+	for name, mk := range backends {
 		t.Run(name, func(t *testing.T) {
 			a := metadata.New(mk(t))
 			first := mustCommit(t, a, 0, commit("k0", pb("a", 0, 3), pb("a", 0, 2), pb("b", 7, 1)))
