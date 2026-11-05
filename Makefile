@@ -91,9 +91,9 @@ FUZZ_TARGETS = \
 	./internal/controlplane/metadb:FuzzDecode \
 	./internal/controlplane/domain/topic:FuzzDecodeBatchRun \
 	./internal/controlplane/domain/topic:FuzzParseDuplicateCheck \
-	./internal/controlplane/groups/storage:FuzzDecodeHeader \
-	./internal/controlplane/groups/storage:FuzzDecodeMember \
-	./internal/controlplane/groups/storage:FuzzDecodeOffset
+	./internal/controlplane/domain/group:FuzzDecodeHeader \
+	./internal/controlplane/domain/group:FuzzDecodeMember \
+	./internal/controlplane/domain/group:FuzzDecodeOffset
 fuzz:
 	@for t in $(FUZZ_TARGETS); do \
 	  echo "fuzz $${t#./internal/controlplane/}"; \

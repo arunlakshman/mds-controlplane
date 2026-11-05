@@ -92,7 +92,7 @@ linters:
         path: '^(internal/runtime|internal/verify/simulator|ops/tools)/|_test\.go$'
       - linters: [forbidigo]
         text: 'panic'
-        path: '^internal/controlplane/(metadb|metadb/engine|groups/storage|domain/topic)/'
+        path: '^internal/controlplane/(metadb|metadb/engine|domain/group|domain/topic)/'
       - linters: [funlen, gocognit, nestif, dupl, interfacebloat]
         path: '_test\.go$'
 formatters:

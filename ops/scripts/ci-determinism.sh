@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI gate for the deterministic packages of the control plane:
 #   internal/runtime, internal/controlplane/contract, and the control-plane
-#   domain packages that pass the check today (domain/topic, groups/storage, replica, metadb/engine),
+#   domain packages that pass the check today (domain/topic, domain/group, replica, metadb/engine),
 #   and the reference model (internal/spec). Test code is not in the gate, so
 #   the property-based tests (pgregory.net/rapid) are not either.
 # The simulator engine (internal/verify/simulator) is checked too, with one more
@@ -22,7 +22,7 @@ pkgs=(
   ./internal/controlplane/contract/...
   ./internal/controlplane/metadb/engine
   ./internal/controlplane/domain/topic
-  ./internal/controlplane/groups/storage
+  ./internal/controlplane/domain/group
   ./internal/controlplane/replica
   ./internal/spec
 )

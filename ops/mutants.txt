@@ -101,24 +101,24 @@ run go test ./internal/controlplane/replica -run ^TestWindowForgetsKeysOnlyOnLog
 
 # Group state: the generation check of GroupAssign is dropped.
 mutant group-assign-generation-unchecked
-file internal/controlplane/groups/storage/write.go
+file internal/controlplane/domain/group/decide.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
-	if operation.Generation != h.generation {
-		return runtime.ErrIllegalGeneration
+	if operation.Generation != h.Generation {
+		return nil, runtime.ErrIllegalGeneration
 	}
-	if !found || operation.Leader != h.leader
+	if !found || operation.Leader != h.Leader
 @@ new
-	if !found || operation.Leader != h.leader
+	if !found || operation.Leader != h.Leader
 @@ end
 
 # Group state: GroupAssign accepts an assignment for a member that is not in the group.
 mutant group-assign-unknown-member
-file internal/controlplane/groups/storage/write.go
+file internal/controlplane/domain/group/decide.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
-		if transaction.Get(memberKey(operation.Group, a.Member)) == nil {
-			return runtime.ErrUnknownMember
+		if !view.HasMember(operation.Group, a.Member) {
+			return nil, runtime.ErrUnknownMember
 		}
 		if _, dup := want[a.Member]; dup {
 @@ new
@@ -127,10 +127,10 @@ run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 
 # Group state: OffsetCommit does not check that the member is in the group.
 mutant offset-commit-member-unchecked
-file internal/controlplane/groups/storage/write.go
+file internal/controlplane/domain/group/decide.go
 run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ old
-		if !found || transaction.Get(memberKey(operation.Group, operation.Member)) == nil {
+		if !found || !view.HasMember(operation.Group, operation.Member) {
 @@ new
 		if !found {
 @@ end
