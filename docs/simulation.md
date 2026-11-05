@@ -48,7 +48,11 @@ What the report holds:
    many times it was checked and how many times it held.
 4. Never reached: `sometimes` assertions that never held, and the paths in
    `expectedReachable` (`cmd/cpsim/campaign.go`) that no seed reached.
-5. The coverage curve: for each seed number that saw an assertion for the first
+5. Buggify sites by name: in how many runs the site was asked and switched on,
+   how many calls it saw and how many times it fired. Never fired: the sites
+   that fired in no run, and the names in `simulator.SiteNames()` that no run
+   asked. A site that never fires tests nothing, so it is worth a look.
+6. The coverage curve: for each seed number that saw an assertion for the first
    time, how many different assertions had been seen by then. The last line
    says at which seed the curve stopped growing. A curve that is still growing
    at the end means the campaign is too short.
@@ -106,6 +110,15 @@ Faults:
   node can claim the epoch and the old writer is fenced when it comes back. The
   replica's own cooperative faults (`StallProb`, `CrashProb`) are on in
   `crash-restart` and `chaos`.
+- Buggify sites (dst `fault.Injector.Maybe`). Each site is switched on in about
+  half of the runs, and when on it fires on about 1 call in 20. They are in
+  every scenario, also in the quiet tail, because the real log and object store
+  may do these things at any time. The names are in `simulator/sites.go`:
+  `sim.log.slow-answer` and `sim.objects.slow-answer` (the call takes effect and
+  the reply comes 50 to 400 ms late), and `sim.log.short-read-page` (a `LogRead`
+  returns the first part of the page, at least one entry; the replica reads again
+  from its applied slot). The object store has no short page site: `ObjectList`
+  has no page limit or continuation, so a short list would not be legal.
 
 The log has no epoch check on append. Fencing in this design is a conditional
 put (a slot can be written once) plus the writer epoch stored in every entry,
