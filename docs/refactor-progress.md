@@ -12,8 +12,15 @@ T0.4 | done | cherry-picked 2e59c36 | make build green on merged tree; agent als
 T0.5 | done | cherry-picked ac1a639 | make build green on merged tree | brief deleted, note added to docs/test-cuts.md
 T1.1 | done | cherry-picked 1067a50,9449231 | make build green, make mutants 8/8 killed (~26s) on merged tree, golden unchanged | see notes below
 T1.2 | done | cherry-picked 23abd70 | make build green, make mutants 8/8, conformance pkg 6.5s, golden unchanged | 607 lines (target ~500), files named *_test.go not ops.go
+T1.3 | done | cherry-picked 2cb69b3 | make build green, make mutants 8/8 (37s, old suite), -race x3 green, golden unchanged | replica target 269 lines, TestReplica 8.4s vs old 8.7s
+T1.4 | done | cherry-picked ac33ff4,31939d6 | make build green on merged tree (with T1.3), make mutants 8/8 | grpc_test.go 484 lines; added Target.Lacks (4 lines in shared harness); TestGRPC ~18s
 
 ## Deferred items
+
+- T1.3: old must-reach answers sweep.find/OK and sweep.describeGroup/OK are not required in new harness (sweeps still compared to model). T1.5 should decide whether to restore them.
+- T1.4: gRPC target cannot send group ops (no group install/assign/remove on wire); group mutants must be killed by the metadata Memory target (T1.5). gRPC and replica targets each have their own copy of disk/process wrapper (grpcProcess vs process): merge in T1.5 if cheap.
+- T1.4/T1.3: test doubles forgetful and staleReads are to be rebuilt by wrapping Target closures (T1.3 verified both are caught by hand).
+- Process note: fmt-check in main checkout scans .claude/worktrees; make build in main checkout fails while a task worktree has unformatted files. Build in main only when no agent is mid-edit.
 
 - T1.2: Target has no way to say "topics only"; T1.4 (gRPC has no group install/assign yet) needs a small addition. Left to T1.4 agent, minimal change, reported.
 - T1.2: DirtyReboot(keep) draws keep 0..2; trimmed-log rule (keep 0 only) belongs in the T1.3 replica target.
@@ -38,3 +45,4 @@ T1.2 | done | cherry-picked 23abd70 | make build green, make mutants 8/8, confor
 - P0 phase gate green: build, race x3 (build/p0-race.txt), campaign 2000 seeds all ok (build/p0-campaign.txt). Starting T1.1 (serial).
 - T1.1 merged. Next: T1.2 conformance harness (serial, opus).
 - T1.2 merged. Next: T1.3 (replica target) and T1.4 (gRPC target) in parallel, Group B; both touch test/conformance, harness edits must be minimal.
+- T1.3 and T1.4 merged; make build + make mutants green on merged tree. Next: T1.5 (serial, sonnet, higher): point mutants/doubles at new suite, then delete old suite.
