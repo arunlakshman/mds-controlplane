@@ -119,3 +119,4 @@ T3.3 | done | cherry-picked 95a60d7,9e23946 | merged tree: make build green, mak
 - T3.1 merged. Next: T3.2 metadata -> metadb (Store -> DB), serial.
 - T3.2 merged. Next: T3.3 prune metadb (sonnet).
 - T3.3 merged; P3 gate: build ok, mutants 8/8 ok; race x3 + campaign 2000 running (build/p3-*.txt).
+- P3 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 (build/p3-*.txt); make it green per agents. P3 complete. Starting P4: T4.1 split proto files (serial, sonnet).
