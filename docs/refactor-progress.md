@@ -25,8 +25,11 @@ T2.3 | done | cherry-picked b0d2ab7,519caff | task: make build + make it green (
 T2.2 | done | cherry-picked (1 commit, "Run dynamolog tests on DynamoDB Local") | task: make build + make it green; dynamolog 13 test cases + 8 conformance subtests pass on DynamoDB Local; merged tree vet ok, full gate after Group D | dynamolog has no normal-build tests now (all need a service/failure injection)
 T2.4 | done | cherry-picked 390422e->bd7c002, 5f6cc7a->172fe41 (one conflict in testinfra.go, resolved by hand: SeaweedFSImage const + T2.3 comment removal) | merged tree: make build green, make it green (all pkgs), make mutants 8/8, golden unchanged | S3 tests on chrislusf/seaweedfs:4.48 (`weed server -dir=/data -s3 -s3.port=8333 -volume.max=50`), failures via faultTransport http.RoundTripper; fakes3_test.go deleted; no assertion changed vs fake; S3(t) no longer needs t.Setenv (parallel ok)
 T2.5 | done | cherry-picked a734faa,48961b6,6d68f8b | merged tree: make build green, make it green (test/integration ~50s, real binary, dynamolog+postgres, 3-node takeover with SIGKILL, restart from real checkpoint), make mutants 8/8; agent also ran race x3 + campaign 2000 green on identical tree | controlplanetest deleted (-1519 lines incl fakedynamodb 1211); deps seam removed; 19 files +840/-2197; no leftover processes/containers
+T3.1 | done | cherry-picked 9beaf14,07a28a1,1af3c31,7489a49 | merged tree: make build green, make mutants 8/8, go vet -tags integration clean; agent also ran make it green | kv -> metadb/engine (+engine/memory, engine/pebble); Store->Engine, Transaction->Txn; engine added to determinism gate (listed without /..., so memory and pebble stay outside); golden unchanged
 
 ## Deferred items
+
+- T3.1: architecture_test.go allows metadata -> metadb/engine/memory (metadata.NewMem uses it). Test names like TestMemoryStore* and local vars named `transaction` not renamed (churn). pebble.DB type name kept.
 
 - T2.5: make lint does not use the integration build tag, so tagged code (test/integration, internal/testinfra, *_it tests) is never linted by make build. Agent ran golangci-lint --build-tags integration by hand: 0 issues. Consider adding a lint-it step (small Makefile change) - not in plan, ask/decide later.
 - T2.5: edited architecture_test.go and controlplane/doc.go (outside Touch, needed after package deletion). mise.toml and docs/test-cuts.md still stale -> T7.1.
@@ -105,3 +108,4 @@ T2.5 | done | cherry-picked a734faa,48961b6,6d68f8b | merged tree: make build gr
 - USER INSTRUCTION (during T2.4): use the SeaweedFS image for S3 tests instead of MinIO (bitnamilegacy/minio was unmaintained anyway). T2.4 agent told to change internal/testinfra/s3.go + smoke test. Supersedes the MinIO wording in plan T2.1/T2.4 (plan text not edited).
 - Group D (T2.2, T2.3, T2.4) merged; full make build + make it + make mutants green on merged tree. Makefile comment updated to SeaweedFS. Next: T2.5 (serial, opus): end-to-end tests on the real binary; also must fix the two permanent Postgres skips in cmd/mdscontrolplane.
 - T2.5 merged. P2 PHASE GATE GREEN: build, mutants 8/8, race x3 (agent run on identical tree), campaign 2000 (agent run), make it (real Docker). Next: P3 renames, serial: T3.1 kv -> metadb/engine (haiku).
+- T3.1 merged. Next: T3.2 metadata -> metadb (Store -> DB), serial.
