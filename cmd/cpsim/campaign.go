@@ -14,6 +14,7 @@ type campaignOut struct {
 	seeds    int
 	failed   []simulator.Result // runs that broke a property, in seed order
 	sum      dstcampaign.Summary
+	seen     [][]string // seen[i]: assertions that seed first+i reached
 }
 
 // runSeeds runs seeds first, first+1, ... of one scenario on several
@@ -39,6 +40,13 @@ func runSeeds(cfg simulator.Config, first uint64, seeds int) (campaignOut, error
 	})
 	out := campaignOut{scenario: cfg.Scenario, seeds: seeds, sum: sum}
 	for _, r := range results {
+		var names []string
+		for k, v := range r.Coverage {
+			if v.Checks > 0 {
+				names = append(names, k)
+			}
+		}
+		out.seen = append(out.seen, names)
 		if !r.OK() {
 			out.failed = append(out.failed, r)
 		}

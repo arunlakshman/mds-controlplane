@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	dstcampaign "github.com/manifesterio/dst/campaign"
@@ -27,6 +28,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	nodes := fs.Int("nodes", 3, "number of replicas")
 	steps := fs.Int("steps", simulator.DefaultSteps, "scheduler events in the fault phase of a run")
 	bug := fs.String("bug", "", "plant a bug to see the simulator find it: writer-offsets, log-overwrite, claim-always-wins")
+	var opt options
+	fs.BoolVar(&opt.report, "report", false, "after the campaign, print a report: failed seeds, assertion counts, coverage curve")
+	fs.BoolVar(&opt.json, "json", false, "print the report as JSON and nothing else (implies -report)")
+	fs.BoolVar(&opt.untilStable, "until-stable", false, "run seeds until no new assertion appears for -stable-after seeds, up to -max-seeds (implies -report)")
+	fs.IntVar(&opt.stableAfter, "stable-after", 200, "with -until-stable: seeds in a row without a new assertion")
+	fs.IntVar(&opt.maxSeeds, "max-seeds", 5000, "with -until-stable: the most seeds to run for each scenario")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -38,7 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *scenario != "all" {
 		names = []string{*scenario}
 	}
-	return runCampaign(base, names, *first, *seeds, stdout, stderr)
+	return runCampaign(base, names, *first, *seeds, opt, stdout, stderr)
 }
 
 func runOne(base simulator.Config, scenario string, seed uint64, stdout, stderr io.Writer) int {
@@ -60,25 +67,103 @@ func runOne(base simulator.Config, scenario string, seed uint64, stdout, stderr 
 	return 0
 }
 
-func runCampaign(base simulator.Config, names []string, first uint64, seeds int, stdout, stderr io.Writer) int {
+// options are the report flags. -until-stable and -json imply -report.
+type options struct {
+	report      bool
+	json        bool
+	untilStable bool
+	stableAfter int // seed numbers in a row without a new assertion
+	maxSeeds    int // limit of seed numbers for -until-stable
+}
+
+// batchSize is how many seed numbers -until-stable runs before it looks again.
+const batchSize = 50
+
+func runCampaign(base simulator.Config, names []string, first uint64, seeds int, opt options, stdout, stderr io.Writer) int {
 	code := 0
 	var total dstcampaign.Summary
-	for _, name := range names {
-		c := base
-		c.Scenario = name
-		out, err := runSeeds(c, first, seeds)
-		if err != nil {
-			_, _ = fmt.Fprintln(stderr, "cpsim:", err)
-			return 2
+	var seen [][]string
+	var failed []FailedRun
+	runs := 0
+	limit := seeds
+	if opt.untilStable {
+		limit = opt.maxSeeds
+	}
+	plain := !opt.json && !opt.untilStable // the lines that make build prints
+	hitLimit := false
+	for done := 0; ; {
+		n := limit
+		if opt.untilStable {
+			n = min(batchSize, limit-done)
 		}
-		_, _ = fmt.Fprintln(stdout, out.line())
-		for _, f := range out.failed {
-			_, _ = fmt.Fprintln(stdout, simulator.Report(f))
-			code = 1
+		batch := make([]map[string]bool, n)
+		for _, name := range names {
+			c := base
+			c.Scenario = name
+			out, err := runSeeds(c, first+uint64(done), n)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, "cpsim:", err)
+				return 2
+			}
+			if plain {
+				_, _ = fmt.Fprintln(stdout, out.line())
+			}
+			for _, f := range out.failed {
+				if !opt.json {
+					_, _ = fmt.Fprintln(stdout, simulator.Report(f))
+				}
+				code = 1
+			}
+			for _, f := range out.sum.Failed {
+				failed = append(failed, FailedRun{Scenario: name, Seed: f.Seed, Replay: f.Reproduce})
+			}
+			for i, found := range out.seen {
+				if batch[i] == nil {
+					batch[i] = map[string]bool{}
+				}
+				for _, k := range found {
+					batch[i][k] = true
+				}
+			}
+			runs += n
+			total.Merge(out.sum)
 		}
-		total.Merge(out.sum)
+		for _, m := range batch {
+			list := make([]string, 0, len(m))
+			for k := range m {
+				list = append(list, k)
+			}
+			seen = append(seen, list)
+		}
+		done += n
+		if !opt.untilStable || code != 0 {
+			break
+		}
+		if quietSeeds(first, seen) >= opt.stableAfter {
+			break
+		}
+		if done >= limit {
+			hitLimit = true
+			break
+		}
+	}
+	var rep Report
+	if opt.report || opt.json || opt.untilStable {
+		rep = buildReport(first, seen, total, failed, runs)
+		if opt.untilStable {
+			rep.UntilStable = &StableResult{StableAfter: opt.stableAfter, MaxSeeds: opt.maxSeeds, HitLimit: hitLimit}
+		}
+	}
+	if opt.json {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(rep)
+		return code
 	}
 	_, _ = fmt.Fprintln(stdout, coverageText(total))
+	if opt.report || opt.untilStable {
+		rep.writeText(stdout)
+	}
 	if code != 0 {
 		_, _ = fmt.Fprintln(stdout, "cpsim: FAILED")
 	}
