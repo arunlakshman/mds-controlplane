@@ -26,8 +26,11 @@ T2.2 | done | cherry-picked (1 commit, "Run dynamolog tests on DynamoDB Local") 
 T2.4 | done | cherry-picked 390422e->bd7c002, 5f6cc7a->172fe41 (one conflict in testinfra.go, resolved by hand: SeaweedFSImage const + T2.3 comment removal) | merged tree: make build green, make it green (all pkgs), make mutants 8/8, golden unchanged | S3 tests on chrislusf/seaweedfs:4.48 (`weed server -dir=/data -s3 -s3.port=8333 -volume.max=50`), failures via faultTransport http.RoundTripper; fakes3_test.go deleted; no assertion changed vs fake; S3(t) no longer needs t.Setenv (parallel ok)
 T2.5 | done | cherry-picked a734faa,48961b6,6d68f8b | merged tree: make build green, make it green (test/integration ~50s, real binary, dynamolog+postgres, 3-node takeover with SIGKILL, restart from real checkpoint), make mutants 8/8; agent also ran race x3 + campaign 2000 green on identical tree | controlplanetest deleted (-1519 lines incl fakedynamodb 1211); deps seam removed; 19 files +840/-2197; no leftover processes/containers
 T3.1 | done | cherry-picked 9beaf14,07a28a1,1af3c31,7489a49 | merged tree: make build green, make mutants 8/8, go vet -tags integration clean; agent also ran make it green | kv -> metadb/engine (+engine/memory, engine/pebble); Store->Engine, Transaction->Txn; engine added to determinism gate (listed without /..., so memory and pebble stay outside); golden unchanged
+T3.2 | done | cherry-picked aee78d3,1c2655c,3fef79b,cc235ba | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent make it green | metadata -> metadb, Store -> DB; 47 files +234/-234; golden unchanged
 
 ## Deferred items
+
+- T3.2: test/var names (TestMetadata*, localStore, newGroupStore, Metadata fields) left as is (churn). ops/mutants.txt needed no edit.
 
 - T3.1: architecture_test.go allows metadata -> metadb/engine/memory (metadata.NewMem uses it). Test names like TestMemoryStore* and local vars named `transaction` not renamed (churn). pebble.DB type name kept.
 
@@ -109,3 +112,4 @@ T3.1 | done | cherry-picked 9beaf14,07a28a1,1af3c31,7489a49 | merged tree: make 
 - Group D (T2.2, T2.3, T2.4) merged; full make build + make it + make mutants green on merged tree. Makefile comment updated to SeaweedFS. Next: T2.5 (serial, opus): end-to-end tests on the real binary; also must fix the two permanent Postgres skips in cmd/mdscontrolplane.
 - T2.5 merged. P2 PHASE GATE GREEN: build, mutants 8/8, race x3 (agent run on identical tree), campaign 2000 (agent run), make it (real Docker). Next: P3 renames, serial: T3.1 kv -> metadb/engine (haiku).
 - T3.1 merged. Next: T3.2 metadata -> metadb (Store -> DB), serial.
+- T3.2 merged. Next: T3.3 prune metadb (sonnet).
