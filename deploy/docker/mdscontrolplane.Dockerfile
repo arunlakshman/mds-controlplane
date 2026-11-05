@@ -2,7 +2,8 @@
 # Build from the repo root:
 #   docker build -f deploy/docker/mdscontrolplane.Dockerfile -t mdscontrolplane:dev .
 #
-# The *.pb.go files are not in git, so this build makes them with buf first.
+# The *.pb.go and *_gen.go files are not in git, so this build makes them first
+# (buf, then ops/tools/wiregen).
 # Versions match mise.toml (buf) and the Makefile (protoc plugins).
 
 FROM bufbuild/buf:1.47.2 AS buf
@@ -16,7 +17,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN cd internal/controlplane/api && buf generate
+RUN cd internal/controlplane/api && buf generate \
+ && cd /src && go run ./ops/tools/wiregen
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mdscontrolplane ./cmd/mdscontrolplane
 
 # Static binary, no shell, runs as a non-root user.

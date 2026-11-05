@@ -12,4 +12,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.47.2
+          github_token: ${{ github.token }}
+      # The contract package is in the gate and is generated, so generate first.
+      - run: make generate
       - run: ops/scripts/ci-determinism.sh

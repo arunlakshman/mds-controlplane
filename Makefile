@@ -1,5 +1,5 @@
 # Build for the MDS control plane. `make` / `make build` is the full gate:
-#   proto, fmt, ascii, vet, lint, modernize, compile, unit tests, determinism, simulation.
+#   generate (proto, wiregen), fmt, ascii, vet, lint, modernize, compile, unit tests, determinism, simulation.
 # Toolchain + commit hook: `mise install` (pins in mise.toml; postinstall runs make install-hooks).
 
 BUF             ?= buf
@@ -14,9 +14,9 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire wire-check
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate
 
-build: proto wire-check fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
+build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
 # Generate Go from internal/controlplane/api/v1/*.proto into ignored *.pb.go files.
 proto: proto-tools
@@ -62,13 +62,13 @@ determinism:
 	bash ops/scripts/ci-determinism.sh
 
 # Write the contract value types and the wire converters from the .proto (needs
-# the generated api/v1 package, so run make proto first). wire-check fails when
-# the committed files are out of date.
+# the generated api/v1 package, so run make proto first). Not in git.
 wire: proto
 	go run ./ops/tools/wiregen
 
-wire-check:
-	go run ./ops/tools/wiregen -check
+# All generated Go: the *.pb.go files, then the contract, groups and wire *_gen.go
+# files. None of it is in git, and the module does not compile without it.
+generate: proto wire
 
 compile:
 	go build ./...
