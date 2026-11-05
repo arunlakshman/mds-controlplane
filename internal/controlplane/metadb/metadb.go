@@ -10,22 +10,22 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Store is the control-plane replicated state over a engine.Engine. It is the kernel:
+// DB is the control-plane replicated state over a engine.Engine. It is the kernel:
 // it holds the modules (topics, groups) and sends each operation to the one that
 // owns it. Writes (commands) must be applied by one goroutine in log order;
 // reads may run concurrently.
-type Store struct {
+type DB struct {
 	keyValue engine.Engine
 	modules  []module.Module
 }
 
 // New returns a metadata store over the engine (empty, or restored from a checkpoint).
-func New(keyValue engine.Engine) *Store {
-	return &Store{keyValue: keyValue, modules: registry.list}
+func New(keyValue engine.Engine) *DB {
+	return &DB{keyValue: keyValue, modules: registry.list}
 }
 
 // Close closes the store.
-func (a *Store) Close() error { return a.keyValue.Close() }
+func (a *DB) Close() error { return a.keyValue.Close() }
 
 // mustStore panics when a store call failed. This is on purpose: the
 // metadata store stops (fail-stop) instead of going on with bad state.
@@ -36,7 +36,7 @@ func mustStore(err error) {
 }
 
 // owner is the module that handles operation, and how it treats it.
-func (a *Store) owner(operation runtime.ControlPlaneOperation) (module.Module, module.Mode) {
+func (a *DB) owner(operation runtime.ControlPlaneOperation) (module.Module, module.Mode) {
 	for _, m := range a.modules {
 		if mode := m.Mode(operation); mode != module.NotMine {
 			return m, mode
@@ -47,14 +47,14 @@ func (a *Store) owner(operation runtime.ControlPlaneOperation) (module.Module, m
 
 // Mode reports how the store treats operation: Logged (a command), ReadOnly, or
 // NotMine (an operation no module handles).
-func (a *Store) Mode(operation runtime.ControlPlaneOperation) module.Mode {
+func (a *DB) Mode(operation runtime.ControlPlaneOperation) module.Mode {
 	_, mode := a.owner(operation)
 	return mode
 }
 
 // Write applies a Logged operation at log slot slot, in its own transaction.
 // ErrInvalid if no module handles it as a command.
-func (a *Store) Write(slot int64, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
+func (a *DB) Write(slot int64, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	m, mode := a.owner(operation)
 	if mode != module.Logged {
 		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
@@ -66,7 +66,7 @@ func (a *Store) Write(slot int64, operation runtime.ControlPlaneOperation) (runt
 
 // Read answers a ReadOnly operation in a read transaction. ErrInvalid if no
 // module handles it as a read.
-func (a *Store) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
+func (a *DB) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	m, mode := a.owner(operation)
 	if mode != module.ReadOnly {
 		return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
@@ -79,7 +79,7 @@ func (a *Store) Read(operation runtime.ControlPlaneOperation) (runtime.ControlPl
 // Exec runs one ControlPlaneCall like spec.ControlPlane.Apply. For a CommitSegment the
 // call's Req is the log slot (it orders the idempotency window for Trim). A
 // store failure panics.
-func (a *Store) Exec(act runtime.IOCall) runtime.IOResult {
+func (a *DB) Exec(act runtime.IOCall) runtime.IOResult {
 	call, ok := act.(runtime.ControlPlaneCall)
 	if !ok {
 		panic("metadata: not a ControlPlaneCall")
@@ -112,7 +112,7 @@ type Command struct {
 // the writes of the ones before it) and returns their answers. It is what a
 // replica uses to apply the slots one tail read delivered: the same state as
 // applying them one by one, with far fewer page writes in the store.
-func (a *Store) CommitBatch(cmds []Command) ([]runtime.ControlPlaneDone, error) {
+func (a *DB) CommitBatch(cmds []Command) ([]runtime.ControlPlaneDone, error) {
 	var out []runtime.ControlPlaneDone
 	err := a.keyValue.Update(func(transaction engine.Txn) {
 		out = make([]runtime.ControlPlaneDone, len(cmds))

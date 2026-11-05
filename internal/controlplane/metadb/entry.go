@@ -54,7 +54,7 @@ func (e Entry) CommitSegment() (contract.CommitSegment, bool) {
 var ErrCorrupt = errors.New("metadata: corrupt entry")
 
 // registry is the list of modules, and which module owns each entry kind. Every
-// Store uses the same list, and so does the codec.
+// DB uses the same list, and so does the codec.
 var registry = newRegistry(topics.Module{}, storage.NewModule(topics.PartitionCount))
 
 type modules struct {
@@ -120,11 +120,11 @@ func Decode(b []byte) (Entry, error) {
 
 // NewMem returns a metadata store over an in-memory KV. No Pebble. Suitable for the
 // DSM Step fold and for tests that need the pure command fold.
-func NewMem() *Store { return New(memory.New()) }
+func NewMem() *DB { return New(memory.New()) }
 
 // Apply folds one log entry at slot into the store. No-ops leave state unchanged.
 // A store failure panics (fail-stop), matching Commit.
-func (a *Store) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
+func (a *DB) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
 	if e.Kind == KindNoop {
 		return runtime.ControlPlaneDone{Req: runtime.RequestID(slot), Outcome: runtime.Applied}
 	}
@@ -138,7 +138,7 @@ func (a *Store) Apply(slot int64, e Entry) runtime.ControlPlaneDone {
 }
 
 // ApplyBytes decodes data then Apply. Returns ErrCorrupt without mutating state.
-func (a *Store) ApplyBytes(slot int64, data []byte) (runtime.ControlPlaneDone, error) {
+func (a *DB) ApplyBytes(slot int64, data []byte) (runtime.ControlPlaneDone, error) {
 	e, err := Decode(data)
 	if err != nil {
 		return runtime.ControlPlaneDone{}, err

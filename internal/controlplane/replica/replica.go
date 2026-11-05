@@ -28,7 +28,7 @@ type Replica struct {
 	ready    bool
 	active   bool // advisory appender role
 
-	meta *metadb.Store
+	meta *metadb.DB
 
 	now           runtime.NodeTime
 	timerGen      runtime.TimerVersion
@@ -131,7 +131,7 @@ func New(config Config) Factory {
 
 // Metadata is the metadata store after the applied prefix. Tests compare its
 // digest to an independent oracle.
-func (m *Replica) Metadata() *metadb.Store { return m.meta }
+func (m *Replica) Metadata() *metadb.DB { return m.meta }
 
 // Applied is the next slot to apply (slots below are folded).
 func (m *Replica) Applied() runtime.LogPosition { return m.applied }

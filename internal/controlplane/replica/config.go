@@ -118,7 +118,7 @@ func (c Config) queueMax() int {
 }
 
 // openFold builds a fold over a new empty store: Config.OpenStore, else memory.
-func (c Config) openMetadata() (*metadb.Store, error) {
+func (c Config) openMetadata() (*metadb.DB, error) {
 	if c.OpenStore == nil {
 		return metadb.NewMem(), nil
 	}

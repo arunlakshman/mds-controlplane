@@ -82,11 +82,11 @@ func TestRestoreRejectsDamage(t *testing.T) {
 	}
 }
 
-// localStore drives a metadb.Store as a single node with no log: a command
+// localStore drives a metadb.DB as a single node with no log: a command
 // gets the next local slot. The log-backed service applies commands at their
 // real slots, not through this adapter.
 type localStore struct {
-	a *metadb.Store
+	a *metadb.DB
 
 	mu   sync.Mutex
 	next int64
@@ -245,7 +245,7 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 		Loc: runtime.SegmentRef{Key: topic, Off: n * 10, Len: n}}
 }
 
-func mustCommit(t *testing.T, a *metadb.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
+func mustCommit(t *testing.T, a *metadb.DB, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
 	d, err := a.Commit(slot, operation)
 	if err != nil {

@@ -158,7 +158,7 @@ func pb(topic string, p int32, n int64) contract.PendingBatch {
 		Loc: runtime.SegmentRef{Key: topic, Off: n * 10, Len: n}}
 }
 
-func mustCommit(t *testing.T, a *metadb.Store, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
+func mustCommit(t *testing.T, a *metadb.DB, slot int64, operation contract.CommitSegment) runtime.ControlPlaneDone {
 	t.Helper()
 	d, err := a.Commit(slot, operation)
 	if err != nil {

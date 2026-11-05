@@ -64,7 +64,7 @@ func (c *crcReader) ReadByte() (byte, error) {
 }
 
 // Snapshot writes a consistent checkpoint of the store, tagged with slot.
-func (a *Store) Snapshot(w io.Writer, slot int64) error {
+func (a *DB) Snapshot(w io.Writer, slot int64) error {
 	return a.SnapshotAt(w, func() int64 { return slot })
 }
 
@@ -73,7 +73,7 @@ func (a *Store) Snapshot(w io.Writer, slot int64) error {
 // read, and returns the slot to tag. A replica uses it to read its applied
 // counter at exactly the point the view was taken (it blocks its apply loop
 // until begin returns, not for the whole copy).
-func (a *Store) SnapshotAt(w io.Writer, begin func() int64) error {
+func (a *DB) SnapshotAt(w io.Writer, begin func() int64) error {
 	crc := crc32.NewIEEE()
 	bw := bufio.NewWriter(io.MultiWriter(w, crc))
 	var werr error
@@ -112,7 +112,7 @@ func writeEntry(w *bufio.Writer, k, v []byte) error {
 
 // Restore loads a checkpoint into this (empty) store and returns its slot:
 // the next log slot to apply.
-func (a *Store) Restore(r io.Reader) (int64, error) {
+func (a *DB) Restore(r io.Reader) (int64, error) {
 	var slot int64
 	var err error
 	br := &crcReader{br: bufio.NewReader(r)}
@@ -141,7 +141,7 @@ func (a *Store) Restore(r io.Reader) (int64, error) {
 
 // restoreChunk reads entries until the chunk is full or the end mark, and
 // writes them in one transaction.
-func (a *Store) restoreChunk(br *crcReader) (bool, error) {
+func (a *DB) restoreChunk(br *crcReader) (bool, error) {
 	var ents [][2][]byte
 	size := 0
 	var done bool

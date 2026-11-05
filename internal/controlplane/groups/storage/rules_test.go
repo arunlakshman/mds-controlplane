@@ -74,7 +74,7 @@ var backends = map[string]func(testing.TB) engine.Engine{
 // tooBig is a byte field that makes a group command pass 256 KiB.
 var tooBig = bytes.Repeat([]byte{'x'}, 300<<10)
 
-func exec(t testing.TB, a *metadb.Store, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func exec(t testing.TB, a *metadb.DB, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	t.Helper()
 	return a.Exec(runtime.ControlPlaneCall{Req: 1, Op: operation}).(runtime.ControlPlaneDone)
 }
@@ -88,7 +88,7 @@ type step struct {
 	errs []runtime.ErrCode
 }
 
-func runSteps(t *testing.T, a *metadb.Store, steps []step) {
+func runSteps(t *testing.T, a *metadb.DB, steps []step) {
 	t.Helper()
 	for _, s := range steps {
 		d := exec(t, a, s.operation)
@@ -105,7 +105,7 @@ func runSteps(t *testing.T, a *metadb.Store, steps []step) {
 }
 
 // newGroupStore is a store with two topics, for every backend.
-func newGroupStore(t *testing.T, mk func(testing.TB) engine.Engine) *metadb.Store {
+func newGroupStore(t *testing.T, mk func(testing.TB) engine.Engine) *metadb.DB {
 	t.Helper()
 	a := metadb.New(mk(t))
 	t.Cleanup(func() { _ = a.Close() })
@@ -115,7 +115,7 @@ func newGroupStore(t *testing.T, mk func(testing.TB) engine.Engine) *metadb.Stor
 	return a
 }
 
-func describe(t *testing.T, a *metadb.Store, group string) contract.DescribeGroupResp {
+func describe(t *testing.T, a *metadb.DB, group string) contract.DescribeGroupResp {
 	t.Helper()
 	return exec(t, a, contract.DescribeGroup{Group: group}).Resp.(contract.DescribeGroupResp)
 }
@@ -363,7 +363,7 @@ func TestGroupTooLargeWritesNothing(t *testing.T) {
 	}
 }
 
-func snapshotBytes(t *testing.T, a *metadb.Store) []byte {
+func snapshotBytes(t *testing.T, a *metadb.DB) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 0); err != nil {

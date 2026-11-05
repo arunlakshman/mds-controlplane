@@ -16,10 +16,10 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// slots runs a metadb.Store as one node with no log: a command gets the next
+// slots runs a metadb.DB as one node with no log: a command gets the next
 // local slot, and a read is answered from the store as it is.
 type slots struct {
-	store *metadb.Store
+	store *metadb.DB
 	next  int64
 }
 
@@ -65,7 +65,7 @@ func TestMetadataPebble(t *testing.T) {
 	Run(t, func(rt *rapid.T) Target {
 		n++
 		path := filepath.Join(dir, strconv.Itoa(n))
-		open := func() *metadb.Store {
+		open := func() *metadb.DB {
 			db, err := pebble.Open(path, pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
 			if err != nil {
 				rt.Fatalf("open: %v", err)

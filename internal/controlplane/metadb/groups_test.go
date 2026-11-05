@@ -52,12 +52,12 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 	return contract.OffsetCommit{Group: group, Member: member, Generation: gen, TimeMs: 4000, Offsets: offs}
 }
 
-func exec(t testing.TB, a *metadb.Store, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
+func exec(t testing.TB, a *metadb.DB, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
 	t.Helper()
 	return a.Exec(runtime.ControlPlaneCall{Req: 1, Op: operation}).(runtime.ControlPlaneDone)
 }
 
-func snapshotBytes(t *testing.T, a *metadb.Store) []byte {
+func snapshotBytes(t *testing.T, a *metadb.DB) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	if err := a.Snapshot(&buf, 0); err != nil {
@@ -154,7 +154,7 @@ func TestReadsAreNotLogged(t *testing.T) {
 	}
 }
 
-// TestGroupStoreAdapter runs the group calls through the Store adapter.
+// TestGroupStoreAdapter runs the group calls through the DB adapter.
 func TestGroupStoreAdapter(t *testing.T) {
 	s := &localStore{a: metadb.NewMem()}
 	ctx := context.Background()
