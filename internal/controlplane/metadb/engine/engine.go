@@ -5,25 +5,25 @@ package engine
 
 import "bytes"
 
-// Store is the embedded ordered key-value store the metadata store keeps its state in.
+// Engine is the embedded ordered key-value engine the metadata store keeps its state in.
 // It is a deliberately small seam: a read transaction, an atomic write
 // transaction, nothing else. Durability is not required (state is rebuilt from
 // the log and a checkpoint), so an implementation may skip fsync.
-type Store interface {
+type Engine interface {
 	// View runs fn on a consistent read-only view.
-	View(fn func(Transaction)) error
+	View(fn func(Txn)) error
 	// Update runs fn as one atomic write transaction, reading its own writes.
-	// Nothing is applied if the store reports an error.
-	Update(fn func(Transaction)) error
+	// Nothing is applied if the engine reports an error.
+	Update(fn func(Txn)) error
 	Close() error
 }
 
-// Transaction is one transaction. A store error does not interrupt fn: the first error
+// Txn is one transaction. An engine error does not interrupt fn: the first error
 // is latched, reads then return nothing, and View or Update returns the error,
 // so the callers stay free of error plumbing. Bytes passed to Set must stay
 // unchanged until Update returns; bytes returned stay valid until fn returns
 // (copy to keep them).
-type Transaction interface {
+type Txn interface {
 	// Get returns the value of key, nil when absent. Values are never empty.
 	Get(key []byte) []byte
 	// Floor returns the last entry with lo <= key < hi, a nil key if none.

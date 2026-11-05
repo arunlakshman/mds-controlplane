@@ -19,42 +19,42 @@ type memoryEntry struct{ key, value []byte }
 // NewMemory returns an empty store.
 func NewMemory() *Memory { return &Memory{} }
 
-// Close implements Store.
+// Close implements Engine.
 func (m *Memory) Close() error { return nil }
 
-// View implements Store.
-func (m *Memory) View(fn func(Transaction)) error {
+// View implements Engine.
+func (m *Memory) View(fn func(Txn)) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	fn(&memoryTransaction{entries: m.entries})
+	fn(&memoryTxn{entries: m.entries})
 	return nil
 }
 
-// Update implements Store.
-func (m *Memory) Update(fn func(Transaction)) error {
+// Update implements Engine.
+func (m *Memory) Update(fn func(Txn)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	transaction := &memoryTransaction{entries: slices.Clone(m.entries)}
+	transaction := &memoryTxn{entries: slices.Clone(m.entries)}
 	fn(transaction)
 	m.entries = transaction.entries
 	return nil
 }
 
-type memoryTransaction struct{ entries []memoryEntry }
+type memoryTxn struct{ entries []memoryEntry }
 
 // at is the index of the first entry with key >= k.
-func (t *memoryTransaction) at(k []byte) (int, bool) {
+func (t *memoryTxn) at(k []byte) (int, bool) {
 	return slices.BinarySearchFunc(t.entries, k, func(e memoryEntry, k []byte) int { return bytes.Compare(e.key, k) })
 }
 
-func (t *memoryTransaction) Get(key []byte) []byte {
+func (t *memoryTxn) Get(key []byte) []byte {
 	if i, ok := t.at(key); ok {
 		return t.entries[i].value
 	}
 	return nil
 }
 
-func (t *memoryTransaction) Set(key, val []byte) {
+func (t *memoryTxn) Set(key, val []byte) {
 	e := memoryEntry{bytes.Clone(key), bytes.Clone(val)}
 	if i, ok := t.at(key); ok {
 		t.entries[i] = e
@@ -63,13 +63,13 @@ func (t *memoryTransaction) Set(key, val []byte) {
 	}
 }
 
-func (t *memoryTransaction) Delete(key []byte) {
+func (t *memoryTxn) Delete(key []byte) {
 	if i, ok := t.at(key); ok {
 		t.entries = slices.Delete(t.entries, i, i+1)
 	}
 }
 
-func (t *memoryTransaction) Floor(lo, hi []byte) ([]byte, []byte) {
+func (t *memoryTxn) Floor(lo, hi []byte) ([]byte, []byte) {
 	i := len(t.entries)
 	if hi != nil {
 		i, _ = t.at(hi)
@@ -80,7 +80,7 @@ func (t *memoryTransaction) Floor(lo, hi []byte) ([]byte, []byte) {
 	return t.entries[i-1].key, t.entries[i-1].value
 }
 
-func (t *memoryTransaction) Ascend(lo, hi []byte, fn func(key, val []byte) bool) {
+func (t *memoryTxn) Ascend(lo, hi []byte, fn func(key, val []byte) bool) {
 	i, _ := t.at(lo)
 	for ; i < len(t.entries) && (hi == nil || bytes.Compare(t.entries[i].key, hi) < 0); i++ {
 		if !fn(t.entries[i].key, t.entries[i].value) {

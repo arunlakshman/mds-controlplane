@@ -13,9 +13,9 @@ import (
 // brokenKV fails every transaction.
 type brokenKV struct{}
 
-func (*brokenKV) View(func(engine.Transaction)) error { return errors.New("disk gone") }
+func (*brokenKV) View(func(engine.Txn)) error { return errors.New("disk gone") }
 
-func (*brokenKV) Update(func(engine.Transaction)) error { return errors.New("disk gone") }
+func (*brokenKV) Update(func(engine.Txn)) error { return errors.New("disk gone") }
 
 func (*brokenKV) Close() error { return nil }
 

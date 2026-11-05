@@ -77,7 +77,7 @@ func (a *Store) SnapshotAt(w io.Writer, begin func() int64) error {
 	crc := crc32.NewIEEE()
 	bw := bufio.NewWriter(io.MultiWriter(w, crc))
 	var werr error
-	err := a.keyValue.View(func(transaction engine.Transaction) { werr = writeSnapshot(bw, transaction, begin) })
+	err := a.keyValue.View(func(transaction engine.Txn) { werr = writeSnapshot(bw, transaction, begin) })
 	if err = errors.Join(err, werr); err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (a *Store) SnapshotAt(w io.Writer, begin func() int64) error {
 	return err
 }
 
-func writeSnapshot(bw *bufio.Writer, transaction engine.Transaction, begin func() int64) error {
+func writeSnapshot(bw *bufio.Writer, transaction engine.Txn, begin func() int64) error {
 	// bufio.Writer latches write errors; Flush below reports them.
 	_, _ = bw.WriteString(snapshotMarker)
 	_, _ = bw.Write(binary.AppendVarint(nil, begin()))
@@ -154,7 +154,7 @@ func (a *Store) restoreChunk(br *crcReader) (bool, error) {
 			ents, size = append(ents, [2][]byte{k, v}), size+len(k)+len(v)
 		}
 	}
-	return done, a.keyValue.Update(func(transaction engine.Transaction) {
+	return done, a.keyValue.Update(func(transaction engine.Txn) {
 		for _, e := range ents {
 			transaction.Set(e[0], e[1])
 		}

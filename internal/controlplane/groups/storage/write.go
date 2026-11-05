@@ -198,7 +198,7 @@ func decodeOffset(group string, b []byte) offsetRecord {
 
 // write runs one group write in transaction. partitions is asked by an offset
 // commit, to check that the partition exists.
-func write(transaction engine.Transaction, operation runtime.ControlPlaneOperation, partitions Partitions) runtime.ControlPlaneDone {
+func write(transaction engine.Txn, operation runtime.ControlPlaneOperation, partitions Partitions) runtime.ControlPlaneDone {
 	switch x := operation.(type) {
 	case contract.GroupInstall:
 		return groupAnswer(installGroup(transaction, x))
@@ -221,7 +221,7 @@ func groupAnswer(code runtime.ErrCode) runtime.ControlPlaneDone {
 }
 
 // readHeader returns the header of group; found is false when it was never installed.
-func readHeader(transaction engine.Transaction, group string) (groupHeader, bool) {
+func readHeader(transaction engine.Txn, group string) (groupHeader, bool) {
 	v := transaction.Get(groupKey(group))
 	if v == nil {
 		return groupHeader{}, false
@@ -230,7 +230,7 @@ func readHeader(transaction engine.Transaction, group string) (groupHeader, bool
 }
 
 // memberKeys lists the M keys of a group, in member id order.
-func memberKeys(transaction engine.Transaction, group string) [][]byte {
+func memberKeys(transaction engine.Txn, group string) [][]byte {
 	var keys [][]byte
 	lo := groupPrefix(prefixMember, group)
 	transaction.Ascend(lo, engine.PrefixEnd(lo), func(k, _ []byte) bool {
@@ -241,7 +241,7 @@ func memberKeys(transaction engine.Transaction, group string) [][]byte {
 }
 
 // readMembers lists the members of a group, sorted by member id.
-func readMembers(transaction engine.Transaction, group string) []contract.GroupMemberInfo {
+func readMembers(transaction engine.Txn, group string) []contract.GroupMemberInfo {
 	var out []contract.GroupMemberInfo
 	lo := groupPrefix(prefixMember, group)
 	transaction.Ascend(lo, engine.PrefixEnd(lo), func(k, v []byte) bool {
@@ -251,7 +251,7 @@ func readMembers(transaction engine.Transaction, group string) []contract.GroupM
 	return out
 }
 
-func installGroup(transaction engine.Transaction, operation contract.GroupInstall) runtime.ErrCode {
+func installGroup(transaction engine.Txn, operation contract.GroupInstall) runtime.ErrCode {
 	if installSize(operation) > maxGroupCommand {
 		return runtime.ErrTooLarge
 	}
@@ -290,7 +290,7 @@ func validInstall(operation contract.GroupInstall) bool {
 	return ids[operation.Leader]
 }
 
-func assignGroup(transaction engine.Transaction, operation contract.GroupAssign) runtime.ErrCode {
+func assignGroup(transaction engine.Txn, operation contract.GroupAssign) runtime.ErrCode {
 	if assignSize(operation) > maxGroupCommand {
 		return runtime.ErrTooLarge
 	}
@@ -320,7 +320,7 @@ func assignGroup(transaction engine.Transaction, operation contract.GroupAssign)
 	return runtime.OK
 }
 
-func removeGroup(transaction engine.Transaction, operation contract.GroupRemove) runtime.ErrCode {
+func removeGroup(transaction engine.Txn, operation contract.GroupRemove) runtime.ErrCode {
 	if removeSize(operation) > maxGroupCommand {
 		return runtime.ErrTooLarge
 	}
@@ -347,7 +347,7 @@ func removeGroup(transaction engine.Transaction, operation contract.GroupRemove)
 	return runtime.OK
 }
 
-func commitOffsets(transaction engine.Transaction, operation contract.OffsetCommit, partitions Partitions) runtime.ControlPlaneDone {
+func commitOffsets(transaction engine.Txn, operation contract.OffsetCommit, partitions Partitions) runtime.ControlPlaneDone {
 	if offsetCommitSize(operation) > maxGroupCommand {
 		return runtime.ControlPlaneDone{Err: runtime.ErrTooLarge}
 	}
@@ -382,7 +382,7 @@ func commitOffsets(transaction engine.Transaction, operation contract.OffsetComm
 }
 
 // commitOne checks and stores one offset of an OffsetCommit.
-func commitOne(transaction engine.Transaction, operation contract.OffsetCommit, o contract.PartitionOffset, partitions Partitions) runtime.ErrCode {
+func commitOne(transaction engine.Txn, operation contract.OffsetCommit, o contract.PartitionOffset, partitions Partitions) runtime.ErrCode {
 	n := partitions(transaction, o.TopicPartition.Topic)
 	if o.TopicPartition.Partition < 0 || int64(o.TopicPartition.Partition) >= n {
 		return runtime.ErrUnknownPartition

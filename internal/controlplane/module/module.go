@@ -38,9 +38,9 @@ type Module interface {
 	// Write applies a Logged operation at log slot slot. The answer depends only
 	// on the state before the command and on the command, so every replica
 	// gets the same answer.
-	Write(transaction engine.Transaction, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
+	Write(transaction engine.Txn, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 	// Read answers a ReadOnly operation.
-	Read(transaction engine.Transaction, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
+	Read(transaction engine.Txn, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 
 	// Kinds lists the log entry kinds the module owns.
 	Kinds() []Kind

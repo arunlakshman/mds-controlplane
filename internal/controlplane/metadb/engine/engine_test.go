@@ -16,7 +16,7 @@ func TestPrefixEnd(t *testing.T) {
 
 func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
 	m := engine.NewMemory()
-	err := m.Update(func(tx engine.Transaction) {
+	err := m.Update(func(tx engine.Txn) {
 		tx.Set([]byte("b"), []byte("2"))
 		tx.Set([]byte("a"), []byte("1"))
 		tx.Set([]byte("c"), []byte("3"))
@@ -31,7 +31,7 @@ func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	var keys []string
-	if err := m.View(func(tx engine.Transaction) {
+	if err := m.View(func(tx engine.Txn) {
 		if tx.Get([]byte("c")) != nil || tx.Get([]byte("none")) != nil {
 			t.Error("deleted or absent key has a value")
 		}
@@ -49,12 +49,12 @@ func TestMemoryStoreReadsItsOwnWrites(t *testing.T) {
 
 func TestMemoryStoreFloorAndAscendStop(t *testing.T) {
 	m := engine.NewMemory()
-	_ = m.Update(func(tx engine.Transaction) {
+	_ = m.Update(func(tx engine.Txn) {
 		for _, k := range []string{"a", "c", "e"} {
 			tx.Set([]byte(k), []byte(k))
 		}
 	})
-	_ = m.View(func(tx engine.Transaction) {
+	_ = m.View(func(tx engine.Txn) {
 		if k, _ := tx.Floor([]byte("a"), []byte("d")); string(k) != "c" {
 			t.Errorf("floor below d: %q", k)
 		}
@@ -77,9 +77,9 @@ func TestMemoryStoreFloorAndAscendStop(t *testing.T) {
 
 func TestMemoryStoreKeepsOldViewOnUpdate(t *testing.T) {
 	m := engine.NewMemory()
-	_ = m.Update(func(tx engine.Transaction) { tx.Set([]byte("k"), []byte("v")) })
-	_ = m.Update(func(tx engine.Transaction) { tx.Set([]byte("k"), []byte("w")) })
-	_ = m.View(func(tx engine.Transaction) {
+	_ = m.Update(func(tx engine.Txn) { tx.Set([]byte("k"), []byte("v")) })
+	_ = m.Update(func(tx engine.Txn) { tx.Set([]byte("k"), []byte("w")) })
+	_ = m.View(func(tx engine.Txn) {
 		if string(tx.Get([]byte("k"))) != "w" {
 			t.Error("update lost")
 		}

@@ -41,7 +41,7 @@ const (
 var errCorrupt = errors.New("groups: corrupt record")
 
 // Partitions tells how many partitions a topic has (0 when it does not exist).
-type Partitions func(transaction engine.Transaction, topic string) int64
+type Partitions func(transaction engine.Txn, topic string) int64
 
 // groupKey is the G key of a group: its header.
 func groupKey(group string) []byte { return append([]byte{prefixGroup}, group...) }

@@ -46,19 +46,19 @@ func TestIdemRecordCorruption(t *testing.T) {
 func TestCorruptStoredRecordsPanic(t *testing.T) {
 	store := engine.NewMemory()
 	topicPartition := contract.NewTopicPartition("t", 0)
-	_ = store.Update(func(transaction engine.Transaction) {
+	_ = store.Update(func(transaction engine.Txn) {
 		transaction.Set(batchRunKey(topicPartition, 0), []byte{9, 9})
 		transaction.Set(endKey(topicPartition), []byte{5})
 		transaction.Set(duplicateCheckKey("k"), []byte{0x80})
 	})
 	for name, f := range map[string]func(){
 		"lookup": func() {
-			_ = store.View(func(transaction engine.Transaction) {
+			_ = store.View(func(transaction engine.Txn) {
 				Lookup(transaction, contract.FindSegments{TopicPartition: topicPartition})
 			})
 		},
 		"replay": func() {
-			_ = store.Update(func(transaction engine.Transaction) { Commit(transaction, 1, contract.CommitSegment{SegmentKey: "k"}) })
+			_ = store.Update(func(transaction engine.Txn) { Commit(transaction, 1, contract.CommitSegment{SegmentKey: "k"}) })
 		},
 	} {
 		func() {

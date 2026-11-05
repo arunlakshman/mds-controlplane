@@ -1,4 +1,4 @@
-// Package pebble is the production engine.Store over Pebble
+// Package pebble is the production engine.Engine over Pebble
 // (github.com/cockroachdb/pebble). It is the only package that imports the
 // store. Commits do not fsync: the metadata store's state is rebuilt from the log and a
 // checkpoint into a fresh directory, never trusted after a crash.
@@ -21,14 +21,14 @@ type Options struct {
 	MemTableBytes uint64
 }
 
-// DB is a Pebble database used as an engine.Store.
+// DB is a Pebble database used as an engine.Engine.
 type DB struct {
 	db   *pebble.DB
 	once sync.Once
 	err  error
 }
 
-var _ engine.Store = (*DB)(nil)
+var _ engine.Engine = (*DB)(nil)
 
 type silentLogger struct{}
 
@@ -55,14 +55,14 @@ func Open(dir string, o Options) (*DB, error) {
 	return &DB{db: db}, nil
 }
 
-// Close implements engine.Store; closing twice is harmless.
+// Close implements engine.Engine; closing twice is harmless.
 func (d *DB) Close() error {
 	d.once.Do(func() { d.err = d.db.Close() })
 	return d.err
 }
 
-// View implements engine.Store: a snapshot, so a multi-read query is consistent.
-func (d *DB) View(fn func(engine.Transaction)) error {
+// View implements engine.Engine: a snapshot, so a multi-read query is consistent.
+func (d *DB) View(fn func(engine.Txn)) error {
 	s := d.db.NewSnapshot()
 	defer func() { _ = s.Close() }() // read-only snapshot; nothing to flush
 	t := &txn{get: s.Get, iter: s.NewIter}
@@ -70,9 +70,9 @@ func (d *DB) View(fn func(engine.Transaction)) error {
 	return t.err
 }
 
-// Update implements engine.Store: an indexed batch (reads see its own writes),
+// Update implements engine.Engine: an indexed batch (reads see its own writes),
 // committed without sync.
-func (d *DB) Update(fn func(engine.Transaction)) error {
+func (d *DB) Update(fn func(engine.Txn)) error {
 	b := d.db.NewIndexedBatch()
 	defer func() { _ = b.Close() }() // Commit already reported any write error
 	t := &txn{b: b, get: b.Get, iter: b.NewIter}

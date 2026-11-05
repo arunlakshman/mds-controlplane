@@ -13,7 +13,7 @@ import (
 // Group reads (slice 4a). They change nothing, so they are not logged.
 
 // offsetFetch answers an OffsetFetch. A partition with no commit is -1.
-func offsetFetch(transaction engine.Transaction, operation contract.OffsetFetch) runtime.ControlPlaneDone {
+func offsetFetch(transaction engine.Txn, operation contract.OffsetFetch) runtime.ControlPlaneDone {
 	var out []contract.PartitionOffset
 	if len(operation.Partitions) > 0 {
 		for _, topicPartition := range operation.Partitions {
@@ -46,7 +46,7 @@ func offsetEntry(topicPartition contract.TopicPartition, o offsetRecord) contrac
 }
 
 // describeGroup answers a DescribeGroup.
-func describeGroup(transaction engine.Transaction, operation contract.DescribeGroup) runtime.ControlPlaneDone {
+func describeGroup(transaction engine.Txn, operation contract.DescribeGroup) runtime.ControlPlaneDone {
 	h, found := readHeader(transaction, operation.Group)
 	if !found {
 		return runtime.ControlPlaneDone{Resp: contract.DescribeGroupResp{}}
@@ -78,7 +78,7 @@ func groupState(h groupHeader, members int) string {
 }
 
 // listGroups answers a ListGroups: every installed group, sorted by name.
-func listGroups(transaction engine.Transaction, _ contract.ListGroups) runtime.ControlPlaneDone {
+func listGroups(transaction engine.Txn, _ contract.ListGroups) runtime.ControlPlaneDone {
 	type row struct {
 		name string
 		h    groupHeader

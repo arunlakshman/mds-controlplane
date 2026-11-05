@@ -57,9 +57,9 @@ func commitOp(group, member string, gen int32, offs ...contract.PartitionOffset)
 
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
-var backends = map[string]func(testing.TB) engine.Store{
-	"mem": func(testing.TB) engine.Store { return engine.NewMemory() },
-	"pebble": func(t testing.TB) engine.Store {
+var backends = map[string]func(testing.TB) engine.Engine{
+	"mem": func(testing.TB) engine.Engine { return engine.NewMemory() },
+	"pebble": func(t testing.TB) engine.Engine {
 		t.Helper()
 		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
 		if err != nil {
@@ -104,7 +104,7 @@ func runSteps(t *testing.T, a *metadata.Store, steps []step) {
 }
 
 // newGroupStore is a store with two topics, for every backend.
-func newGroupStore(t *testing.T, mk func(testing.TB) engine.Store) *metadata.Store {
+func newGroupStore(t *testing.T, mk func(testing.TB) engine.Engine) *metadata.Store {
 	t.Helper()
 	a := metadata.New(mk(t))
 	t.Cleanup(func() { _ = a.Close() })

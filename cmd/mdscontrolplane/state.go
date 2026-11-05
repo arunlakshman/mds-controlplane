@@ -37,7 +37,7 @@ func (p *pebbleState) start() error {
 }
 
 // openStore is replica.Config.OpenStore.
-func (p *pebbleState) openStore() (engine.Store, error) {
+func (p *pebbleState) openStore() (engine.Engine, error) {
 	p.mu.Lock()
 	if db := p.waiting; db != nil {
 		p.waiting = nil

@@ -67,7 +67,7 @@ type Config struct {
 	// in. It runs when the machine is built and again after a crash restart or
 	// a trimmed-slot restore, once the old store has been closed. Nil means an
 	// in-memory store. The machine itself never imports a database.
-	OpenStore func() (engine.Store, error)
+	OpenStore func() (engine.Engine, error)
 
 	// WindowSlots is the idempotency window length. Keys older than this many
 	// slots are forgotten at TrimStride boundaries (decision 48). Zero skips.

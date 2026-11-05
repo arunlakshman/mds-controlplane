@@ -30,7 +30,7 @@ func TestMachineConfigSetsTheIdempotencyWindow(t *testing.T) {
 }
 
 // topicCount asks a store how many topics it holds.
-func topicCount(t *testing.T, keyValue engine.Store) int {
+func topicCount(t *testing.T, keyValue engine.Engine) int {
 	t.Helper()
 	d, err := metadata.New(keyValue).Describe(contract.DescribeTopics{})
 	if err != nil {

@@ -13,7 +13,7 @@ import (
 // same order agree, whatever they trimmed. The model has no state hash.
 func (a *Store) StateHash() uint64 {
 	h := fnv.New64a()
-	_ = a.keyValue.View(func(transaction engine.Transaction) {
+	_ = a.keyValue.View(func(transaction engine.Txn) {
 		transaction.Ascend([]byte{0}, nil, func(k, v []byte) bool {
 			if !topics.InWindow(k) {
 				if _, err := h.Write(binary.AppendUvarint(nil, uint64(len(k)))); err != nil {

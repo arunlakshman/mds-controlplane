@@ -14,9 +14,9 @@ import (
 
 // backends are the stores that a semantic test runs on, by name: the in-memory
 // one and Pebble in a temporary folder.
-var backends = map[string]func(testing.TB) engine.Store{
-	"mem": func(testing.TB) engine.Store { return engine.NewMemory() },
-	"pebble": func(t testing.TB) engine.Store {
+var backends = map[string]func(testing.TB) engine.Engine{
+	"mem": func(testing.TB) engine.Engine { return engine.NewMemory() },
+	"pebble": func(t testing.TB) engine.Engine {
 		t.Helper()
 		store, err := pebble.Open(filepath.Join(t.TempDir(), "state"), pebble.Options{CacheBytes: 8 << 20, MemTableBytes: 4 << 20})
 		if err != nil {

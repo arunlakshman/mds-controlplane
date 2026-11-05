@@ -16,7 +16,7 @@
 | Side effect on go.mod: `golang.org/x/tools` 0.31.0 to 0.41.0, `x/mod` 0.24 to 0.32, `x/sync` 0.12 to 0.19 (pulled by pebble's requirements) | Watch | `ops/tools/determinismcheck` and `cmd/riskscore` use `x/tools`. `ops/scripts/ci-determinism.sh` and the risk gate pass after the bump. |
 
 ## Rules for our code
-1. Import it only from `internal/controlplane/metadb/engine/pebble`. The state updater talks to the `engine.Store` seam, never to Pebble.
+1. Import it only from `internal/controlplane/metadb/engine/pebble`. The state updater talks to the `engine.Engine` seam, never to Pebble.
 2. Commits use `pebble.NoSync`; the store is never trusted after a crash. A restart restores a checkpoint into an
    EMPTY directory and replays the log (decision 49). Do not reuse a directory across incarnations.
 3. A Pebble iterator's key/value bytes are valid only until the next call: the seam copies what it returns

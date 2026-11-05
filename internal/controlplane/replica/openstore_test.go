@@ -27,7 +27,7 @@ type storeSource struct {
 	failOn int // 1-based call number that fails; 0 never fails
 }
 
-func (s *storeSource) open() (engine.Store, error) {
+func (s *storeSource) open() (engine.Engine, error) {
 	if s.failOn == len(s.opened)+1 {
 		return nil, errors.New("disk is full")
 	}
