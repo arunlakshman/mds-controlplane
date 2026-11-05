@@ -20,8 +20,14 @@ T1.7 | done | cherry-picked 5 commits (86e56b8..f605b62) | task: make build + ma
 T1.8 | done | cherry-picked 072fbe9,e8f2f35,6e16227 | task: make build green; make fuzz 8 targets x10s no crashes (~2m19s); merged tree go test green | fuzz_test.go in metadata, topics, groups/storage (+Makefile fuzz target)
 T1.9 | done | cherry-picked 597ee75,57128a5,2a403e3 | make build green, make mutants 8/8 (28.5s) on merged tree incl. T1.7+T1.8; agent ran campaign 2000 seeds green; 300-seed hashes equal baseline | cpsim -report/-json/-until-stable; expectedReachable kept (nothing in data names a lost path); report only touches cmd/cpsim + docs
 T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; dst commits e0a59b9,7cf72fe,67d894b on local branch dst-process (unpushed) | make build + make mutants 8/8 green on merged tree; race + campaign see P1 gate | RE-PIN: golden basic/17 f79ae0cb6ac19047->08bfa86385d8e8ae, chaos/42 841e92a10f1559f3->45d210abda0e2bed; 300-seed hashes now da8028bc bc9f0863 23603524 67c48ce5 ba61ad2c
+T2.1 | done | cherry-picked 7bd9a27,36f7a2f | make build green, make it green (~41s, Docker ON), go list -deps ./cmd/mdscontrolplane has 0 testcontainers, golden unchanged | internal/testinfra: Main(m), DynamoDB(t), Postgres(t), S3(t); testcontainers-go v0.44.0 core only
 
 ## Deferred items
+
+- T2.1: MinIO image: minio/minio and quay.io/minio/minio can no longer be pulled; used frozen, unmaintained bitnamilegacy/minio:2025.7.23-debian-12-r3. Revisit (user may want another image or a source build).
+- T2.1: S3(t) uses t.Setenv for AWS creds (MinIO rejects s3store's dummy mds/mds), so tests that call it cannot t.Parallel.
+- T2.1: DynamoDB(t) pre-creates the table (key schema copied, not dynamolog.CreateTable, to avoid import cycle); no helper yet for testing CreateTable itself.
+- T2.1: Go-side Docker-off failure path not proven (testcontainers falls back to /var/run/docker.sock); Makefile `docker info` check guards `make it`.
 
 - T1.10: proved with sites stubbed off, old golden + old cpsim hashes came back exactly, so only the 3 sites moved hashes.
 - T1.10: no object-store short-page site (ObjectList has no page limit; would be illegal). Sites also fire in the quiet tail (legal). Sites use simulator's own injector (env.inj).
@@ -79,3 +85,4 @@ T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; ds
 - T1.7, T1.8, T1.9 all merged; worktrees cleaned. Full make build + make mutants green on merged tree. Starting T1.10 (serial, RE-PIN, edits dst on local branch dst-process).
 - T1.10 merged (RE-PIN done). New baseline hashes (300 seeds): basic da8028bc, log-faults bc9f0863, crash-restart 23603524, leader-fencing 67c48ce5, chaos ba61ad2c. P1 gate: build ok, mutants 8/8 ok, race running, campaign next.
 - P1 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 seeds (build/p1-*.txt). P1 complete. Starting T2.1 (serial, sonnet).
+- T2.1 merged; make build + make it green on merged tree. Next: Group D T2.2 (dynamolog), T2.3 (sqllog), T2.4 (s3store) in parallel.
