@@ -3,8 +3,10 @@ package metadb
 import (
 	"fmt"
 
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -19,7 +21,7 @@ type DB struct {
 
 // New returns a metadb over the engine (empty, or restored from a checkpoint).
 func New(keyValue engine.Engine) *DB {
-	return &DB{keyValue: keyValue, modules: registry.list}
+	return &DB{keyValue: keyValue, modules: []module.Module{topics.Module{}, storage.NewModule(topics.PartitionCount)}}
 }
 
 // Close closes the store.

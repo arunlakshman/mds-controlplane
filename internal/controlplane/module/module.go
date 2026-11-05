@@ -23,15 +23,9 @@ const (
 	ReadOnly
 )
 
-// Kind is the number of a log entry kind. It is the first byte of every entry in
-// the log, so a number is part of the log format and must never change or be
-// reused. Zero is the no-op, which the kernel owns. Each module owns its own
-// kinds.
-type Kind uint8
-
 // Module is one context's part of the replicated state, kept in the shared
-// ordered key-value store. A module owns its own key prefixes, its own log entry
-// kinds, and the bytes of its own entries.
+// ordered key-value store. A module owns its own key prefixes and its rules. The
+// log entry format is not part of a module: metadb owns it (metadb.Encode).
 type Module interface {
 	// Mode reports how the module treats operation.
 	Mode(operation runtime.ControlPlaneOperation) Mode
@@ -41,15 +35,4 @@ type Module interface {
 	Write(transaction engine.Txn, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
 	// Read answers a ReadOnly operation.
 	Read(transaction engine.Txn, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone
-
-	// Kinds lists the log entry kinds the module owns.
-	Kinds() []Kind
-	// KindOf is the kind of a Logged operation. It is false for any other.
-	KindOf(operation runtime.ControlPlaneOperation) (Kind, bool)
-	// Encode writes the payload of a Logged operation, the bytes after the kind
-	// and the id. The kernel writes those two.
-	Encode(w *engine.Writer, kind Kind, operation runtime.ControlPlaneOperation)
-	// Decode reads the payload of an entry of kind. A damaged payload fails the
-	// reader (r.OK() is false) and the kernel reports a corrupt entry.
-	Decode(r *engine.Reader, kind Kind) runtime.ControlPlaneOperation
 }

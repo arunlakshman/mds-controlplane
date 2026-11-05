@@ -2,37 +2,44 @@ package metadb
 
 import (
 	"errors"
+	"fmt"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+
+	logv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/log/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups/storage"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/topics"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// The log format of an entry is: the kind (uvarint), the id (string), and then
-// the payload. The kernel writes the kind and the id. The module that owns the
-// kind writes and reads the payload, so a new context brings its own encoding
-// and the kernel does not change. The bytes of every kind are fixed by the
-// golden test (TestGoldenEntryBytes): a log written by an older node must be
-// read by a newer one.
+// A log entry is the protobuf message logv1.Entry: an id and at most one
+// command. Encode writes it with deterministic marshaling. Decode reads any
+// valid protobuf bytes of an Entry, by the rules of the wire format, but an
+// entry with a field that logv1 does not define is ErrCorrupt: no node may
+// skip a part of a command. Decode does not ask for the exact bytes that
+// Encode writes, because protobuf does not promise the same bytes in another
+// version; a log written by one build must be readable by the next. The
+// conversion to and from the contract types is in entry_codec.go.
+//
+// Only commands are in the log. What a command does (for example the offsets of
+// a CommitSegment) is decided when it is applied, on every replica.
 
-// Kind is the kind of a log entry. See module.Kind.
-type Kind = module.Kind
+// Kind is the kind of a log entry. It is not in the bytes: Decode sets it from
+// the command that the entry holds.
+type Kind uint8
 
-// The entry kinds. The kernel owns the no-op (zero). Each other kind belongs to
-// the module that defines it.
+// The entry kinds. KindNoop is an entry with no command.
 const (
-	KindNoop                 Kind = 0
-	KindCommit                    = topics.KindCommit
-	KindCreateTopic               = topics.KindCreateTopic
-	KindCreateTopicExclusive      = topics.KindCreateTopicExclusive
-	KindGroupInstall              = storage.KindGroupInstall
-	KindGroupAssign               = storage.KindGroupAssign
-	KindGroupRemove               = storage.KindGroupRemove
-	KindOffsetCommit              = storage.KindOffsetCommit
+	KindNoop Kind = iota
+	KindCommit
+	KindCreateTopic
+	KindGroupInstall
+	KindGroupAssign
+	KindGroupRemove
+	KindOffsetCommit
+	// KindCreateTopicExclusive is a CreateTopic with FailIfExists.
+	KindCreateTopicExclusive
 )
 
 // Entry is one slot's command payload. KindNoop changes nothing on apply.
@@ -53,63 +60,62 @@ func (e Entry) CommitSegment() (contract.CommitSegment, bool) {
 // ErrCorrupt means the bytes are not a valid Entry.
 var ErrCorrupt = errors.New("metadata: corrupt entry")
 
-// registry is the list of modules, and which module owns each entry kind. Every
-// DB uses the same list, and so does the codec.
-var registry = newRegistry(topics.Module{}, storage.NewModule(topics.PartitionCount))
-
-type modules struct {
-	list  []module.Module
-	owner map[Kind]module.Module
-}
-
-func newRegistry(list ...module.Module) modules {
-	r := modules{list: list, owner: map[Kind]module.Module{}}
-	for _, m := range list {
-		for _, k := range m.Kinds() {
-			r.owner[k] = m
-		}
-	}
-	return r
-}
-
 // EntryOf is the log entry of a logged operation. It returns false for an
 // operation that is not logged (a read, or an unknown one).
 func EntryOf(operation runtime.ControlPlaneOperation) (Entry, bool) {
-	for _, m := range registry.list {
-		if kind, ok := m.KindOf(operation); ok {
-			return Entry{Kind: kind, Op: operation}, true
-		}
+	kind := kindOf(operation)
+	if kind == KindNoop {
+		return Entry{}, false
 	}
-	return Entry{}, false
+	return Entry{Kind: kind, Op: operation}, true
 }
 
-// Encode serialises an entry.
+// Encode serialises an entry. It reads ID and Op, not Kind: an entry with no Op
+// is a no-op. An Op that is not a logged operation, or a string that is not
+// valid UTF-8, is a bug in the caller, and Encode panics. Every command comes in
+// through gRPC, which accepts only valid UTF-8 strings.
 func Encode(en Entry) []byte {
-	w := engine.NewWriter()
-	w.Uvarint(uint64(en.Kind))
-	w.String(en.ID)
-	if m := registry.owner[en.Kind]; m != nil {
-		m.Encode(w, en.Kind, en.Op)
+	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(entryToLog(en))
+	if err != nil {
+		panic(fmt.Errorf("metadata: encode entry %q: %w", en.ID, err))
 	}
-	return w.Bytes()
+	return b
 }
 
-// Decode parses an entry made by Encode.
+// Decode parses an entry made by Encode. It never panics: bad bytes give
+// ErrCorrupt.
 func Decode(b []byte) (Entry, error) {
-	r := engine.NewReader(b)
-	en := Entry{Kind: Kind(r.Uvarint())}
-	en.ID = r.String()
-	if en.Kind != KindNoop {
-		m := registry.owner[en.Kind]
-		if m == nil {
-			return Entry{}, ErrCorrupt
-		}
-		en.Op = m.Decode(r, en.Kind)
-	}
-	if !r.Done() {
+	var m logv1.Entry
+	if err := (proto.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(b, &m); err != nil {
 		return Entry{}, ErrCorrupt
 	}
-	return en, nil
+	if hasUnknown(m.ProtoReflect()) {
+		return Entry{}, ErrCorrupt
+	}
+	return entryFromLog(&m), nil
+}
+
+// hasUnknown reports whether m, or a message inside it, has fields that its
+// type does not define. Range visits the fields in no fixed order, but the
+// answer is only yes or no, so the order does not matter.
+func hasUnknown(m protoreflect.Message) bool {
+	if len(m.GetUnknown()) > 0 {
+		return true
+	}
+	found := false
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		switch {
+		case fd.Message() == nil:
+		case fd.IsList():
+			for i := range v.List().Len() {
+				found = found || hasUnknown(v.List().Get(i).Message())
+			}
+		default:
+			found = hasUnknown(v.Message())
+		}
+		return !found
+	})
+	return found
 }
 
 // NewMem returns a metadb over an in-memory KV. No Pebble. Suitable for the

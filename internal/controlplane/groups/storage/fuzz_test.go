@@ -6,58 +6,7 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
-	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
-
-// FuzzModuleDecode: the payload decoder of the module reads any bytes without a
-// panic. It never panics on purpose: damage shows as r.OK() false. A decoded
-// operation is checked to re-encode to bytes that decode and re-encode to the
-// same bytes (the encoding is not canonical, so the input bytes are not compared).
-func FuzzModuleDecode(f *testing.F) {
-	m := NewModule(nil)
-	tp := contract.NewTopicPartition
-	for _, op := range []runtime.ControlPlaneOperation{
-		contract.GroupInstall{Group: "g", ProtocolType: "consumer", Protocol: "range", Generation: 1, Leader: "m", TimeMs: 9,
-			Members: []contract.GroupMember{{MemberID: "m", ClientID: "c", ClientHost: "h", SessionTimeoutMs: 10, RebalanceTimeoutMs: 20, Metadata: []byte("x")}}},
-		contract.GroupAssign{Group: "g", Generation: 1, Leader: "m", Assignments: []contract.GroupAssignment{{Member: "m", Bytes: []byte("a")}}},
-		contract.GroupRemove{Group: "g", Reason: "r", Members: []string{"m", "n"}},
-		contract.OffsetCommit{Group: "g", Member: "m", Generation: 1, Offsets: []contract.PartitionOffset{
-			{TopicPartition: tp("t", 0), Offset: 5, LeaderEpoch: 1, Metadata: "md"}}},
-	} {
-		kind, ok := m.KindOf(op)
-		if !ok {
-			f.Fatalf("%T has no kind", op)
-		}
-		w := engine.NewWriter()
-		m.Encode(w, kind, op)
-		f.Add(uint8(kind), w.Bytes())
-	}
-	f.Add(uint8(0), []byte{})
-	f.Add(uint8(200), []byte{1, 2, 3})
-	f.Fuzz(func(t *testing.T, k uint8, b []byte) {
-		kind := module.Kind(k)
-		r := engine.NewReader(b)
-		op := m.Decode(r, kind)
-		if !r.Done() || op == nil {
-			return
-		}
-		w := engine.NewWriter()
-		m.Encode(w, kind, op)
-		first := w.Bytes()
-		r2 := engine.NewReader(first)
-		op2 := m.Decode(r2, kind)
-		if !r2.Done() {
-			t.Fatalf("encoded operation does not decode: %+v", op)
-		}
-		w2 := engine.NewWriter()
-		m.Encode(w2, kind, op2)
-		if !bytes.Equal(w2.Bytes(), first) {
-			t.Fatalf("re-encoding changed the bytes")
-		}
-	})
-}
 
 // corruptOrValue runs a state-record decoder. These decoders panic with
 // errCorrupt on purpose when a stored record is damaged (fail-stop on corrupt

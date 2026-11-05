@@ -89,10 +89,8 @@ test-race:
 FUZZTIME ?= 10s
 FUZZ_TARGETS = \
 	./internal/controlplane/metadb:FuzzDecode \
-	./internal/controlplane/topics:FuzzModuleDecode \
 	./internal/controlplane/topics:FuzzDecodeBatchRun \
 	./internal/controlplane/topics:FuzzParseDuplicateCheck \
-	./internal/controlplane/groups/storage:FuzzModuleDecode \
 	./internal/controlplane/groups/storage:FuzzDecodeHeader \
 	./internal/controlplane/groups/storage:FuzzDecodeMember \
 	./internal/controlplane/groups/storage:FuzzDecodeOffset

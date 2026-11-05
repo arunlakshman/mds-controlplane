@@ -86,12 +86,23 @@ func TestImportRules(t *testing.T) {
 		cp + "topics":         {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", cp + "module", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "metadb":         {cp + "contract", cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt},
 		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadb", cp + "module", rt},
 		cp + "executor":       {rt},
 	}
 	for dir, allowed := range layers {
 		onlyImports(t, pkgs, dir, allowed, true)
+	}
+	// metadb owns the log entry format, which is protobuf (the log and shared
+	// messages). Its only third-party packages are two of the protobuf runtime,
+	// audited in docs/dep-audits/google.golang.org/protobuf@<version>.md.
+	metadb := cp + "metadb"
+	protobuf := []string{"google.golang.org/protobuf/proto", "google.golang.org/protobuf/reflect/protoreflect"}
+	onlyImports(t, pkgs, metadb, []string{cp + "api/controlplane/log/v1", cp + "api/controlplane/shared/v1", cp + "contract",
+		cp + "groups/storage", cp + "metadb/engine", cp + "metadb/engine/memory", cp + "module", cp + "topics", rt}, false)
+	for _, imp := range pkgs[metadb].imports {
+		if local(imp) == "" && strings.Contains(strings.Split(imp, "/")[0], ".") && !slices.Contains(protobuf, imp) {
+			t.Errorf("%s imports %s: the only third-party packages it may use are %v", metadb, imp, protobuf)
+		}
 	}
 	// live is the production runner: it knows no control-plane type.
 	onlyImports(t, pkgs, "internal/system/live", nil, true)

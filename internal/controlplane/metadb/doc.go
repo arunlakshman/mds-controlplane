@@ -9,10 +9,10 @@
 // key prefixes and its own rules. The kernel does four things:
 //   - It sends every operation to the module that owns it (Mode, Write, Read).
 //     A new context is a new module in the list, not a new switch.
-//   - It owns the envelope of a log entry (Entry, Encode, Decode, EntryOf): the
-//     kind and the id. The module that owns a kind writes and reads the payload,
-//     so a new context brings its own encoding. The kernel applies the entries
-//     in log order (Apply, ApplyBytes).
+//   - It owns the log entry format (Entry, Encode, Decode, EntryOf): an id and
+//     one command, as the protobuf message logv1.Entry. A new command needs a
+//     new field there and a case in entry_codec.go. The kernel applies the
+//     entries in log order (Apply, ApplyBytes).
 //   - It writes and restores the checkpoint (Snapshot, Restore). The checkpoint
 //     carries every key of every module.
 //   - It computes the state hash, which leaves out the idempotency window.

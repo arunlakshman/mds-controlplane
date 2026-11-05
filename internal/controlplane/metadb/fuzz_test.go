@@ -2,6 +2,7 @@ package metadb_test
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -11,9 +12,10 @@ import (
 
 // FuzzDecode: Decode returns an entry or an error on any bytes, and never
 // panics. The log is the one input that a node reads from outside its own
-// state, so a damaged entry has to be an error, not a crash. The encoding is not
-// canonical (a varint may be written long), so a decoded entry is checked only
-// to re-encode to bytes that decode and re-encode to the same bytes.
+// state, so a damaged entry has to be an error, not a crash. Bytes that Encode
+// would not write may still decode (protobuf allows many encodings of one
+// message), so a decoded entry is checked to encode to bytes that decode to the
+// same entry and encode to the same bytes again.
 func FuzzDecode(f *testing.F) {
 	tp := contract.NewTopicPartition
 	f.Add(metadb.Encode(metadb.Entry{Kind: metadb.KindNoop, ID: "n"}))
@@ -38,6 +40,8 @@ func FuzzDecode(f *testing.F) {
 		e.ID = "id"
 		f.Add(metadb.Encode(e))
 	}
+	f.Add([]byte{})
+	f.Add([]byte{0x1a, 0x03, 0x10, 0x81, 0x00})
 	f.Fuzz(func(t *testing.T, b []byte) {
 		e, err := metadb.Decode(b)
 		if err != nil {
@@ -45,11 +49,11 @@ func FuzzDecode(f *testing.F) {
 		}
 		again := metadb.Encode(e)
 		e2, err := metadb.Decode(again)
-		if err != nil {
-			t.Fatalf("an entry that decoded does not decode after Encode: %v", err)
+		if err != nil || !reflect.DeepEqual(e2, e) {
+			t.Fatalf("Decode(Encode(e)) = %+v (%v), want %+v", e2, err, e)
 		}
 		if !bytes.Equal(metadb.Encode(e2), again) {
-			t.Fatalf("Encode(Decode(Encode(e))) differs from Encode(e)")
+			t.Fatalf("Encode is not stable: %x, then %x", again, metadb.Encode(e2))
 		}
 	})
 }
