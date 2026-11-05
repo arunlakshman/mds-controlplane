@@ -1,17 +1,17 @@
 package groups
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	"github.com/manifesterio/mds-controlplane/internal/spec"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
 )
 
@@ -50,12 +50,42 @@ func peek(c *Coordinator, name string) view {
 	return v
 }
 
-var _ Store = (*metadatastore.Store)(nil)
+// modelStore runs the model (internal/spec) as the store of the coordinator.
+// The model is not safe for concurrent use, so each call holds a lock.
+type modelStore struct {
+	mu sync.Mutex
+	m  *spec.ControlPlane
+}
+
+func newModelStore() *modelStore { return &modelStore{m: spec.New()} }
+
+var _ Store = (*modelStore)(nil)
+
+func (s *modelStore) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
+	if err := ctx.Err(); err != nil {
+		return runtime.ControlPlaneDone{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.m.Apply(operation), nil
+}
+
+// createTopic makes a topic in the store, so that offset commits can name it.
+func createTopic(ctx context.Context, s Store, name string, partitions int32) (runtime.ErrCode, error) {
+	d, err := s.Exec(ctx, contract.CreateTopic{Name: name, Partitions: partitions})
+	return d.Err, err
+}
+
+// describeGroup reads one group from the store.
+func describeGroup(ctx context.Context, s Store, group string) (contract.DescribeGroupResp, error) {
+	d, err := s.Exec(ctx, contract.DescribeGroup{Group: group})
+	return runtime.ResponseAs[contract.DescribeGroupResp](d), err
+}
 
 type harness struct {
 	t         *testing.T
 	c         *Coordinator
-	store     *metadatastore.Store
+	store     *modelStore
 	clock     fakeclock.Clock
 	next      *atomic.Int64
 	session   int32 // session timeout of the members joined by join
@@ -67,7 +97,7 @@ type harness struct {
 func newHarness(t *testing.T, config Config) *harness {
 	t.Helper()
 	h := &harness{t: t, clock: fakeclock.New(time.Unix(1000, 0)), session: 10000, next: new(atomic.Int64)}
-	h.store = &metadatastore.Store{A: metadata.NewMem()}
+	h.store = newModelStore()
 	if config.Clock == nil {
 		config.Clock = h.clock
 	}
@@ -220,7 +250,7 @@ func waitUntil(t *testing.T, cond func() bool) {
 
 func storedMembers(t *testing.T, h *harness, group string) []string {
 	t.Helper()
-	d, err := storecall.Read[contract.DescribeGroupResp](t.Context(), h.store, contract.DescribeGroup{Group: group})
+	d, err := describeGroup(t.Context(), h.store, group)
 	if err != nil {
 		t.Fatal(err)
 	}

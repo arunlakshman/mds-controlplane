@@ -11,9 +11,6 @@ import (
 	"time"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/fakeclock"
 )
@@ -114,7 +111,7 @@ func TestSyncRules(t *testing.T) {
 func TestOffsetCommitChecks(t *testing.T) {
 	h := newHarness(t, Config{})
 	ctx := t.Context()
-	if code, err := storecall.Code(ctx, h.store, contract.CreateTopic{Name: "t", Partitions: 2}); err != nil || code != runtime.OK {
+	if code, err := createTopic(ctx, h.store, "t", 2); err != nil || code != runtime.OK {
 		t.Fatalf("topic: %v %v", code, err)
 	}
 	a, _ := h.stableTwo("g")
@@ -259,7 +256,7 @@ func TestCloseWakesParkedCalls(t *testing.T) {
 
 func TestStoreFailureBreaksTermAndRebuildRecovers(t *testing.T) {
 	clock := fakeclock.New(time.Unix(1000, 0))
-	inner := &metadatastore.Store{A: metadata.NewMem()}
+	inner := newModelStore()
 	flaky := &flakyStore{Store: inner}
 	next := new(atomic.Int64)
 	c := New(Config{Clock: clock, NewID: func() string { return fmt.Sprintf("m%d", next.Add(1)) }}, flaky)
@@ -311,7 +308,7 @@ func (f *flakyStore) Exec(ctx context.Context, operation runtime.ControlPlaneOpe
 // TestConcurrentJoinsOneRound starts eight joins at once on the real clock.
 // They must end in one round with one leader, and every member syncs.
 func TestConcurrentJoinsOneRound(t *testing.T) {
-	c := New(Config{InitialRebalanceDelay: 200 * time.Millisecond}, &metadatastore.Store{A: metadata.NewMem()})
+	c := New(Config{InitialRebalanceDelay: 200 * time.Millisecond}, newModelStore())
 	t.Cleanup(c.Close)
 	if err := c.Rebuild(t.Context()); err != nil {
 		t.Fatal(err)
