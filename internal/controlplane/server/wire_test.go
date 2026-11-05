@@ -18,12 +18,12 @@ import (
 
 // brokerHeartbeatFromCore builds a BrokerHeartbeatRequest for a broker's own address.
 func brokerHeartbeatFromCore(b contract.BrokerAddr) *cpv1.BrokerHeartbeatRequest {
-	return &cpv1.BrokerHeartbeatRequest{Broker: brokerInfoFromCore(b)}
+	return &cpv1.BrokerHeartbeatRequest{Broker: wire.BrokerInfoFromCore(b)}
 }
 
 // brokerHeartbeatRespToCore rebuilds the live set from a response.
 func brokerHeartbeatRespToCore(r *cpv1.BrokerHeartbeatResponse) []contract.BrokerAddr {
-	return mapSlice(r.GetBrokers(), brokerInfoToCore)
+	return mapSlice(r.GetBrokers(), wire.BrokerInfoToCore)
 }
 
 // joinGroupFromCore builds a JoinGroupRequest from a join call.

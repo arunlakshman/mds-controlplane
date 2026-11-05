@@ -366,3 +366,21 @@ func ListGroupsResponseFromCore(v contract.ListGroupsResp) *cpv1.ListGroupsRespo
 		Groups: mapSlice(v.Groups, GroupSummaryFromCore),
 	}
 }
+
+// BrokerInfoToCore rebuilds a contract.BrokerAddr from a BrokerInfo message.
+func BrokerInfoToCore(m *cpv1.BrokerInfo) contract.BrokerAddr {
+	return contract.BrokerAddr{
+		NodeID: m.GetNodeId(),
+		Host:   m.GetHost(),
+		Port:   m.GetPort(),
+	}
+}
+
+// BrokerInfoFromCore builds a BrokerInfo message from a contract.BrokerAddr.
+func BrokerInfoFromCore(v contract.BrokerAddr) *cpv1.BrokerInfo {
+	return &cpv1.BrokerInfo{
+		NodeId: v.NodeID,
+		Host:   v.Host,
+		Port:   v.Port,
+	}
+}

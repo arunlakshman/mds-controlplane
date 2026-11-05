@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -69,20 +70,10 @@ func (n *Node) BrokerHeartbeat(ctx context.Context, request *cpv1.BrokerHeartbea
 
 // brokerHeartbeatToCore rebuilds the calling broker's address from a request.
 func brokerHeartbeatToCore(request *cpv1.BrokerHeartbeatRequest) contract.BrokerAddr {
-	return brokerInfoToCore(request.GetBroker())
+	return wire.BrokerInfoToCore(request.GetBroker())
 }
 
 // brokerHeartbeatRespFromCore builds a BrokerHeartbeatResponse from the live set.
 func brokerHeartbeatRespFromCore(live []contract.BrokerAddr) *cpv1.BrokerHeartbeatResponse {
-	return &cpv1.BrokerHeartbeatResponse{Brokers: mapSlice(live, brokerInfoFromCore)}
-}
-
-// ---- Consumer group calls ----
-
-func brokerInfoToCore(b *cpv1.BrokerInfo) contract.BrokerAddr {
-	return contract.BrokerAddr{NodeID: b.GetNodeId(), Host: b.GetHost(), Port: b.GetPort()}
-}
-
-func brokerInfoFromCore(b contract.BrokerAddr) *cpv1.BrokerInfo {
-	return &cpv1.BrokerInfo{NodeId: b.NodeID, Host: b.Host, Port: b.Port}
+	return &cpv1.BrokerHeartbeatResponse{Brokers: mapSlice(live, wire.BrokerInfoFromCore)}
 }

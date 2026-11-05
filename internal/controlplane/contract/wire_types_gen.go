@@ -237,3 +237,10 @@ type GroupSummary struct {
 type ListGroupsResp struct {
 	Groups []GroupSummary
 }
+
+// BrokerAddr is one broker's advertised address, as Metadata lists it.
+type BrokerAddr struct {
+	NodeID int32
+	Host   string
+	Port   int32
+}

@@ -14,13 +14,6 @@ import (
 // Offset is a partition log offset.
 type Offset int64
 
-// BrokerAddr is one broker's advertised address, as Metadata lists it.
-type BrokerAddr struct {
-	NodeID int32
-	Host   string
-	Port   int32
-}
-
 // NewTopicPartition builds a TopicPartition.
 func NewTopicPartition(topic string, partition int32) TopicPartition {
 	return TopicPartition{Topic: topic, Partition: partition}
