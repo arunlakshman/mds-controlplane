@@ -305,14 +305,6 @@ func (m *Replica) retryInFlightAppend(f *inFlightAppend) []any {
 	return []any{runtime.LogAppend{Req: request, Slot: slot, Data: f.data}}
 }
 
-func encodeGroup(id string, cmds []metadata.Entry) []byte {
-	encoded := make([][]byte, len(cmds))
-	for i, c := range cmds {
-		encoded[i] = metadata.Encode(c)
-	}
-	return encodeGroupParts(id, encoded)
-}
-
 // encodeGroupParts packs commands that are already encoded.
 func encodeGroupParts(id string, encoded [][]byte) []byte {
 	b := []byte{groupMarker}
