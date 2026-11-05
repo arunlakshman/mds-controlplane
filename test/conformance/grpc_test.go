@@ -189,9 +189,10 @@ func (n *grpcNode) start() {
 	if err != nil {
 		n.t.Fatalf("listen: %v", err)
 	}
-	n.gs = grpc.NewServer()
-	n.node.Register(n.gs)
-	go func() { _ = n.gs.Serve(ln) }()
+	gs := grpc.NewServer()
+	n.gs = gs
+	n.node.Register(gs)
+	go func() { _ = gs.Serve(ln) }() // not n.gs: a reboot replaces it while this runs
 	n.conn, err = grpc.NewClient(ln.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		n.t.Fatalf("dial: %v", err)
