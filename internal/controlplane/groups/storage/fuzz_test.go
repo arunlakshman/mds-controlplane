@@ -64,19 +64,22 @@ func FuzzModuleDecode(f *testing.F) {
 // state: the node must not go on with a state it cannot read). That panic is the
 // intended answer to bad bytes, so it is allowed here. Any other panic is a bug,
 // and it is raised again. It reports whether the record decoded.
-func corruptOrValue(t *testing.T, decode func()) (decoded bool) {
+func corruptOrValue(t *testing.T, decode func()) bool {
 	t.Helper()
-	defer func() {
-		if p := recover(); p != nil {
-			if err, ok := p.(error); ok && errors.Is(err, errCorrupt) {
-				decoded = false
-				return
+	decoded := false
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				if err, ok := p.(error); ok && errors.Is(err, errCorrupt) {
+					return
+				}
+				panic(p)
 			}
-			panic(p)
-		}
+		}()
+		decode()
+		decoded = true
 	}()
-	decode()
-	return true
+	return decoded
 }
 
 // FuzzDecodeHeader: a stored group header decodes, or panics with errCorrupt
