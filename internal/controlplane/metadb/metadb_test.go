@@ -13,7 +13,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -97,13 +96,13 @@ func (s *localStore) Exec(ctx context.Context, operation runtime.ControlPlaneOpe
 		return runtime.ControlPlaneDone{}, err
 	}
 	switch s.a.Mode(operation) {
-	case module.Logged:
+	case metadb.Logged:
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		slot := s.next
 		s.next++
 		return s.a.Write(slot, operation)
-	case module.ReadOnly:
+	case metadb.ReadOnly:
 		return s.a.Read(operation)
 	}
 	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil

@@ -20,7 +20,8 @@
 // anything. A group command over 256 KiB is ErrTooLarge; the size is counted
 // from the fields, so it is an upper bound of the stored bytes.
 //
-// It implements module.Module. It does not know about topics. An offset commit asks the caller how many
+// metadb lists its commands (commands.go) and reads (read.go) as the rows of the
+// group schema. It does not know about topics. An offset commit asks the caller how many
 // partitions a topic has, through the Partitions function.
 package storage
 

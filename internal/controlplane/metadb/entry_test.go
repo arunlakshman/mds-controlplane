@@ -8,7 +8,6 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -144,7 +143,7 @@ func TestEntryOfMatchesMode(t *testing.T) {
 		contract.FindSegments{}, contract.DescribeTopics{}, contract.DescribeGroup{}, contract.OffsetFetch{}, contract.ListGroups{},
 	} {
 		_, logged := metadb.EntryOf(operation)
-		if logged != (a.Mode(operation) == module.Logged) {
+		if logged != (a.Mode(operation) == metadb.Logged) {
 			t.Errorf("%T: EntryOf says logged %v, Mode says %v", operation, logged, a.Mode(operation))
 		}
 	}

@@ -2,7 +2,6 @@ package replica
 
 import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -11,10 +10,10 @@ import (
 func (m *Replica) onControlPlaneDeliver(o runtime.ControlPlaneDeliver) []any {
 	operation := o.Op
 	switch m.meta.Mode(operation) {
-	case module.Logged:
+	case metadb.Logged:
 		cmd, _ := metadb.EntryOf(operation)
 		return m.withReplies(m.Offer(ClientOperation{Req: o.Req, From: o.From, Cmd: cmd}))
-	case module.ReadOnly:
+	case metadb.ReadOnly:
 		return m.offerRead(o, func() (runtime.ControlPlaneDone, error) { return m.meta.Read(operation) })
 	default:
 		return []any{runtime.ControlPlaneReply{To: o.From, Done: runtime.ControlPlaneDone{Req: o.Req, Err: runtime.ErrInvalid}}}
@@ -33,7 +32,7 @@ func (m *Replica) onLocalRead(o runtime.LocalRead) []any {
 	if !m.Ready() {
 		return reply(runtime.ControlPlaneDone{Err: runtime.ErrUnavailable})
 	}
-	if m.meta.Mode(o.Op) != module.ReadOnly {
+	if m.meta.Mode(o.Op) != metadb.ReadOnly {
 		return reply(runtime.ControlPlaneDone{Err: runtime.ErrInvalid})
 	}
 	d, err := m.meta.Read(o.Op)

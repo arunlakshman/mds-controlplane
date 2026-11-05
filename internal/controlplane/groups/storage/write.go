@@ -196,22 +196,6 @@ func decodeOffset(group string, b []byte) offsetRecord {
 	return o
 }
 
-// write runs one group write in transaction. partitions is asked by an offset
-// commit, to check that the partition exists.
-func write(transaction engine.Txn, operation runtime.ControlPlaneOperation, partitions Partitions) runtime.ControlPlaneDone {
-	switch x := operation.(type) {
-	case contract.GroupInstall:
-		return groupAnswer(installGroup(transaction, x))
-	case contract.GroupAssign:
-		return groupAnswer(assignGroup(transaction, x))
-	case contract.GroupRemove:
-		return groupAnswer(removeGroup(transaction, x))
-	case contract.OffsetCommit:
-		return commitOffsets(transaction, x, partitions)
-	}
-	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
-}
-
 // groupAnswer is the answer to a group write that has no response.
 func groupAnswer(code runtime.ErrCode) runtime.ControlPlaneDone {
 	if code != runtime.OK {

@@ -2,7 +2,8 @@
 // topics and their partition counts, the segment commits that give out offsets,
 // the idempotency window of the segment keys, and the lookups of runs. It keeps
 // its state in the ordered key-value store under the keys T, E, R, K and S, and
-// implements module.Module. The functions run in a transaction the caller opens.
+// metadb lists its commands and reads in the topic schema. The functions run in
+// a transaction the caller opens.
 //
 // Layout (all keys are prefix-free per kind):
 //
@@ -34,7 +35,6 @@ import (
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -145,46 +145,6 @@ const (
 	// OffsetOwnedHere: the command is the first commit of its key, at this slot.
 	OffsetOwnedHere
 )
-
-// Module is the topics context in the replicated state: CreateTopic and
-// CommitSegment are logged, DescribeTopics and FindSegments are reads. It
-// implements module.Module.
-type Module struct{}
-
-var _ module.Module = Module{}
-
-// Mode reports how the module treats operation.
-func (Module) Mode(operation runtime.ControlPlaneOperation) module.Mode {
-	switch operation.(type) {
-	case contract.CommitSegment, contract.CreateTopic:
-		return module.Logged
-	case contract.FindSegments, contract.DescribeTopics:
-		return module.ReadOnly
-	}
-	return module.NotMine
-}
-
-// Write applies a CommitSegment or a CreateTopic at slot.
-func (Module) Write(transaction engine.Txn, slot int64, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
-	switch x := operation.(type) {
-	case contract.CommitSegment:
-		return Commit(transaction, slot, x)
-	case contract.CreateTopic:
-		return runtime.ControlPlaneDone{Err: Create(transaction, x.Name, x.Partitions, x.FailIfExists)}
-	}
-	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
-}
-
-// Read answers a FindSegments or a DescribeTopics.
-func (Module) Read(transaction engine.Txn, operation runtime.ControlPlaneOperation) runtime.ControlPlaneDone {
-	switch x := operation.(type) {
-	case contract.FindSegments:
-		return Lookup(transaction, x)
-	case contract.DescribeTopics:
-		return Describe(transaction, x)
-	}
-	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}
-}
 
 func validBatch(b contract.PendingBatch) bool {
 	return b.Records > 0 && b.TopicPartition.Topic != "" && b.TopicPartition.Partition >= 0

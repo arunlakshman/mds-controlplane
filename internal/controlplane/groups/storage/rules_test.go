@@ -12,7 +12,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/memory"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadb/engine/pebble"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -80,9 +79,9 @@ func exec(t testing.TB, a *metadb.DB, operation runtime.ControlPlaneOperation) r
 	var d runtime.ControlPlaneDone
 	var err error
 	switch a.Mode(operation) {
-	case module.Logged:
+	case metadb.Logged:
 		d, err = a.Write(1, operation)
-	case module.ReadOnly:
+	case metadb.ReadOnly:
 		d, err = a.Read(operation)
 	default:
 		d.Err = runtime.ErrInvalid
