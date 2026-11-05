@@ -23,8 +23,12 @@ T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; ds
 T2.1 | done | cherry-picked 7bd9a27,36f7a2f | make build green, make it green (~41s, Docker ON), go list -deps ./cmd/mdscontrolplane has 0 testcontainers, golden unchanged | internal/testinfra: Main(m), DynamoDB(t), Postgres(t), S3(t); testcontainers-go v0.44.0 core only
 T2.3 | done | cherry-picked b0d2ab7,519caff | task: make build + make it green (1m02s), sqllog 8 conformance subtests pass on real Postgres; merged tree vet ok, full gate after Group D | sqllog tests under integration tag via testinfra.Postgres; it-postgres, postgres-test.sh, POSTGRES_IMAGE, PG_TEST_ARGS removed
 T2.2 | done | cherry-picked (1 commit, "Run dynamolog tests on DynamoDB Local") | task: make build + make it green; dynamolog 13 test cases + 8 conformance subtests pass on DynamoDB Local; merged tree vet ok, full gate after Group D | dynamolog has no normal-build tests now (all need a service/failure injection)
+T2.4 | done | cherry-picked 390422e->bd7c002, 5f6cc7a->172fe41 (one conflict in testinfra.go, resolved by hand: SeaweedFSImage const + T2.3 comment removal) | merged tree: make build green, make it green (all pkgs), make mutants 8/8, golden unchanged | S3 tests on chrislusf/seaweedfs:4.48 (`weed server -dir=/data -s3 -s3.port=8333 -volume.max=50`), failures via faultTransport http.RoundTripper; fakes3_test.go deleted; no assertion changed vs fake; S3(t) no longer needs t.Setenv (parallel ok)
 
 ## Deferred items
+
+- T2.4: SeaweedFS port answers before filer/volume ready: CreateBucket retried up to 60s, TestS3RoundTrip ~10s. UniqueBucket() in s3store/store.go is now only used by a test assertion (non-test code, left).
+- T2.1 MinIO item above is superseded by SeaweedFS (user instruction). Plan text still says MinIO.
 
 - T2.3 KNOWN SKIPS until T2.5: cmd/mdscontrolplane/logstore_test.go:515-519 and postgres_failover_test.go:24-28 still read MDS_TEST_POSTGRES_DSN and t.Skip; nothing sets it now, so they always skip until T2.5 moves them. (Rule 2.5 breach is temporary; T2.5 must fix.)
 - T2.3: stale references: mise.toml:4 (mentions make it-postgres / POSTGRES_IMAGE), docs/test-cuts.md:65. Fix in T7.1 or earlier.
@@ -93,3 +97,4 @@ T2.2 | done | cherry-picked (1 commit, "Run dynamolog tests on DynamoDB Local") 
 - P1 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 seeds (build/p1-*.txt). P1 complete. Starting T2.1 (serial, sonnet).
 - T2.1 merged; make build + make it green on merged tree. Next: Group D T2.2 (dynamolog), T2.3 (sqllog), T2.4 (s3store) in parallel.
 - USER INSTRUCTION (during T2.4): use the SeaweedFS image for S3 tests instead of MinIO (bitnamilegacy/minio was unmaintained anyway). T2.4 agent told to change internal/testinfra/s3.go + smoke test. Supersedes the MinIO wording in plan T2.1/T2.4 (plan text not edited).
+- Group D (T2.2, T2.3, T2.4) merged; full make build + make it + make mutants green on merged tree. Makefile comment updated to SeaweedFS. Next: T2.5 (serial, opus): end-to-end tests on the real binary; also must fix the two permanent Postgres skips in cmd/mdscontrolplane.
