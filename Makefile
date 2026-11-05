@@ -13,7 +13,7 @@ PG_TEST_ARGS    ?=
 # Seeds per scenario for make sim-campaign (see docs/simulation.md).
 SIM_SEEDS       ?= 300
 
-.PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
+.PHONY: it build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
 	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate mutants fuzz
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
@@ -129,6 +129,12 @@ spec-long:
 MUTANT ?=
 mutants:
 	go run ./ops/tools/mutate $(if $(MUTANT),-only $(MUTANT))
+
+# Integration tests: real DynamoDB Local, PostgreSQL and MinIO in Docker, started by
+# internal/testinfra. It fails when Docker is not running and never skips. Not part of build.
+it:
+	@docker info >/dev/null 2>&1 || { echo "make it: Docker is not running (or DOCKER_HOST is wrong). Start Docker and run again; the integration tests are never skipped." >&2; exit 1; }
+	go test -tags integration -count=1 -timeout 15m ./...
 
 # Log tests against a real PostgreSQL in Docker (needs Docker). Not part of build.
 it-postgres:
