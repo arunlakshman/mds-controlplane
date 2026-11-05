@@ -17,7 +17,45 @@ and again until it is understood.
 
 Flags: `-seeds N` (seeds per scenario), `-first S` (first seed of a campaign),
 `-seed S` (one seed, verbose), `-scenario NAME|all`, `-nodes N`, `-steps N`
-(events in the fault phase, default 4000), `-bug NAME` (plant a bug, see below).
+(events in the fault phase, default 4000), `-bug NAME` (plant a bug, see below), and the report flags `-report`, `-json`,
+`-until-stable`, `-stable-after`, `-max-seeds` (next section).
+
+## The report
+
+The lines that `make build` prints do not change. Three more flags add a report
+after them:
+
+    go run ./cmd/cpsim -seeds 2000 -report                  # report after the campaign
+    go run ./cmd/cpsim -until-stable                        # run until no new assertion shows up
+    go run ./cmd/cpsim -until-stable -stable-after 100 -max-seeds 2000
+    go run ./cmd/cpsim -seeds 300 -json                     # only the report, as JSON
+
+- `-report` prints the report after the normal lines.
+- `-until-stable` runs seeds in steps of 50 numbers (all scenarios each time)
+  until `-stable-after` seed numbers in a row (default 200) brought no new
+  assertion. `-max-seeds` (default 5000) is the limit for each scenario. If the
+  limit comes first, the report ends with a line that starts with `WARNING`:
+  the campaign is not known to be stable. It replaces `-seeds`. It implies
+  `-report`.
+- `-json` prints the report as JSON and nothing else (no scenario lines). It
+  implies `-report`. The exit code is still 1 when a seed fails.
+
+What the report holds:
+
+1. Counts: seed numbers run, runs (seeds times scenarios), passed, failed.
+2. Failed runs, first, each with the command that replays it.
+3. Every assertion by name: kind (`always`, `sometimes` or `reachable`), how
+   many times it was checked and how many times it held.
+4. Never reached: `sometimes` assertions that never held, and the paths in
+   `expectedReachable` (`cmd/cpsim/campaign.go`) that no seed reached.
+5. The coverage curve: for each seed number that saw an assertion for the first
+   time, how many different assertions had been seen by then. The last line
+   says at which seed the curve stopped growing. A curve that is still growing
+   at the end means the campaign is too short.
+
+An assertion that is never evaluated leaves no trace in the counts. That is why
+the hand-kept `expectedReachable` list stays: only a list can name a path that
+no seed reached. When a path is added or removed in the replica, change the list.
 
 ## What a run does
 
