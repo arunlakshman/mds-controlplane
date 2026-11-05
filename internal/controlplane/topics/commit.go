@@ -13,8 +13,8 @@
 //	S slot(8) segment-key          window index, so Trim can drop old K records
 //
 // where tp is uvarint(len topic), topic, partition (4, big endian). A run holds
-// the contiguous batches one commit assigned to one partition, packed as in
-// cp/dynamo/runs.go (key table, then varints per batch), about 6 B per batch.
+// the contiguous batches one commit assigned to one partition, packed as a key
+// table followed by varints per batch, about 6 B per batch.
 //
 // Idempotency window (decision 48): a K record is kept until Trim drops it,
 // that is for as long as the log keeps the command. A replay inside the window

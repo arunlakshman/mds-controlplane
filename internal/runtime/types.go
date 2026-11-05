@@ -79,8 +79,8 @@ const (
 	ErrUnknownMember             // group member id or group leader is not a member
 	ErrIllegalGeneration         // group generation does not match the one asked for
 	ErrUnknownPartition          // topic or partition does not exist
-	ErrRebalanceInProgress       // group is rebalancing; rejoin (slice 4b)
-	ErrInconsistentGroupProtocol // members have no protocol in common, or a wrong protocol type (slice 4b)
+	ErrRebalanceInProgress       // group is rebalancing; rejoin
+	ErrInconsistentGroupProtocol // members have no protocol in common, or a wrong protocol type
 	ErrTopicExists               // CreateTopic with FailIfExists: the topic is already there
 )
 

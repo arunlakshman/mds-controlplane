@@ -2,9 +2,9 @@
 // Production mdscontrolplane serves gRPC via controlplane/server over internal/system/live
 // and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/v1) with their own client.
 //
-// The gRPC wire contract is controlplane/api/v1 (decision 57). Veritas remains
-// the independent oracle and shares schema types, not apply code
-// (decision 21).
+// The gRPC wire contract is controlplane/api/v1 (decision 57). The reference
+// model in internal/spec stays the independent oracle: it shares the schema
+// types, not the apply code (decision 21).
 //
 // Broker membership (heartbeat and the live broker set) is one feature in
 // several packages. Its file is brokers_handler.go in each; the map is at the top of

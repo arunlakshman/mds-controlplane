@@ -10,7 +10,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Group reads (slice 4a). They change nothing, so they are not logged.
+// Group reads. They change nothing, so they are not logged.
 
 // offsetFetch answers an OffsetFetch. A partition with no commit is -1.
 func offsetFetch(transaction engine.Txn, operation contract.OffsetFetch) runtime.ControlPlaneDone {

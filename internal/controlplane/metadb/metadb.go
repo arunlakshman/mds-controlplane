@@ -8,7 +8,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// DB is the control-plane replicated state over a engine.Engine. It is the kernel:
+// DB is the control-plane replicated state over an engine.Engine. It is the kernel:
 // it holds the modules (topics, groups) and sends each operation to the one that
 // owns it. Writes (commands) must be applied by one goroutine in log order;
 // reads may run concurrently.

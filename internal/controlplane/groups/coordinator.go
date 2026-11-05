@@ -1,5 +1,5 @@
 // Package groups is the consumer group coordinator of the active
-// control plane node (slice 4b). It speaks the classic group protocol only
+// control plane node. It speaks the classic group protocol only
 // (decision Q9).
 //
 // The log holds decisions only. A join result, a leader's assignment, a

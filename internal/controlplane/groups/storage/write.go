@@ -10,7 +10,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Group commands (slice 4a). The fold of GroupInstall, GroupAssign,
+// Group commands. The fold of GroupInstall, GroupAssign,
 // GroupRemove and OffsetCommit. The rules are in internal/spec
 // (groups.go), which is the reference model. Every command is checked first and
 // written after, so an error writes nothing.
