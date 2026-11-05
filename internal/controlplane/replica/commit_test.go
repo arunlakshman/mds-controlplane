@@ -1,6 +1,7 @@
 package replica_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -110,4 +111,33 @@ func TestOfferRetargetsInFlightCommit(t *testing.T) {
 	if len(ans) != 1 || ans[0].Req != 2 || ans[0].Done.Err != runtime.OK {
 		t.Fatalf("answers = %+v, want Req 2", ans)
 	}
+}
+
+// Keys leave the idempotency window only at slots that are a multiple of
+// TrimStride, so every replica forgets the same keys at the same slot. A replica
+// that forgets on its own clock (InjectedBugPerReplicaWindow) lets a replay
+// commit again as a new segment, with new offsets.
+func TestWindowForgetsKeysOnlyOnLogStride(t *testing.T) {
+	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w", WindowSlots: 4, TrimStride: 8})
+	var last runtime.LogPosition
+	req := runtime.RequestID(0)
+	commit := func(key string) {
+		req++
+		ap := onlyAppend(t, m.Offer(replica.ClientOperation{Req: req, Cmd: commitCmd(key, 1)}))
+		step(m, runtime.LogAppendDone{Req: ap.Req, Slot: ap.Slot, Err: runtime.OK, Outcome: runtime.Applied})
+		m.TakeAnswers()
+		last = ap.Slot
+	}
+	commit("first") // slot 0
+	for last < 7 {
+		commit(fmt.Sprintf("filler%d", last))
+	}
+	req++
+	if acts := m.Offer(replica.ClientOperation{Req: req, Cmd: commitCmd("first", 1)}); len(acts) != 0 {
+		t.Fatalf("at slot %d the key is forgotten, but the window keeps it until slot 8: %v", last, acts)
+	}
+	m.TakeAnswers()
+	commit("filler8") // slot 8 is a stride slot, so the keys below slot 4 go
+	req++
+	onlyAppend(t, m.Offer(replica.ClientOperation{Req: req, Cmd: commitCmd("first", 1)}))
 }
