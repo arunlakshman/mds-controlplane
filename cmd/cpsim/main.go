@@ -79,67 +79,77 @@ type options struct {
 // batchSize is how many seed numbers -until-stable runs before it looks again.
 const batchSize = 50
 
+// campaignState is what the batches of a campaign add up to.
+type campaignState struct {
+	total  dstcampaign.Summary
+	seen   [][]string // seen[i]: assertions that seed first+i reached, in any scenario
+	failed []FailedRun
+	runs   int
+	code   int
+}
+
+// runBatch runs seeds first .. first+n-1 of every scenario and adds them to st.
+// It returns an exit code that is not 0 when the campaign cannot go on.
+func (st *campaignState) runBatch(base simulator.Config, names []string, first uint64, n int, opt options, stdout, stderr io.Writer) int {
+	union := make([]map[string]bool, n)
+	for _, name := range names {
+		c := base
+		c.Scenario = name
+		out, err := runSeeds(c, first, n)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "cpsim:", err)
+			return 2
+		}
+		if !opt.json && !opt.untilStable { // the lines that make build prints
+			_, _ = fmt.Fprintln(stdout, out.line())
+		}
+		for _, f := range out.failed {
+			if !opt.json {
+				_, _ = fmt.Fprintln(stdout, simulator.Report(f))
+			}
+			st.code = 1
+		}
+		for _, f := range out.sum.Failed {
+			st.failed = append(st.failed, FailedRun{Scenario: name, Seed: f.Seed, Replay: f.Reproduce})
+		}
+		for i, found := range out.seen {
+			if union[i] == nil {
+				union[i] = map[string]bool{}
+			}
+			for _, k := range found {
+				union[i][k] = true
+			}
+		}
+		st.runs += n
+		st.total.Merge(out.sum)
+	}
+	for _, m := range union {
+		list := make([]string, 0, len(m))
+		for k := range m {
+			list = append(list, k)
+		}
+		st.seen = append(st.seen, list)
+	}
+	return 0
+}
+
 func runCampaign(base simulator.Config, names []string, first uint64, seeds int, opt options, stdout, stderr io.Writer) int {
-	code := 0
-	var total dstcampaign.Summary
-	var seen [][]string
-	var failed []FailedRun
-	runs := 0
+	var st campaignState
 	limit := seeds
 	if opt.untilStable {
 		limit = opt.maxSeeds
 	}
-	plain := !opt.json && !opt.untilStable // the lines that make build prints
 	hitLimit := false
 	for done := 0; ; {
 		n := limit
 		if opt.untilStable {
 			n = min(batchSize, limit-done)
 		}
-		batch := make([]map[string]bool, n)
-		for _, name := range names {
-			c := base
-			c.Scenario = name
-			out, err := runSeeds(c, first+uint64(done), n)
-			if err != nil {
-				_, _ = fmt.Fprintln(stderr, "cpsim:", err)
-				return 2
-			}
-			if plain {
-				_, _ = fmt.Fprintln(stdout, out.line())
-			}
-			for _, f := range out.failed {
-				if !opt.json {
-					_, _ = fmt.Fprintln(stdout, simulator.Report(f))
-				}
-				code = 1
-			}
-			for _, f := range out.sum.Failed {
-				failed = append(failed, FailedRun{Scenario: name, Seed: f.Seed, Replay: f.Reproduce})
-			}
-			for i, found := range out.seen {
-				if batch[i] == nil {
-					batch[i] = map[string]bool{}
-				}
-				for _, k := range found {
-					batch[i][k] = true
-				}
-			}
-			runs += n
-			total.Merge(out.sum)
-		}
-		for _, m := range batch {
-			list := make([]string, 0, len(m))
-			for k := range m {
-				list = append(list, k)
-			}
-			seen = append(seen, list)
+		if rc := st.runBatch(base, names, first+uint64(done), n, opt, stdout, stderr); rc != 0 {
+			return rc
 		}
 		done += n
-		if !opt.untilStable || code != 0 {
-			break
-		}
-		if quietSeeds(first, seen) >= opt.stableAfter {
+		if !opt.untilStable || st.code != 0 || quietSeeds(first, st.seen) >= opt.stableAfter {
 			break
 		}
 		if done >= limit {
@@ -149,7 +159,7 @@ func runCampaign(base simulator.Config, names []string, first uint64, seeds int,
 	}
 	var rep Report
 	if opt.report || opt.json || opt.untilStable {
-		rep = buildReport(first, seen, total, failed, runs)
+		rep = buildReport(first, st.seen, st.total, st.failed, st.runs)
 		if opt.untilStable {
 			rep.UntilStable = &StableResult{StableAfter: opt.stableAfter, MaxSeeds: opt.maxSeeds, HitLimit: hitLimit}
 		}
@@ -158,14 +168,14 @@ func runCampaign(base simulator.Config, names []string, first uint64, seeds int,
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(rep)
-		return code
+		return st.code
 	}
-	_, _ = fmt.Fprintln(stdout, coverageText(total))
+	_, _ = fmt.Fprintln(stdout, coverageText(st.total))
 	if opt.report || opt.untilStable {
 		rep.writeText(stdout)
 	}
-	if code != 0 {
+	if st.code != 0 {
 		_, _ = fmt.Fprintln(stdout, "cpsim: FAILED")
 	}
-	return code
+	return st.code
 }
