@@ -11,7 +11,7 @@ import (
 
 // These tests check the rules of the model one by one, with small examples.
 // The model is also compared with the real code by the tests in
-// internal/controlplane/controlplanetest.
+// test/conformance.
 
 func tp(topic string, p int32) contract.TopicPartition { return contract.NewTopicPartition(topic, p) }
 

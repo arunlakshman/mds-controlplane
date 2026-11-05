@@ -21,33 +21,42 @@ each rule are in `spec_test.go`.
 
 ## The tests that use the model
 
-All of them are in `internal/controlplane/controlplanetest` and use
-[rapid](https://pkg.go.dev/pgregory.net/rapid) (a test-only dependency).
+All of them are in `test/conformance` and use
+[rapid](https://pkg.go.dev/pgregory.net/rapid) (a test-only dependency). Each
+test gives `Run` a target: a few functions (`Exec`, and as many of `Reboot`,
+`DirtyReboot`, `Checkpoint` and `Inject` as the target has). The harness is in
+`harness_test.go`, the operations that rapid draws are in `ops_test.go`.
 
 | Test | What it checks |
 |---|---|
-| `TestConformMemorystore`, `TestConformMetadataMemory`, `TestConformMetadataPebble` | The in-memory store and the metadata store (on memory and on Pebble) answer like the model. |
-| `TestConformModelTwice` | Two models given the same operations answer the same (determinism). |
-| `TestConformReplica` | The real replica in one process (in-memory log and object store), with clean restarts and checkpoints in the middle. |
-| `TestConformGRPC` | The real gRPC stack: client, server, replica. The wire API has only the topics operations. |
-| `TestCrashReplica` | Crash test. `dirtyReboot` kills the replica and recovers it from the log and the checkpoints the crash left. Persistence: every write that was answered is there after a crash. Forward progress: the same after a clean restart. Run with and without log trim. |
-| `TestFailureInjectionReplica` | The crash test plus injected storage failures, with the "has failed" flag. |
-| `TestPlantedBug*` | Five known bugs. Each test checks that the conformance test FAILS. |
+| `TestMetadataMemory`, `TestMetadataPebble` | The metadata store, on the memory engine and on Pebble, answers like the model. A reboot writes a checkpoint and restores from it (memory), or closes and opens the engine again (Pebble). |
+| `TestReplica` | The real replica in one process (in-memory log and object store). Clean restarts, crashes and checkpoints in the middle, with and without log trim, with and without injected storage failures. |
+| `TestGRPC` | The real gRPC stack: client, server, replica. The same restarts, crashes and failures, with and without log trim. The wire API has only some of the group operations, so the target leaves out the others (`Target.Lacks`). |
+| `TestDouble*` | Two known faults of the environment: a crash that loses answered writes, and "no data" after a failure. Each test wraps the replica target with the fault and checks that `Run` FAILS. |
 
-How a test works: rapid draws a list of actions. Each action sends one
-operation to the model and to the system, and the answers must be equal. After
-each answer some invariants are checked (runs of a partition have no gap,
-topics are sorted). Background actions (`checkpoint`, `reboot`, `dirtyReboot`) do
-nothing in the model, so a restart must not change any answer. After a restart
-the whole state is compared with the model, and every earlier commit is sent
-again: it must be a replay with the same ranges.
+The bugs in the code itself are not tests of this kind. They are the mutants of
+`ops/mutants.txt` (`make mutants`): each plants one real bug in a copy of the
+tree and a named test must fail. The group and topic mutants are killed by
+`TestMetadataMemory`.
 
-The actions are in a list from simple to complex (reads, commit, create topic,
-group operations, background operations). The shrinker prefers the first ones, so
-a failure is shrunk to simple actions. We use rapid's shrinker and nothing of our
-own. Arguments come from small sets, and only a few choices lean on purpose. They
-are listed at the top of `alphabet_test.go`, and the tests count the answers to
-show that every rule is reached.
+How a test works: rapid draws a list of operations. Each one goes to the model
+and to the target, and the answers must be equal. After each answer some
+invariants are checked (runs of a partition have no gap, topics are sorted).
+Background operations (`checkpoint`, `reboot`, `dirtyReboot`) do nothing in the
+model, so a restart must not change any answer. After a restart the whole state
+is compared with the model, and every earlier commit is sent again: it must be a
+replay with the same ranges.
+
+The operations are in a list from simple to complex (reads, commit, create
+topic, group operations, background operations). The shrinker prefers the first
+ones, so a failure is shrunk to simple operations. We use rapid's shrinker and
+nothing of our own. Arguments come from small sets, and only a few choices lean
+on purpose. They are listed at the top of `ops_test.go`. Each operation lists
+the answers it aims at (`want`), and `Run` counts the answers of all checks. If
+an aimed-at answer was not seen, `Run` makes more rounds of checks (at most 20
+more), and fails if it is still missing. So every rule is reached, and a mutant
+does not survive by luck. A fixed seed or fewer than 20 checks turns the
+counting off.
 
 ### Failure injection
 
@@ -76,7 +85,7 @@ give with a flag is used for all of them.
 
 ```sh
 make spec-long                                     # 2000 checks of each test
-go test ./internal/controlplane/controlplanetest -run TestCrashReplica \
+go test ./test/conformance -run TestReplica \
     -rapid.checks=500 -rapid.steps=40              # more checks, longer lists
 ```
 
@@ -84,7 +93,7 @@ When a check fails, rapid shrinks it and prints the shrunk list of actions with
 the drawn values, and the seed and a fail file:
 
 ```
-To reproduce, specify -run="TestCrashReplica/trim=true" -rapid.failfile="testdata/rapid/.../x.fail" (or -rapid.seed=123)
+To reproduce, specify -run="TestReplica/trim=true,failures=false" -rapid.failfile="testdata/rapid/.../x.fail" (or -rapid.seed=123)
 ```
 
 Run the same test with `-rapid.failfile=...` or `-rapid.seed=...` to see it again.

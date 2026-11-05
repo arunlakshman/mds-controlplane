@@ -97,11 +97,12 @@ sim:
 sim-campaign:
 	go run ./cmd/cpsim -seeds $(SIM_SEEDS) -scenario all
 
-# The conformance, crash and failure-injection tests with 2000 checks each
-# (rapid default is 100). Not part of build. To replay one failure, see
-# internal/spec/README.md.
+# The conformance tests (test/conformance: the metadata store, the replica with
+# crashes and failure injection, the gRPC stack) and the test doubles, with 2000
+# checks each (rapid default is 100). Not part of build. To replay one failure,
+# see internal/spec/README.md.
 spec-long:
-	go test ./internal/controlplane/controlplanetest -run 'Conform|Crash|FailureInjection' -count=1 -timeout 60m -rapid.checks=2000
+	go test ./test/conformance -count=1 -timeout 60m -rapid.checks=2000
 
 # Plant each bug of ops/mutants.txt in a copy of the tree and run its test
 # command. A bug the tests do not see fails the target, and so does a mutant whose
