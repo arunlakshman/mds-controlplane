@@ -108,7 +108,7 @@ func Run(t testing.TB, newTarget func(*rapid.T) Target) {
 	// A fixed seed runs the same checks in every round, so it gets no more
 	// rounds and its answers are not counted.
 	asked := userFlags()
-	if n, _ := strconv.Atoi(flag.Lookup("rapid.checks").Value.String()); n < 20 || asked["rapid.seed"] || asked["rapid.failfile"] {
+	if n, _ := strconv.Atoi(flag.Lookup("rapid.checks").Value.String()); n < 10 || asked["rapid.seed"] || asked["rapid.failfile"] {
 		t.Logf("answers not counted: a fixed seed or too few checks")
 		return
 	}

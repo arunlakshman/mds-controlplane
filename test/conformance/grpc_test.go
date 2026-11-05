@@ -157,16 +157,14 @@ type grpcNode struct {
 	api  cpv1.ControlPlaneClient
 }
 
-// newGRPCNode starts a node. With trim, the log is cut behind each checkpoint.
-func newGRPCNode(rt *rapid.T, trim bool) *grpcNode {
+// newGRPCNode starts a node. The log is cut behind each checkpoint.
+func newGRPCNode(rt *rapid.T) *grpcNode {
 	cfg := replica.Config{
 		CatchUpEvery: runtime.Duration(time.Millisecond), Rank: 0, Writer: "cp-0",
 		Heartbeat:       runtime.Duration(time.Second),
 		TakeoverAfter:   runtime.Duration(20 * time.Millisecond), // a restarted node claims the write role after this
 		CheckpointEvery: runtime.Duration(3 * time.Millisecond), CheckpointMinSlots: 1, CheckpointPrefix: grpcCheckpointPrefix,
-	}
-	if trim {
-		cfg.KeepSlots = 2
+		KeepSlots: 2,
 	}
 	n := &grpcNode{t: rt, cfg: cfg, disk: &grpcDisk{log: executor.NewMemoryLog(), objs: executor.NewMemoryObjects()}}
 	n.start()
@@ -225,32 +223,13 @@ func (n *grpcNode) Exec(ctx context.Context, op runtime.ControlPlaneOperation) (
 	}
 }
 
-// Reboot is a clean restart: the node stops, a new one starts on the same disk.
-func (n *grpcNode) Reboot() {
-	n.stop()
-	n.start()
-}
-
 // DirtyReboot is a crash. The process dies first (its storage calls stop at
 // once, so nothing it had in flight lands later), and a new one starts on the
-// same disk. keep chooses what the crash leaves of the checkpoints (see
-// Target). A trimmed log cannot rebuild the state without them, so then all
-// are kept.
-func (n *grpcNode) DirtyReboot(keep int) {
+// same disk. The log is trimmed behind the checkpoints and cannot rebuild the
+// state without them, so the crash leaves all of them (whatever keep says).
+func (n *grpcNode) DirtyReboot(int) {
 	n.proc.dead.Store(true)
 	n.stop()
-	if n.cfg.KeepSlots == 0 {
-		keys, _ := n.disk.objs.List(n.t.Context(), grpcCheckpointPrefix)
-		slices.Sort(keys)
-		if keep == 1 && len(keys) > 0 {
-			keys = keys[len(keys)-1:]
-		} else if keep == 0 {
-			keys = nil
-		}
-		for _, k := range keys {
-			_ = n.disk.objs.Delete(n.t.Context(), k)
-		}
-	}
 	n.start()
 }
 
@@ -467,22 +446,16 @@ func codeFromWire(c cpv1.ErrCode) runtime.ErrCode {
 // which have a different shape (the coordinator decides the generation).
 var grpcLacks = []string{"groupInstall", "groupAssign", "groupRemove", "groupAssignLarge"}
 
-// TestGRPC is the real replica behind a gRPC server, with clean and crash
-// restarts, checkpoints and injected storage failures. The first variant keeps
-// the log, so a crash may also drop checkpoints and the state is rebuilt from
-// the log. The second trims the log behind each checkpoint.
+// TestGRPC is the real replica behind a gRPC server, with crash restarts,
+// checkpoints and injected storage failures, on a log that is trimmed behind
+// each checkpoint. It has no clean restart and no variant without trim: those
+// belong to the replica, and TestReplica has them. The wire does not change
+// with them. A restart takes long here, because the group coordinator serves
+// again only at its next watch tick (100 ms).
 func TestGRPC(t *testing.T) {
-	// Each restart starts a node and a server, and the group coordinator
-	// serves again only at its next watch tick (100 ms). So most of the time is
-	// waiting, and the two variants run side by side.
-	fewerChecks(t, 20, 15)
-	for _, trim := range []bool{false, true} {
-		t.Run("trim="+strconv.FormatBool(trim), func(t *testing.T) {
-			t.Parallel()
-			Run(t, func(rt *rapid.T) Target {
-				n := newGRPCNode(rt, trim)
-				return Target{Exec: n.Exec, Reboot: n.Reboot, DirtyReboot: n.DirtyReboot, Checkpoint: n.Checkpoint, Inject: n.Inject, Lacks: grpcLacks}
-			})
-		})
-	}
+	fewerChecks(t, 10, 40)
+	Run(t, func(rt *rapid.T) Target {
+		n := newGRPCNode(rt)
+		return Target{Exec: n.Exec, DirtyReboot: n.DirtyReboot, Checkpoint: n.Checkpoint, Inject: n.Inject, Lacks: grpcLacks}
+	})
 }

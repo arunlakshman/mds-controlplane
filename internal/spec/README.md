@@ -31,7 +31,7 @@ test gives `Run` a target: a few functions (`Exec`, and as many of `Reboot`,
 |---|---|
 | `TestMetadataMemory`, `TestMetadataPebble` | The metadata store, on the memory engine and on Pebble, answers like the model. A reboot writes a checkpoint and restores from it (memory), or closes and opens the engine again (Pebble). |
 | `TestReplica` | The real replica in one process (in-memory log and object store). Clean restarts, crashes and checkpoints in the middle, with and without log trim, with and without injected storage failures. |
-| `TestGRPC` | The real gRPC stack: client, server, replica. The same restarts, crashes and failures, with and without log trim. The wire API has only some of the group operations, so the target leaves out the others (`Target.Lacks`). |
+| `TestGRPC` | The real gRPC stack: client, server, replica, on a trimmed log. Crashes, checkpoints and injected failures, with no clean restart (the replica test has it). The wire API has only some of the group operations, so the target leaves out the others (`Target.Lacks`). |
 | `TestDouble*` | Two known faults of the environment: a crash that loses answered writes, and "no data" after a failure. Each test wraps the replica target with the fault and checks that `Run` FAILS. |
 
 The bugs in the code itself are not tests of this kind. They are the mutants of
@@ -55,7 +55,7 @@ on purpose. They are listed at the top of `ops_test.go`. Each operation lists
 the answers it aims at (`want`), and `Run` counts the answers of all checks. If
 an aimed-at answer was not seen, `Run` makes more rounds of checks (at most 20
 more), and fails if it is still missing. So every rule is reached, and a mutant
-does not survive by luck. A fixed seed or fewer than 20 checks turns the
+does not survive by luck. A fixed seed or fewer than 10 checks turns the
 counting off.
 
 ### Failure injection
