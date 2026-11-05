@@ -79,14 +79,14 @@ func TestImportRules(t *testing.T) {
 	rt := "internal/runtime"
 	// The domain packages depend inward only, and take no third-party package.
 	layers := map[string][]string{
-		cp + "contract":       {rt},
-		cp + "metadb/engine":  {cp + "contract", rt},
-		cp + "domain/broker":  {cp + "contract", rt},
-		cp + "domain/topic":   {cp + "contract", cp + "metadb/engine", rt},
-		cp + "domain/group":   {cp + "contract", cp + "metadb/engine", rt},
-		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
-		cp + "replica":        {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
-		cp + "executor":       {rt},
+		cp + "contract":      {rt},
+		cp + "metadb/engine": {cp + "contract", rt},
+		cp + "domain/broker": {cp + "contract", rt},
+		cp + "domain/topic":  {cp + "contract", cp + "metadb/engine", rt},
+		cp + "domain/group":  {cp + "contract", cp + "metadb/engine", rt},
+		cp + "groups":        {cp + "contract", rt, "internal/system/realclock"},
+		cp + "replica":       {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
+		cp + "executor":      {rt},
 	}
 	for dir, allowed := range layers {
 		onlyImports(t, pkgs, dir, allowed, true)
