@@ -224,7 +224,7 @@ Historical: `speccheck`, `speccheck/checker` and `specsystem` were removed. The 
 | `ms` | `toMilliseconds` |
 | `summaryEvery` | `summaryInterval` |
 | `execAs` | `executeAs` |
-| `rpcError` | `toRPCError` |
+| `rpcError` | `wire.ToRPCError` |
 | `prodEnv`, `wallClock` | `productionEnvironment`, `realClock` |
 
 ## 7. Fake DynamoDB (`fakedb`)
