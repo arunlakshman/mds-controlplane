@@ -27,6 +27,12 @@ unicode/utf8
 # this module
 github.com/manifesterio/mds-controlplane/...
 
+# protobuf, for the log entry codec in internal/controlplane/metadb (Encode marshals with
+# Deterministic: true; Decode refuses unknown fields). Audited in
+# docs/dep-audits/google.golang.org/protobuf@v1.35.2.md. Only these two packages.
+google.golang.org/protobuf/proto
+google.golang.org/protobuf/reflect/protoreflect
+
 # OSS deterministic simulation primitives (github.com/manifesterio/dst), audited in
 # docs/dep-audits/github.com/manifesterio/dst@v0.3.0.md. Listed one by one on purpose.
 # Deliberately absent: realclock (reads the real clock), syncclock (uses sync; goroutine
