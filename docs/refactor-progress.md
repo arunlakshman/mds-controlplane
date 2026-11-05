@@ -22,6 +22,7 @@ T1.9 | done | cherry-picked 597ee75,57128a5,2a403e3 | make build green, make mut
 T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; dst commits e0a59b9,7cf72fe,67d894b on local branch dst-process (unpushed) | make build + make mutants 8/8 green on merged tree; race + campaign see P1 gate | RE-PIN: golden basic/17 f79ae0cb6ac19047->08bfa86385d8e8ae, chaos/42 841e92a10f1559f3->45d210abda0e2bed; 300-seed hashes now da8028bc bc9f0863 23603524 67c48ce5 ba61ad2c
 T2.1 | done | cherry-picked 7bd9a27,36f7a2f | make build green, make it green (~41s, Docker ON), go list -deps ./cmd/mdscontrolplane has 0 testcontainers, golden unchanged | internal/testinfra: Main(m), DynamoDB(t), Postgres(t), S3(t); testcontainers-go v0.44.0 core only
 T2.3 | done | cherry-picked b0d2ab7,519caff | task: make build + make it green (1m02s), sqllog 8 conformance subtests pass on real Postgres; merged tree vet ok, full gate after Group D | sqllog tests under integration tag via testinfra.Postgres; it-postgres, postgres-test.sh, POSTGRES_IMAGE, PG_TEST_ARGS removed
+T2.2 | done | cherry-picked (1 commit, "Run dynamolog tests on DynamoDB Local") | task: make build + make it green; dynamolog 13 test cases + 8 conformance subtests pass on DynamoDB Local; merged tree vet ok, full gate after Group D | dynamolog has no normal-build tests now (all need a service/failure injection)
 
 ## Deferred items
 
