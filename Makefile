@@ -14,7 +14,7 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate mutants
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate mutants fuzz
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
@@ -87,6 +87,24 @@ test-race:
 	  if go test -race -count=1 ./... > $(RACE_OUT)/run-$$i.txt 2>&1; then echo "run $$i: ok"; \
 	  else echo "run $$i: FAILED (see $(RACE_OUT)/run-$$i.txt)"; fail=1; fi; \
 	done; exit $$fail
+
+# Fuzz the decoders for FUZZTIME each (not part of make build; the seed corpus
+# runs in make test). Go allows one -fuzz target per run, so this loops.
+FUZZTIME ?= 10s
+FUZZ_TARGETS = \
+	./internal/controlplane/metadata:FuzzDecode \
+	./internal/controlplane/topics:FuzzModuleDecode \
+	./internal/controlplane/topics:FuzzDecodeBatchRun \
+	./internal/controlplane/topics:FuzzParseDuplicateCheck \
+	./internal/controlplane/groups/storage:FuzzModuleDecode \
+	./internal/controlplane/groups/storage:FuzzDecodeHeader \
+	./internal/controlplane/groups/storage:FuzzDecodeMember \
+	./internal/controlplane/groups/storage:FuzzDecodeOffset
+fuzz:
+	@for t in $(FUZZ_TARGETS); do \
+	  echo "fuzz $${t#./internal/controlplane/}"; \
+	  go test -run='^$$' -fuzz="^$${t#*:}\$$" -fuzztime=$(FUZZTIME) "$${t%%:*}" || exit 1; \
+	done
 
 # Deterministic simulation of the replicated control plane: its own tests, then
 # a campaign of SIM_SEEDS seeds for each scenario. A failure prints the command
