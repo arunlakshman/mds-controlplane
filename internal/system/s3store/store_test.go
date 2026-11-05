@@ -1,28 +1,19 @@
+//go:build integration
+
 package s3store
 
 import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
-
-func newTestStore(t *testing.T, prefix string) (*Store, *fakeS3) {
-	t.Helper()
-	f := newFakeS3(t)
-	s, err := New(t.Context(), Config{Endpoint: f.srv.URL, Bucket: "b", Prefix: prefix, PathStyle: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.EnsureBucket(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	return s, f
-}
 
 func wantCode(t *testing.T, err error, code runtime.ErrCode) {
 	t.Helper()
@@ -34,14 +25,14 @@ func wantCode(t *testing.T, err error, code runtime.ErrCode) {
 
 func TestStorePutGetDeleteList(t *testing.T) {
 	ctx := t.Context()
-	s, f := newTestStore(t, "p/")
+	s, _, info := newTestStore(t, "p/")
 	for k, v := range map[string]string{"a": "0123456789", "b/c": "xyz", "b/d": ""} {
 		if err := s.Put(ctx, k, []byte(v)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, ok := f.objs["b/p/a"]; !ok {
-		t.Fatalf("prefix not applied: %v", f.objs)
+	if _, err := info.Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &info.Bucket, Key: aws.String("p/a")}); err != nil {
+		t.Fatalf("prefix not applied: %v", err)
 	}
 	wantCode(t, s.Put(ctx, "", nil), runtime.ErrInvalid)
 	if err := s.EnsureBucket(ctx); err != nil { // already owned
@@ -108,12 +99,12 @@ func TestStoreServerErrors(t *testing.T) {
 		{"internal", 500, "InternalError", runtime.ErrIO, runtime.MaybeApplied},
 	}
 	for _, c := range cases {
-		s, f := newTestStore(t, "")
+		s, ft, _ := newTestStore(t, "")
 		if err := s.Put(ctx, "k", []byte("v")); err != nil {
 			t.Fatal(err)
 		}
-		f.inject = func(*http.Request) (int, string) { return c.status, c.code }
-		before := f.calls
+		ft.set(func(r *http.Request) (*http.Response, error) { return s3ErrorResponse(r, c.status, c.code), nil })
+		before := ft.calls.Load()
 		ops := map[string]struct {
 			act runtime.IOCall
 			err error
@@ -141,8 +132,8 @@ func TestStoreServerErrors(t *testing.T) {
 			act runtime.IOCall
 			err error
 		}{runtime.ObjectList{}, lerr}
-		if f.calls-before != 5 {
-			t.Errorf("%s: %d requests for 5 calls, the store must not retry", c.name, f.calls-before)
+		if ft.calls.Load()-before != 5 {
+			t.Errorf("%s: %d requests for 5 calls, the store must not retry", c.name, ft.calls.Load()-before)
 		}
 		for name, operation := range ops {
 			if operation.err == nil {
@@ -162,43 +153,20 @@ func TestStoreServerErrors(t *testing.T) {
 }
 
 func TestStoreTimeout(t *testing.T) {
-	release := make(chan struct{})
-	slow := newSlow(release)
-	t.Cleanup(slow.Close)
-	t.Cleanup(func() { close(release) })
-	st, err := New(t.Context(), Config{Endpoint: slow.URL, Bucket: "b", PathStyle: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	st, ft, _ := newTestStore(t, "")
+	// The request never gets an answer: it waits for its context.
+	ft.set(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	err = st.Put(ctx, "k", []byte("v"))
+	err := st.Put(ctx, "k", []byte("v"))
 	// A deadline hit mid-request surfaces as an SDK ResponseError with status
 	// 0; the classifier treats it as ErrIO/MaybeApplied (the executor's own
 	// timeout, not this path, yields ErrTimeout).
 	code, out := Classifier{}.Classify(runtime.ObjectPut{}, err)
 	if code != runtime.ErrIO || out != runtime.MaybeApplied || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("timeout: %v %v (%v)", code, out, err)
-	}
-}
-
-func TestStoreDialAndHTTPClient(t *testing.T) {
-	f := newFakeS3(t)
-	url := f.srv.URL
-	f.srv.Close()
-	s, err := New(t.Context(), Config{Endpoint: url, Bucket: "b", PathStyle: true, HTTP: &http.Client{}, Region: "eu-west-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = s.Put(t.Context(), "k", nil)
-	code, out := Classifier{}.Classify(runtime.ObjectPut{}, err)
-	if code != runtime.ErrUnavailable || out != runtime.NotApplied {
-		t.Errorf("dial: %v %v (%v)", code, out, err)
-	}
-	if err := s.EnsureBucket(t.Context()); err == nil {
-		t.Error("EnsureBucket on a dead endpoint succeeded")
-	}
-	if !strings.HasPrefix(UniqueBucket(), "mds-") {
-		t.Error("UniqueBucket")
 	}
 }

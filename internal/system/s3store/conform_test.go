@@ -1,10 +1,10 @@
+//go:build integration
+
 package s3store
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"slices"
 	"testing"
 
@@ -13,9 +13,8 @@ import (
 )
 
 // The rules of the object store, as a table of steps. The same table runs on the
-// S3 adapter over the in-process fake S3 server, and, when MDS_S3_ENDPOINT is
-// set, over a real S3 endpoint (SeaweedFS, minio or AWS). The steps run in order
-// on one store.
+// S3 adapter over MinIO (see TestObjectRulesS3). The steps run in order on one
+// store.
 //
 //	Put     An empty key is ErrInvalid. Else the object is stored, and it
 //	        replaces any object that was there.
@@ -109,24 +108,8 @@ func codeOf(err error) runtime.ErrCode {
 	return runtime.ErrIO
 }
 
-func TestObjectRulesFake(t *testing.T) {
-	s, _ := newTestStore(t, "rules/")
-	runRules(t, s)
-}
-
-// TestObjectRulesS3 runs the rules on a real S3 endpoint, only when
-// MDS_S3_ENDPOINT is set. It uses a bucket of its own.
+// TestObjectRulesS3 runs the rules on MinIO, in a bucket of its own.
 func TestObjectRulesS3(t *testing.T) {
-	ep := os.Getenv("MDS_S3_ENDPOINT")
-	if ep == "" {
-		t.Skip("The environment variable MDS_S3_ENDPOINT is not set, so the test of the real S3 endpoint is skipped.")
-	}
-	s, err := New(t.Context(), Config{Endpoint: ep, Bucket: UniqueBucket(), Prefix: fmt.Sprintf("rules-%d/", os.Getpid()), PathStyle: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.EnsureBucket(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	s, _, _ := newTestStore(t, "rules/")
 	runRules(t, s)
 }
