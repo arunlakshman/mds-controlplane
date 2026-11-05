@@ -142,6 +142,7 @@ func (s *sim) result() Result {
 	r := Result{
 		Seed: s.cfg.Seed, Scenario: s.cfg.Scenario, Hash: s.finalHash(), Steps: s.steps(),
 		EndMs: s.now() / int64(runtime.Millisecond), Failures: s.failures, Stats: s.stats, Coverage: s.env.log.Coverage(),
+		Sites: s.env.inj.Sites(),
 	}
 	if len(s.failures) > 0 {
 		r.Tail = s.tail()

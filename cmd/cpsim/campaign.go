@@ -34,7 +34,7 @@ func runSeeds(cfg simulator.Config, first uint64, seeds int) (campaignOut, error
 			cov[k] = dstcampaign.Coverage{Kind: string(v.Kind), Checks: v.Checks, Passes: v.Passes}
 		}
 		return dstcampaign.Result{
-			Hash: r.Hash, OK: r.OK(), Reproduce: r.Reproduce(), Coverage: cov,
+			Hash: r.Hash, OK: r.OK(), Reproduce: r.Reproduce(), Coverage: cov, Sites: r.Sites,
 			Counters: map[string]uint64{"steps": uint64(r.Steps), "slots": uint64(r.Stats.LogSlots), "acked": uint64(r.Stats.Acked)},
 		}
 	})

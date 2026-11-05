@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
 	dstcampaign "github.com/manifesterio/dst/campaign"
+	"github.com/manifesterio/mds-controlplane/internal/verify/simulator"
 )
 
 func TestCoverageCurve(t *testing.T) {
@@ -36,6 +38,30 @@ func TestReportNamesLostPath(t *testing.T) {
 	}
 	if text := coverageText(total); !strings.Contains(text, lost) {
 		t.Fatalf("coverage text does not name %q: %s", lost, text)
+	}
+}
+
+// TestReportListsSitesThatNeverFired: a site that was asked but never fired,
+// and a site that no run asked at all, are both listed. A site that fired is not.
+func TestReportListsSitesThatNeverFired(t *testing.T) {
+	names := simulator.SiteNames()
+	sites := map[string]dstcampaign.SiteTotal{
+		names[0]: {Reached: 5, On: 2, Calls: 40, Fired: 3},
+		names[1]: {Reached: 5, On: 0, Calls: 40},
+	}
+	rep := buildReport(1, [][]string{{"x"}}, dstcampaign.Summary{Sites: sites}, nil, 1)
+	want := append([]string{names[1]}, names[2:]...)
+	slices.Sort(want)
+	if !slices.Equal(rep.NeverFired, want) {
+		t.Fatalf("never fired %v, want %v", rep.NeverFired, want)
+	}
+	if len(rep.Sites) != 2 || rep.Sites[0].Fired+rep.Sites[1].Fired != 3 {
+		t.Fatalf("sites %+v", rep.Sites)
+	}
+	var b bytes.Buffer
+	rep.writeText(&b)
+	if !strings.Contains(b.String(), "never fired:\n  "+want[0]) {
+		t.Fatalf("text does not list the sites:\n%s", b.String())
 	}
 }
 

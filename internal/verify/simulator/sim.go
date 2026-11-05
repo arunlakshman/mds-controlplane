@@ -7,6 +7,7 @@ import (
 	"github.com/manifesterio/dst/check"
 	dstclock "github.com/manifesterio/dst/clock"
 	"github.com/manifesterio/dst/eng"
+	"github.com/manifesterio/dst/fault"
 	"github.com/manifesterio/dst/rng"
 	"github.com/manifesterio/dst/sched"
 	dstsim "github.com/manifesterio/dst/sim"
@@ -55,7 +56,8 @@ type Result struct {
 	Failures []Failure
 	Stats    Stats
 	Coverage map[string]assert.Coverage
-	Tail     []string // the last trace lines, kept when the run fails
+	Sites    map[string]fault.SiteCount // the buggify sites the run reached: on, asked, fired
+	Tail     []string                   // the last trace lines, kept when the run fails
 }
 
 // OK reports that no property was broken.

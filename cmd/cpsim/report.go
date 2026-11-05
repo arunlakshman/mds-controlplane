@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	dstcampaign "github.com/manifesterio/dst/campaign"
+	"github.com/manifesterio/mds-controlplane/internal/verify/simulator"
 )
 
 // Report is the end-of-campaign picture: what ran, what failed, which
@@ -19,6 +20,8 @@ type Report struct {
 	FailedRuns   []FailedRun   `json:"failed_runs"`
 	Assertions   []AssertRow   `json:"assertions"`    // always, sometimes and reachable, by name
 	NeverReached []string      `json:"never_reached"` // expected or sometimes paths that no seed passed
+	Sites        []SiteRow     `json:"sites"`         // buggify sites, by name
+	NeverFired   []string      `json:"never_fired"`   // buggify sites that fired in no run
 	Curve        []CurvePoint  `json:"curve"`         // seed numbers where a new assertion appeared
 	LastGrowth   uint64        `json:"last_growth"`   // seed number of the last new assertion (0: none)
 	LastSeed     uint64        `json:"last_seed"`     // last seed number run
@@ -38,6 +41,15 @@ type AssertRow struct {
 	Kind   string `json:"kind"`
 	Checks uint64 `json:"checks"`
 	Passes uint64 `json:"passes"`
+}
+
+// SiteRow is the count of one buggify site over the whole campaign.
+type SiteRow struct {
+	Name    string `json:"name"`
+	Reached uint64 `json:"reached"` // runs that asked the site
+	On      uint64 `json:"on"`      // runs in which it was switched on
+	Calls   uint64 `json:"calls"`
+	Fired   uint64 `json:"fired"`
 }
 
 // CurvePoint says that at seed number Seed the campaign had seen Total
@@ -87,7 +99,29 @@ func buildReport(first uint64, seen [][]string, total dstcampaign.Summary, faile
 		}
 	}
 	slices.Sort(r.NeverReached)
+	r.Sites, r.NeverFired = siteRows(total.Sites)
 	return r
+}
+
+// siteRows lists the buggify sites by name, and the ones that never fired. A
+// site that no run asked leaves no entry, so the simulator's own list of
+// site names is used to find it.
+func siteRows(sites map[string]dstcampaign.SiteTotal) ([]SiteRow, []string) {
+	names := make([]string, 0, len(sites))
+	for n := range sites {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	rows := []SiteRow{}
+	for _, n := range names {
+		t := sites[n]
+		rows = append(rows, SiteRow{Name: n, Reached: t.Reached, On: t.On, Calls: t.Calls, Fired: t.Fired})
+	}
+	never := dstcampaign.NeverFired(sites, simulator.SiteNames())
+	if never == nil {
+		never = []string{}
+	}
+	return rows, never
 }
 
 // coverageCurve returns one point for each seed number that saw an assertion
@@ -137,6 +171,15 @@ func (r Report) writeText(w io.Writer) {
 		p("never reached: none")
 	} else {
 		p("never reached:\n  %s", strings.Join(r.NeverReached, "\n  "))
+	}
+	p("buggify sites (%d):", len(r.Sites))
+	for _, s := range r.Sites {
+		p("  %-30s reached %6d runs  on %6d runs  calls %9d  fired %8d", s.Name, s.Reached, s.On, s.Calls, s.Fired)
+	}
+	if len(r.NeverFired) == 0 {
+		p("never fired: none")
+	} else {
+		p("never fired:\n  %s", strings.Join(r.NeverFired, "\n  "))
 	}
 	p("coverage curve (seed: assertions seen so far):")
 	for _, c := range r.Curve {
