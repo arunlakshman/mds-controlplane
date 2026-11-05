@@ -81,7 +81,7 @@ func TestImportRules(t *testing.T) {
 	layers := map[string][]string{
 		cp + "contract":       {rt},
 		cp + "metadb/engine":  {cp + "contract", rt},
-		cp + "membership":     {cp + "contract", rt},
+		cp + "domain/broker":  {cp + "contract", rt},
 		cp + "domain/topic":   {cp + "contract", cp + "metadb/engine", rt},
 		cp + "groups/storage": {cp + "contract", cp + "metadb/engine", rt},
 		cp + "groups":         {cp + "contract", rt, "internal/system/realclock"},
@@ -135,7 +135,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"metadb/engine", "membership", "domain/topic", "groups", "groups/storage", "metadb", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "domain/broker", "domain/topic", "groups", "groups/storage", "metadb", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {

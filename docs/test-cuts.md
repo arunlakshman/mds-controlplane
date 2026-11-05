@@ -44,7 +44,7 @@ Coverage per package (own tests only, `go test -coverprofile`; files in `build/`
 | internal/controlplane/groups/storage | 98.2% |
 | internal/controlplane/metadb/engine | 100.0% |
 | internal/controlplane/metadb/engine/pebble | 85.2% |
-| internal/controlplane/membership | 100.0% |
+| internal/controlplane/domain/broker | 100.0% |
 | internal/controlplane/metadb | 79.2% |
 | internal/controlplane/replica | 85.5% |
 | internal/controlplane/server | 73.5% |
@@ -128,7 +128,7 @@ after its mutation check (section 4).
 | fakedynamodb tests | 531 | keep, trim duplicates | 480 | the fake needs its own tests |
 | controlplanetest (conform, alphabet, crash, bugs, small) | 1,142 | keep | 1,142 | the property tests and planted bugs |
 | spec_test | 280 | keep, exact duplicates only | 260 | the model itself |
-| others (membership, httpconnections, clocks, wire, runtime, metrics, ...) | about 650 | keep | about 650 | small, each covers its own code |
+| others (domain/broker, httpconnections, clocks, wire, runtime, metrics, ...) | about 650 | keep | about 650 | small, each covers its own code |
 
 Test support (1,421 lines): keep fakedynamodb (680) and logtest (251, grows a little as shared cases
 move in). Merge groupfix, kvtest, storecall, metadatastore and memorystore (177 lines) into one small

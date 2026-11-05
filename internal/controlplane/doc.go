@@ -56,7 +56,7 @@
 //   - executor/dynamolog and executor/sqllog: the DynamoDB and Postgres
 //     implementations of executor.Log. executor/logtest is their shared test
 //     suite.
-//   - membership: the broker membership context: which brokers are alive (leases).
+//   - domain/broker: the broker context: which brokers are alive (leases).
 //     Its state is not logged, so it is not a schema.
 //   - groups/storage: the consumer group context in the replicated state (the G,
 //     M and O keys): the fold of the group writes and the group reads. It does
