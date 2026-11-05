@@ -107,17 +107,6 @@ func TestImportRules(t *testing.T) {
 			}
 		}
 	}
-	// The test-support package is for tests only.
-	for dir, p := range pkgs {
-		if strings.HasPrefix(dir, cp+"controlplanetest") {
-			continue
-		}
-		for _, imp := range p.imports {
-			if strings.HasPrefix(local(imp), cp+"controlplanetest") {
-				t.Errorf("%s imports the test-support package %s in non-test code", dir, imp)
-			}
-		}
-	}
 }
 
 // All time comes from runtime.Clock: these packages never read the wall clock.

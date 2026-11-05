@@ -10,7 +10,8 @@
 // several packages. Its file is brokers_handler.go in each; the map is at the top of
 // server/brokers_handler.go.
 //
-// All tests and test support live in controlplanetest (see its doc.go). Helpers under
+// Tests sit next to the code they test. The model conformance tests are in
+// test/conformance, and the end-to-end tests of the binary in test/integration. Helpers under
 // this tree (metadata, executor) support the
 // state machine's fold and IO. Not deterministic (goroutines, net): it is not
 // checked by ops/tools/determinismcheck.
@@ -59,7 +60,6 @@
 //     node implements over the log.
 //   - controlplanemetrics: the Prometheus instrumentation. It covers HTTP
 //     handler time, DynamoDB call time, in-flight requests and request sizes.
-//   - controlplanetest: the control-plane tests only.
 //
 // Time: all time comes from one interface, runtime.Clock (Mono, Wall, AfterFunc).
 // system/realclock is the production clock and system/fakeclock is the one for
