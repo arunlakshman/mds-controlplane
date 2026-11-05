@@ -14,7 +14,7 @@ PG_TEST_ARGS    ?=
 SIM_SEEDS       ?= 300
 
 .PHONY: build compile test proto proto-tools fmt-check vet lint modernize-check modernize \
-	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate
+	ascii-check determinism sim sim-campaign spec-long install-hooks it-postgres test-race wire generate mutants
 
 build: generate fmt-check ascii-check vet lint modernize-check compile test determinism sim sim-campaign
 
@@ -102,6 +102,14 @@ sim-campaign:
 # internal/spec/README.md.
 spec-long:
 	go test ./internal/controlplane/controlplanetest -run 'Conform|Crash|FailureInjection' -count=1 -timeout 60m -rapid.checks=2000
+
+# Plant each bug of ops/mutants.txt in a copy of the tree and run its test
+# command. A bug the tests do not see fails the target, and so does a mutant whose
+# old text is no longer in the code exactly once. Not part of build.
+# One mutant: make mutants MUTANT=writer-offsets
+MUTANT ?=
+mutants:
+	go run ./ops/tools/mutate $(if $(MUTANT),-only $(MUTANT))
 
 # Log tests against a real PostgreSQL in Docker (needs Docker). Not part of build.
 it-postgres:

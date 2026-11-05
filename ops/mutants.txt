@@ -1,0 +1,123 @@
+# Mutants for make mutants (see ops/tools/mutate).
+#
+# A mutant is one exact text replacement in one real source file. The tool applies
+# it to a copy of the tree and runs the test command. The mutant is killed when
+# the command fails. If a mutant survives, or its old text is not in the file
+# exactly once, make mutants fails.
+#
+#   mutant NAME            a short name, used in the output and for -only
+#   file PATH              the source file, from the repository root
+#   run COMMAND            the narrowest test command that kills it (no shell). A
+#                          rapid test gets -rapid.seed=1, so a kill does not depend
+#                          on luck: without a seed, a mutant can survive one run.
+#   @@ old                 the old text, exactly, one or more lines
+#   @@ new                 the new text
+#   @@ end
+#
+# The bugs that need a broken environment, not broken code, stay as test doubles:
+# forgetful (a crash loses answered writes) and staleReads (no data after a failure)
+# in controlplanetest/bugs_test.go, and the simulator bugs log-overwrite and
+# claim-always-wins in the fake log.
+
+# A replay of a known segment key is committed again as a new segment, with new offsets.
+mutant segment-replay-new-offsets
+file internal/controlplane/topics/commit.go
+run go test ./internal/controlplane/controlplanetest -run ^TestConformMetadataMemory$ -count=1 -rapid.seed=1
+@@ old
+	dig := checksum(operation.Batches)
+	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); rec != nil {
+		return replay(rec, dig, operation)
+	}
+	if !validCommit(operation) {
+@@ new
+	dig := checksum(operation.Batches)
+	if rec := transaction.Get(duplicateCheckKey(operation.SegmentKey)); false {
+		return replay(rec, dig, operation)
+	}
+	if !validCommit(operation) {
+@@ end
+
+# The stop rule of FindSegments is off by one: it stops after MaxBytes, not at it.
+mutant find-segments-stop-off-by-one
+file internal/controlplane/topics/commit.go
+run go test ./internal/controlplane/controlplanetest -run ^TestConformMetadataMemory$ -count=1 -rapid.seed=1
+@@ old
+			if operation.MaxBytes > 0 && size >= int64(operation.MaxBytes) {
+@@ new
+			if operation.MaxBytes > 0 && size > int64(operation.MaxBytes) {
+@@ end
+
+# DescribeTopics answers in reverse name order.
+mutant describe-topics-not-sorted
+file internal/controlplane/topics/commit.go
+run go test ./internal/controlplane/controlplanetest -run ^TestConformMetadataMemory$ -count=1 -rapid.seed=1
+@@ old
+		return true
+	})
+	return runtime.ControlPlaneDone{Resp: response}
+}
+@@ new
+		return true
+	})
+	slices.Reverse(response.Topics)
+	return runtime.ControlPlaneDone{Resp: response}
+}
+@@ end
+
+# writer-offsets: the writer picks the offsets before it appends, from state that
+# may be stale, so a retried commit leaves a gap.
+mutant writer-offsets
+file internal/controlplane/replica/commit.go
+run go test ./internal/verify/simulator -run ^TestScenariosPass$ -count=1
+@@ old
+		if commit, ok := e.CommitSegment(); ok && m.config.InjectedBug == InjectedBugWriterOffsets {
+@@ new
+		if commit, ok := e.CommitSegment(); ok {
+@@ end
+
+# per-replica-window: each replica forgets idempotency keys on its own clock, not
+# at a stride of the log.
+mutant per-replica-window
+file internal/controlplane/replica/commit.go
+run go test ./internal/controlplane/replica -run ^TestWindowForgetsKeysOnlyOnLogStride$ -count=1
+@@ old
+	if m.config.InjectedBug == InjectedBugPerReplicaWindow && window > 0 {
+@@ new
+	if window > 0 {
+@@ end
+
+# Group state: the generation check of GroupAssign is dropped.
+mutant group-assign-generation-unchecked
+file internal/controlplane/groups/storage/write.go
+run go test ./internal/controlplane/groups/storage -run ^TestGroupAssignRules$ -count=1
+@@ old
+	if operation.Generation != h.generation {
+		return runtime.ErrIllegalGeneration
+	}
+	if !found || operation.Leader != h.leader
+@@ new
+	if !found || operation.Leader != h.leader
+@@ end
+
+# Group state: GroupAssign accepts an assignment for a member that is not in the group.
+mutant group-assign-unknown-member
+file internal/controlplane/groups/storage/write.go
+run go test ./internal/controlplane/groups/storage -run ^TestGroupAssignRules$ -count=1
+@@ old
+		if transaction.Get(memberKey(operation.Group, a.Member)) == nil {
+			return runtime.ErrUnknownMember
+		}
+		if _, dup := want[a.Member]; dup {
+@@ new
+		if _, dup := want[a.Member]; dup {
+@@ end
+
+# Group state: OffsetCommit does not check that the member is in the group.
+mutant offset-commit-member-unchecked
+file internal/controlplane/groups/storage/write.go
+run go test ./internal/controlplane/groups/storage -run ^TestOffsetCommitRules$ -count=1
+@@ old
+		if !found || transaction.Get(memberKey(operation.Group, operation.Member)) == nil {
+@@ new
+		if !found {
+@@ end
