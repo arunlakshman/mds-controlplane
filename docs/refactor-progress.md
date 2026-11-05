@@ -21,8 +21,13 @@ T1.8 | done | cherry-picked 072fbe9,e8f2f35,6e16227 | task: make build green; ma
 T1.9 | done | cherry-picked 597ee75,57128a5,2a403e3 | make build green, make mutants 8/8 (28.5s) on merged tree incl. T1.7+T1.8; agent ran campaign 2000 seeds green; 300-seed hashes equal baseline | cpsim -report/-json/-until-stable; expectedReachable kept (nothing in data names a lost path); report only touches cmd/cpsim + docs
 T1.10 | done | cherry-picked abb2f8f,51fa0ff,4fb2d3c(RE-PIN),160261b,f6d191b; dst commits e0a59b9,7cf72fe,67d894b on local branch dst-process (unpushed) | make build + make mutants 8/8 green on merged tree; race + campaign see P1 gate | RE-PIN: golden basic/17 f79ae0cb6ac19047->08bfa86385d8e8ae, chaos/42 841e92a10f1559f3->45d210abda0e2bed; 300-seed hashes now da8028bc bc9f0863 23603524 67c48ce5 ba61ad2c
 T2.1 | done | cherry-picked 7bd9a27,36f7a2f | make build green, make it green (~41s, Docker ON), go list -deps ./cmd/mdscontrolplane has 0 testcontainers, golden unchanged | internal/testinfra: Main(m), DynamoDB(t), Postgres(t), S3(t); testcontainers-go v0.44.0 core only
+T2.3 | done | cherry-picked b0d2ab7,519caff | task: make build + make it green (1m02s), sqllog 8 conformance subtests pass on real Postgres; merged tree vet ok, full gate after Group D | sqllog tests under integration tag via testinfra.Postgres; it-postgres, postgres-test.sh, POSTGRES_IMAGE, PG_TEST_ARGS removed
 
 ## Deferred items
+
+- T2.3 KNOWN SKIPS until T2.5: cmd/mdscontrolplane/logstore_test.go:515-519 and postgres_failover_test.go:24-28 still read MDS_TEST_POSTGRES_DSN and t.Skip; nothing sets it now, so they always skip until T2.5 moves them. (Rule 2.5 breach is temporary; T2.5 must fix.)
+- T2.3: stale references: mise.toml:4 (mentions make it-postgres / POSTGRES_IMAGE), docs/test-cuts.md:65. Fix in T7.1 or earlier.
+- T2.3: testinfra pins postgres:17.11-alpine itself (PostgresImage const), Makefile var removed.
 
 - T2.1: MinIO image: minio/minio and quay.io/minio/minio can no longer be pulled; used frozen, unmaintained bitnamilegacy/minio:2025.7.23-debian-12-r3. Revisit (user may want another image or a source build).
 - T2.1: S3(t) uses t.Setenv for AWS creds (MinIO rejects s3store's dummy mds/mds), so tests that call it cannot t.Parallel.
