@@ -2,16 +2,17 @@ package metadata_test
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/kv/pebblestore"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/module"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -80,24 +81,69 @@ func TestRestoreRejectsDamage(t *testing.T) {
 	}
 }
 
+// localStore drives a metadata.Store as a single node with no log: a command
+// gets the next local slot. The log-backed service applies commands at their
+// real slots, not through this adapter.
+type localStore struct {
+	a *metadata.Store
+
+	mu   sync.Mutex
+	next int64
+}
+
+func (s *localStore) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
+	if err := ctx.Err(); err != nil {
+		return runtime.ControlPlaneDone{}, err
+	}
+	switch s.a.Mode(operation) {
+	case module.Logged:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		slot := s.next
+		s.next++
+		return s.a.Write(slot, operation)
+	case module.ReadOnly:
+		return s.a.Read(operation)
+	}
+	return runtime.ControlPlaneDone{Err: runtime.ErrInvalid}, nil
+}
+
+// callOp runs an operation that has a response and a business code.
+func callOp[R any](ctx context.Context, s *localStore, operation runtime.ControlPlaneOperation) (R, runtime.ErrCode, error) {
+	d, err := s.Exec(ctx, operation)
+	return runtime.ResponseAs[R](d), d.Err, err
+}
+
+// callCode runs an operation that has only a business code.
+func callCode(ctx context.Context, s *localStore, operation runtime.ControlPlaneOperation) (runtime.ErrCode, error) {
+	d, err := s.Exec(ctx, operation)
+	return d.Err, err
+}
+
+// readOp runs an operation that has a response and no business code.
+func readOp[R any](ctx context.Context, s *localStore, operation runtime.ControlPlaneOperation) (R, error) {
+	d, err := s.Exec(ctx, operation)
+	return runtime.ResponseAs[R](d), err
+}
+
 func TestStoreAdapter(t *testing.T) {
 	ctx := t.Context()
-	s := &metadatastore.Store{A: metadata.New(kv.NewMemory())}
-	if c, err := storecall.Code(ctx, s, contract.CreateTopic{Name: "t", Partitions: 3}); c != runtime.OK || err != nil {
+	s := &localStore{a: metadata.New(kv.NewMemory())}
+	if c, err := callCode(ctx, s, contract.CreateTopic{Name: "t", Partitions: 3}); c != runtime.OK || err != nil {
 		t.Fatal(c, err)
 	}
-	response, c, err := storecall.Call[contract.CommitSegmentResp](ctx, s, commit("k", pb("t", 2, 4)))
+	response, c, err := callOp[contract.CommitSegmentResp](ctx, s, commit("k", pb("t", 2, 4)))
 	if err != nil || c != runtime.OK || response.Assigned[0].Base != 0 {
 		t.Fatalf("%+v %v %v", response, c, err)
 	}
-	lk, c, _ := storecall.Call[contract.FindSegmentsResp](ctx, s, contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 2)})
+	lk, c, _ := callOp[contract.FindSegmentsResp](ctx, s, contract.FindSegments{TopicPartition: contract.NewTopicPartition("t", 2)})
 	if c != runtime.OK || lk.End != 4 || len(lk.Ranges) != 1 {
 		t.Fatalf("%+v %v", lk, c)
 	}
-	if _, c, _ = storecall.Call[contract.FindSegmentsResp](ctx, s, contract.FindSegments{From: -1}); c != runtime.ErrInvalid {
+	if _, c, _ = callOp[contract.FindSegmentsResp](ctx, s, contract.FindSegments{From: -1}); c != runtime.ErrInvalid {
 		t.Fatal(c)
 	}
-	d, err := storecall.Read[contract.DescribeTopicsResp](ctx, s, contract.DescribeTopics{})
+	d, err := readOp[contract.DescribeTopicsResp](ctx, s, contract.DescribeTopics{})
 	if err != nil || len(d.Topics) != 1 || d.Topics[0].Partitions != 3 {
 		t.Fatalf("%+v %v", d, err)
 	}

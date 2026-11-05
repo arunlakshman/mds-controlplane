@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/metadatastore"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/controlplanetest/storecall"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -158,31 +156,31 @@ func TestReadsAreNotLogged(t *testing.T) {
 
 // TestGroupStoreAdapter runs the group calls through the Store adapter.
 func TestGroupStoreAdapter(t *testing.T) {
-	s := &metadatastore.Store{A: metadata.NewMem()}
+	s := &localStore{a: metadata.NewMem()}
 	ctx := context.Background()
-	if code, err := storecall.Code(ctx, s, install("g", 1, "m1", "m1")); code != runtime.OK || err != nil {
+	if code, err := callCode(ctx, s, install("g", 1, "m1", "m1")); code != runtime.OK || err != nil {
 		t.Fatalf("install: %v %v", code, err)
 	}
-	if code, err := storecall.Code(ctx, s, assign("g", 1, "m1", "m1", "a")); code != runtime.OK || err != nil {
+	if code, err := callCode(ctx, s, assign("g", 1, "m1", "m1", "a")); code != runtime.OK || err != nil {
 		t.Fatalf("assign: %v %v", code, err)
 	}
-	if code, err := storecall.Code(ctx, s, remove("g", "m1")); code != runtime.OK || err != nil {
+	if code, err := callCode(ctx, s, remove("g", "m1")); code != runtime.OK || err != nil {
 		t.Fatalf("remove: %v %v", code, err)
 	}
-	if code, err := storecall.Code(ctx, s, assign("g", 1, "m1", "m1", "a")); code != runtime.ErrUnknownMember || err != nil {
+	if code, err := callCode(ctx, s, assign("g", 1, "m1", "m1", "a")); code != runtime.ErrUnknownMember || err != nil {
 		t.Fatalf("assign after remove: %v %v", code, err)
 	}
-	response, code, err := storecall.Call[contract.OffsetCommitResp](ctx, s, commitOp("g", "", -1, pair("orders", 0, 3)))
+	response, code, err := callOp[contract.OffsetCommitResp](ctx, s, commitOp("g", "", -1, pair("orders", 0, 3)))
 	if code != runtime.OK || err != nil || len(response.Errs) != 1 || response.Errs[0] != runtime.ErrUnknownPartition {
 		t.Fatalf("commit to a topic that does not exist: %+v %v %v", response, code, err)
 	}
-	if _, err := storecall.Read[contract.OffsetFetchResp](ctx, s, contract.OffsetFetch{Group: "g"}); err != nil {
+	if _, err := readOp[contract.OffsetFetchResp](ctx, s, contract.OffsetFetch{Group: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	if d, err := storecall.Read[contract.DescribeGroupResp](ctx, s, contract.DescribeGroup{Group: "g"}); err != nil || d.State != "Empty" {
+	if d, err := readOp[contract.DescribeGroupResp](ctx, s, contract.DescribeGroup{Group: "g"}); err != nil || d.State != "Empty" {
 		t.Fatalf("describe: %+v %v", d, err)
 	}
-	if ls, err := storecall.Read[contract.ListGroupsResp](ctx, s, contract.ListGroups{}); err != nil || len(ls.Groups) != 1 {
+	if ls, err := readOp[contract.ListGroupsResp](ctx, s, contract.ListGroups{}); err != nil || len(ls.Groups) != 1 {
 		t.Fatalf("list: %+v %v", ls, err)
 	}
 }
