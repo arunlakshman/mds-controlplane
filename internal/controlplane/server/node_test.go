@@ -93,7 +93,7 @@ func TestCommitLookupRoundTrip(t *testing.T) {
 	if len(cr.Assigned) != 1 || cr.Assigned[0].Base != 0 || cr.Assigned[0].Count != 3 {
 		t.Fatalf("assigned = %+v", cr.Assigned)
 	}
-	lr, err := cli.Lookup(t.Context(), &cpv1.LookupRequest{
+	lr, err := cli.FindSegments(t.Context(), &cpv1.FindSegmentsRequest{
 		Tp: &sharedv1.TopicPartition{Topic: "t", Partition: 0}, MaxBytes: 100,
 	})
 	if err != nil {

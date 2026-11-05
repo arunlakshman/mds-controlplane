@@ -23,10 +23,10 @@ func TestStandbyGroupCallsUnavailable(t *testing.T) {
 	checks := map[string]error{}
 	_, checks["JoinGroup"] = cli.JoinGroup(ctx, &cpv1.JoinGroupRequest{Group: "g", SessionTimeoutMs: 1000})
 	_, checks["SyncGroup"] = cli.SyncGroup(ctx, &cpv1.SyncGroupRequest{Group: "g", MemberId: "m"})
-	_, checks["GroupHeartbeat"] = cli.GroupHeartbeat(ctx, &cpv1.GroupHeartbeatRequest{Group: "g", MemberId: "m"})
+	_, checks["Heartbeat"] = cli.Heartbeat(ctx, &cpv1.HeartbeatRequest{Group: "g", MemberId: "m"})
 	_, checks["LeaveGroup"] = cli.LeaveGroup(ctx, &cpv1.LeaveGroupRequest{Group: "g", Members: []string{"m"}})
-	_, checks["GroupOffsetCommit"] = cli.GroupOffsetCommit(ctx, &cpv1.GroupOffsetCommitRequest{Group: "g"})
-	_, checks["GroupOffsetFetch"] = cli.GroupOffsetFetch(ctx, &cpv1.GroupOffsetFetchRequest{Group: "g"})
+	_, checks["OffsetCommit"] = cli.OffsetCommit(ctx, &cpv1.OffsetCommitRequest{Group: "g"})
+	_, checks["OffsetFetch"] = cli.OffsetFetch(ctx, &cpv1.OffsetFetchRequest{Group: "g"})
 	_, checks["DescribeGroups"] = cli.DescribeGroups(ctx, &cpv1.DescribeGroupsRequest{Groups: []string{"g"}})
 	_, checks["ListGroups"] = cli.ListGroups(ctx, &cpv1.ListGroupsRequest{})
 	for name, err := range checks {

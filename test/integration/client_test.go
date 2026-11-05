@@ -121,8 +121,8 @@ func (c *client) commit(t *testing.T, key, topic string, partition int32, record
 	})
 }
 
-func (c *client) lookup(t *testing.T, topic string, partition int32, from int64) (*cpv1.LookupResponse, error) {
-	return call(t, c, cpv1.ControlPlaneClient.Lookup, &cpv1.LookupRequest{
+func (c *client) findSegments(t *testing.T, topic string, partition int32, from int64) (*cpv1.FindSegmentsResponse, error) {
+	return call(t, c, cpv1.ControlPlaneClient.FindSegments, &cpv1.FindSegmentsRequest{
 		Tp: &sharedv1.TopicPartition{Topic: topic, Partition: partition}, From: from, MaxBytes: 1 << 30,
 	})
 }

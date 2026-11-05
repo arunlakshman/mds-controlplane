@@ -283,8 +283,8 @@ func (n *grpcNode) send(ctx context.Context, op runtime.ControlPlaneOperation) (
 			resp = out
 		}
 	case contract.FindSegments:
-		var r *cpv1.LookupResponse
-		if r, err = n.api.Lookup(ctx, &cpv1.LookupRequest{Tp: tpToWire(op.TopicPartition), From: int64(op.From), MaxBytes: op.MaxBytes}); err == nil {
+		var r *cpv1.FindSegmentsResponse
+		if r, err = n.api.FindSegments(ctx, &cpv1.FindSegmentsRequest{Tp: tpToWire(op.TopicPartition), From: int64(op.From), MaxBytes: op.MaxBytes}); err == nil {
 			out := contract.FindSegmentsResp{End: contract.Offset(r.GetEnd())}
 			for _, x := range r.GetRanges() {
 				out.Ranges = append(out.Ranges, rangeFromWire(x))
@@ -303,12 +303,12 @@ func (n *grpcNode) send(ctx context.Context, op runtime.ControlPlaneOperation) (
 	case contract.CreateTopic:
 		_, err = n.api.CreateTopic(ctx, &cpv1.CreateTopicRequest{Topic: op.Name, Partitions: op.Partitions, FailIfExists: op.FailIfExists})
 	case contract.OffsetCommit:
-		req := &cpv1.GroupOffsetCommitRequest{Group: op.Group, MemberId: op.Member, Generation: op.Generation}
+		req := &cpv1.OffsetCommitRequest{Group: op.Group, MemberId: op.Member, Generation: op.Generation}
 		for _, o := range op.Offsets {
 			req.Offsets = append(req.Offsets, &cpv1.PartitionOffsetCommit{Tp: tpToWire(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata})
 		}
-		var r *cpv1.GroupOffsetCommitResponse
-		if r, err = n.api.GroupOffsetCommit(ctx, req); err == nil {
+		var r *cpv1.OffsetCommitResponse
+		if r, err = n.api.OffsetCommit(ctx, req); err == nil {
 			out := contract.OffsetCommitResp{}
 			for _, c := range r.GetErrs() {
 				out.Errs = append(out.Errs, codeFromWire(c))
@@ -316,12 +316,12 @@ func (n *grpcNode) send(ctx context.Context, op runtime.ControlPlaneOperation) (
 			resp = out
 		}
 	case contract.OffsetFetch:
-		req := &cpv1.GroupOffsetFetchRequest{Group: op.Group}
+		req := &cpv1.OffsetFetchRequest{Group: op.Group}
 		for _, p := range op.Partitions {
 			req.Partitions = append(req.Partitions, tpToWire(p))
 		}
-		var r *cpv1.GroupOffsetFetchResponse
-		if r, err = n.api.GroupOffsetFetch(ctx, req); err == nil {
+		var r *cpv1.OffsetFetchResponse
+		if r, err = n.api.OffsetFetch(ctx, req); err == nil {
 			out := contract.OffsetFetchResp{}
 			for _, o := range r.GetOffsets() {
 				out.Offsets = append(out.Offsets, contract.PartitionOffset{

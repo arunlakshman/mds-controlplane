@@ -10,7 +10,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// The topics RPCs: CommitSegment, Lookup, DescribeTopics and CreateTopic. Each
+// The topics RPCs: CommitSegment, FindSegments, DescribeTopics and CreateTopic. Each
 // one is a module operation. It converts the request, runs the operation with
 // runOperation (a command goes to the log, a read is answered by the fold), and
 // converts the answer.
@@ -83,9 +83,9 @@ func (n *Node) CommitSegment(ctx context.Context, request *cpv1.CommitSegmentReq
 	return moduleRPC(ctx, n, wire.CommitSegmentRequestToCore(request), wire.CommitSegmentResponseFromCore)
 }
 
-// Lookup implements ControlPlane.
-func (n *Node) Lookup(ctx context.Context, request *cpv1.LookupRequest) (*cpv1.LookupResponse, error) {
-	return moduleRPC(ctx, n, wire.LookupRequestToCore(request), wire.LookupResponseFromCore)
+// FindSegments implements ControlPlane.
+func (n *Node) FindSegments(ctx context.Context, request *cpv1.FindSegmentsRequest) (*cpv1.FindSegmentsResponse, error) {
+	return moduleRPC(ctx, n, wire.FindSegmentsRequestToCore(request), wire.FindSegmentsResponseFromCore)
 }
 
 // DescribeTopics implements ControlPlane.

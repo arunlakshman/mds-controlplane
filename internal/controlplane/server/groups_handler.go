@@ -195,10 +195,10 @@ var (
 		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, wire.JoinGroupResponseFromCore}
 	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
 		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, wire.SyncGroupResponseFromCore}
-	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
-		(*groups.Coordinator).OffsetCommit, groupOutcome, wire.GroupOffsetCommitResponseFromCore}
-	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
-		(*groups.Coordinator).OffsetFetch, notApplied, wire.GroupOffsetFetchResponseFromCore}
+	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.OffsetCommitResponse]{
+		(*groups.Coordinator).OffsetCommit, groupOutcome, wire.OffsetCommitResponseFromCore}
+	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.OffsetFetchResponse]{
+		(*groups.Coordinator).OffsetFetch, notApplied, wire.OffsetFetchResponseFromCore}
 	groupList = groupCodeCall[struct{}, []contract.GroupSummary, *cpv1.ListGroupsResponse]{
 		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]contract.GroupSummary, runtime.ErrCode) {
 			return c.ListGroups(ctx)
@@ -220,16 +220,16 @@ func (n *Node) SyncGroup(ctx context.Context, request *cpv1.SyncGroupRequest) (*
 	return groupSync.run(ctx, n, wire.SyncGroupRequestToCore(request))
 }
 
-// GroupHeartbeat implements ControlPlane.
-func (n *Node) GroupHeartbeat(ctx context.Context, request *cpv1.GroupHeartbeatRequest) (*cpv1.GroupHeartbeatResponse, error) {
+// Heartbeat implements ControlPlane.
+func (n *Node) Heartbeat(ctx context.Context, request *cpv1.HeartbeatRequest) (*cpv1.HeartbeatResponse, error) {
 	c, err := n.groupCoordinator(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if code := c.Heartbeat(ctx, wire.GroupHeartbeatRequestToCore(request)); code != runtime.OK {
+	if code := c.Heartbeat(ctx, wire.HeartbeatRequestToCore(request)); code != runtime.OK {
 		return nil, toRPCError(code, groupOutcome(code))
 	}
-	return &cpv1.GroupHeartbeatResponse{}, nil
+	return &cpv1.HeartbeatResponse{}, nil
 }
 
 // LeaveGroup implements ControlPlane. The answer has one code per member.
@@ -241,14 +241,14 @@ func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) 
 	return leaveGroupRespFromCore(c.LeaveGroup(ctx, wire.LeaveGroupRequestToCore(request))), nil
 }
 
-// GroupOffsetCommit implements ControlPlane. The answer has one code per partition.
-func (n *Node) GroupOffsetCommit(ctx context.Context, request *cpv1.GroupOffsetCommitRequest) (*cpv1.GroupOffsetCommitResponse, error) {
-	return groupOffsetCommit.run(ctx, n, wire.GroupOffsetCommitRequestToCore(request))
+// OffsetCommit implements ControlPlane. The answer has one code per partition.
+func (n *Node) OffsetCommit(ctx context.Context, request *cpv1.OffsetCommitRequest) (*cpv1.OffsetCommitResponse, error) {
+	return groupOffsetCommit.run(ctx, n, wire.OffsetCommitRequestToCore(request))
 }
 
-// GroupOffsetFetch implements ControlPlane.
-func (n *Node) GroupOffsetFetch(ctx context.Context, request *cpv1.GroupOffsetFetchRequest) (*cpv1.GroupOffsetFetchResponse, error) {
-	return groupOffsetFetch.run(ctx, n, wire.GroupOffsetFetchRequestToCore(request))
+// OffsetFetch implements ControlPlane.
+func (n *Node) OffsetFetch(ctx context.Context, request *cpv1.OffsetFetchRequest) (*cpv1.OffsetFetchResponse, error) {
+	return groupOffsetFetch.run(ctx, n, wire.OffsetFetchRequestToCore(request))
 }
 
 // DescribeGroups implements ControlPlane. Any group that fails fails the call.

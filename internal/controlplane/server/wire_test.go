@@ -120,7 +120,7 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 	sameValue(t, "sync", wire.SyncGroupRequestToCore(wire.SyncGroupRequestFromCore(sync)), sync)
 
 	beat := groups.HeartbeatReq{Group: "g", MemberID: "m", Generation: 4}
-	sameValue(t, "heartbeat", wire.GroupHeartbeatRequestToCore(wire.GroupHeartbeatRequestFromCore(beat)), beat)
+	sameValue(t, "heartbeat", wire.HeartbeatRequestToCore(wire.HeartbeatRequestFromCore(beat)), beat)
 
 	leave := groups.LeaveReq{Group: "g", Members: []string{"a", "b"}}
 	sameValue(t, "leave", wire.LeaveGroupRequestToCore(wire.LeaveGroupRequestFromCore(leave)), leave)
@@ -132,13 +132,13 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 			{TopicPartition: contract.NewTopicPartition("t", 1), Offset: 10},
 		},
 	}
-	sameValue(t, "offset commit", wire.GroupOffsetCommitRequestToCore(wire.GroupOffsetCommitRequestFromCore(commit)), commit)
+	sameValue(t, "offset commit", wire.OffsetCommitRequestToCore(wire.OffsetCommitRequestFromCore(commit)), commit)
 
 	fetch := contract.OffsetFetch{
 		Group:      "g",
 		Partitions: []contract.TopicPartition{contract.NewTopicPartition("t", 0), contract.NewTopicPartition("u", 7)},
 	}
-	sameValue(t, "offset fetch", wire.GroupOffsetFetchRequestToCore(wire.GroupOffsetFetchRequestFromCore(fetch)), fetch)
+	sameValue(t, "offset fetch", wire.OffsetFetchRequestToCore(wire.OffsetFetchRequestFromCore(fetch)), fetch)
 
 	names := []string{"a", "b"}
 	sameValue(t, "describe groups", describeGroupsToCore(describeGroupsFromCore(names)), names)
@@ -158,12 +158,12 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	sameValue(t, "leave resp", leaveGroupRespToCore(leaveGroupRespFromCore(codes)), codes)
 
 	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrIllegalGeneration}}
-	sameValue(t, "offset commit resp", wire.GroupOffsetCommitResponseToCore(wire.GroupOffsetCommitResponseFromCore(commit)), commit)
+	sameValue(t, "offset commit resp", wire.OffsetCommitResponseToCore(wire.OffsetCommitResponseFromCore(commit)), commit)
 
 	fetch := contract.OffsetFetchResp{Offsets: []contract.PartitionOffset{
 		{TopicPartition: contract.NewTopicPartition("t", 2), Offset: 5, LeaderEpoch: 1, Metadata: "m"},
 	}}
-	sameValue(t, "offset fetch resp", wire.GroupOffsetFetchResponseToCore(wire.GroupOffsetFetchResponseFromCore(fetch)), fetch)
+	sameValue(t, "offset fetch resp", wire.OffsetFetchResponseToCore(wire.OffsetFetchResponseFromCore(fetch)), fetch)
 
 	described := []groups.GroupDescription{{
 		Name: "g",
@@ -196,7 +196,7 @@ func TestBrokerHeartbeatRoundTrip(t *testing.T) {
 // Nil messages and empty lists must give zero values, never a panic.
 func TestNilAndEmptyInputs(t *testing.T) {
 	sameValue(t, "nil commit", wire.CommitSegmentRequestToCore(nil), contract.CommitSegment{})
-	sameValue(t, "nil lookup", wire.LookupRequestToCore(nil), contract.FindSegments{})
+	sameValue(t, "nil lookup", wire.FindSegmentsRequestToCore(nil), contract.FindSegments{})
 	sameValue(t, "nil describe", wire.DescribeTopicsRequestToCore(nil), contract.DescribeTopics{})
 	sameValue(t, "nil join", wire.JoinGroupRequestToCore(nil), groups.JoinReq{})
 	sameValue(t, "nil join resp", wire.JoinGroupResponseToCore(nil), groups.JoinResp{})

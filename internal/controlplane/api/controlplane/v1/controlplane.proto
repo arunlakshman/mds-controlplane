@@ -12,17 +12,17 @@ option go_package = "github.com/manifesterio/mds-controlplane/internal/controlpl
 // Servers also register grpc.health.v1 (not defined here).
 service ControlPlane {
   rpc CommitSegment(CommitSegmentRequest) returns (CommitSegmentResponse);
-  rpc Lookup(LookupRequest) returns (LookupResponse);
+  rpc FindSegments(FindSegmentsRequest) returns (FindSegmentsResponse);
   rpc DescribeTopics(DescribeTopicsRequest) returns (DescribeTopicsResponse);
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
   rpc BrokerHeartbeat(BrokerHeartbeatRequest) returns (BrokerHeartbeatResponse);
   rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
   rpc SyncGroup(SyncGroupRequest) returns (SyncGroupResponse);
-  rpc GroupHeartbeat(GroupHeartbeatRequest) returns (GroupHeartbeatResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc LeaveGroup(LeaveGroupRequest) returns (LeaveGroupResponse);
-  rpc GroupOffsetCommit(GroupOffsetCommitRequest) returns (GroupOffsetCommitResponse);
-  rpc GroupOffsetFetch(GroupOffsetFetchRequest) returns (GroupOffsetFetchResponse);
+  rpc OffsetCommit(OffsetCommitRequest) returns (OffsetCommitResponse);
+  rpc OffsetFetch(OffsetFetchRequest) returns (OffsetFetchResponse);
   rpc DescribeGroups(DescribeGroupsRequest) returns (DescribeGroupsResponse);
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
 }
@@ -88,18 +88,18 @@ message CommitSegmentResponse {
   repeated controlplane.shared.v1.BatchRange assigned = 1;
 }
 
-// LookupRequest finds which segments hold offsets >= From for a partition.
-message LookupRequest {
+// FindSegmentsRequest finds which segments hold offsets >= From for a partition.
+message FindSegmentsRequest {
   option (controlplane.options.v1.go_struct) = "contract.FindSegments";
   controlplane.shared.v1.TopicPartition tp = 1 [(controlplane.options.v1.go_name) = "TopicPartition"];
   int64 from = 2 [(controlplane.options.v1.go_type) = "contract.Offset"];
   int32 max_bytes = 3;
 }
 
-// LookupResponse lists the batches holding offsets >= From in offset order. End is
+// FindSegmentsResponse lists the batches holding offsets >= From in offset order. End is
 // the partition end offset (the next offset to be assigned, ListOffsets
 // latest), derived from the newest run.
-message LookupResponse {
+message FindSegmentsResponse {
   option (controlplane.options.v1.go_struct) = "contract.FindSegmentsResp";
   repeated controlplane.shared.v1.BatchRange ranges = 1;
   int64 end = 2 [(controlplane.options.v1.go_type) = "contract.Offset"];
@@ -169,7 +169,7 @@ message BrokerHeartbeatResponse {
 
 // Group calls (classic protocol, decision Q9). Only the active control plane
 // serves them; a standby answers Unavailable. Business errors come as a
-// non-OK status with ErrorDetail, except LeaveGroup and GroupOffsetCommit,
+// non-OK status with ErrorDetail, except LeaveGroup and OffsetCommit,
 // which return one code per member or partition.
 
 // GroupProtocol is one protocol a member supports, with its metadata.
@@ -233,15 +233,15 @@ message SyncGroupResponse {
   bytes assignment = 1;
 }
 
-// GroupHeartbeatRequest is a Heartbeat call.
-message GroupHeartbeatRequest {
+// HeartbeatRequest is a Heartbeat call.
+message HeartbeatRequest {
   option (controlplane.options.v1.go_struct) = "groups.HeartbeatReq";
   string group = 1;
   string member_id = 2;
   int32 generation = 3;
 }
 
-message GroupHeartbeatResponse {}
+message HeartbeatResponse {}
 
 // LeaveGroupRequest is a LeaveGroup call.
 message LeaveGroupRequest {
@@ -263,7 +263,7 @@ message PartitionOffsetCommit {
   string metadata = 4;
 }
 
-message GroupOffsetCommitRequest {
+message OffsetCommitRequest {
   option (controlplane.options.v1.go_existing) = "contract.OffsetCommit";
   string group = 1;
   string member_id = 2 [(controlplane.options.v1.go_name) = "Member"];
@@ -271,20 +271,20 @@ message GroupOffsetCommitRequest {
   repeated PartitionOffsetCommit offsets = 4;
 }
 
-// GroupOffsetCommitResponse has one code per request partition, in request order.
-message GroupOffsetCommitResponse {
+// OffsetCommitResponse has one code per request partition, in request order.
+message OffsetCommitResponse {
   option (controlplane.options.v1.go_existing) = "contract.OffsetCommitResp";
   repeated ErrCode errs = 1 [(controlplane.options.v1.go_type) = "runtime.ErrCode"];
 }
 
-message GroupOffsetFetchRequest {
+message OffsetFetchRequest {
   option (controlplane.options.v1.go_existing) = "contract.OffsetFetch";
   string group = 1;
   // Empty means every committed partition.
   repeated controlplane.shared.v1.TopicPartition partitions = 2;
 }
 
-message GroupOffsetFetchResponse {
+message OffsetFetchResponse {
   option (controlplane.options.v1.go_existing) = "contract.OffsetFetchResp";
   repeated controlplane.shared.v1.PartitionOffset offsets = 1;
 }

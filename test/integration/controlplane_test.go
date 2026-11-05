@@ -220,7 +220,7 @@ func TestRestartFromCheckpoint(t *testing.T) {
 
 			again := startNode(t, "n0", flags(b.args, rankArgs(0), trimArgs))
 			c = newClient(t, again)
-			response, err := c.lookup(t, "t", 0, 0)
+			response, err := c.findSegments(t, "t", 0, 0)
 			if err != nil || response.GetEnd() != 3*segments {
 				t.Fatalf("after restart: %v %v", err, response)
 			}
@@ -248,7 +248,7 @@ func TestStoreAndLookup(t *testing.T) {
 			if _, err := c.commit(t, "seg/0", "t", 0, 3); err != nil {
 				t.Fatal(err)
 			}
-			response, err := c.lookup(t, "t", 0, 0)
+			response, err := c.findSegments(t, "t", 0, 0)
 			if err != nil || response.GetEnd() != 3 || len(response.GetRanges()) != 1 || response.GetRanges()[0].GetLoc().GetKey() != "seg/0" {
 				t.Fatalf("lookup after commit: %v %v", err, response)
 			}
@@ -344,7 +344,7 @@ func partitionsMatch(t *testing.T, c *client, a *acks) error {
 		var next int64
 		for range len(runs) + 1 { // every call returns at least one range, or the end
 
-			response, err := c.lookup(t, p.topic, p.partition, next)
+			response, err := c.findSegments(t, p.topic, p.partition, next)
 			if err != nil {
 				return err
 			}

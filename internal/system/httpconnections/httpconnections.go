@@ -20,7 +20,7 @@ import (
 
 const (
 	// PerHost is MaxIdleConnsPerHost: at least the peak concurrency to one
-	// host (S3 PUT/GET fan-out per broker, CP Lookup storm).
+	// host (S3 PUT/GET fan-out per broker, CP FindSegments storm).
 	PerHost = 256
 	// MaxPerHost caps open connections (idle and busy) to one host; more
 	// requests queue instead of dialing without bound.
