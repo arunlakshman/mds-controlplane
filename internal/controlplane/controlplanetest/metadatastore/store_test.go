@@ -78,9 +78,14 @@ func TestGroupOperations(t *testing.T) {
 	}
 }
 
+// unknownOp is an operation that no module knows.
+type unknownOp struct{}
+
+func (unknownOp) IsControlPlaneOperation() {}
+
 func TestUnknownOperationAndCancelledContext(t *testing.T) {
 	s := newStore()
-	if d, err := s.Exec(t.Context(), contract.GroupJoin{}); err != nil || d.Err != runtime.ErrInvalid {
+	if d, err := s.Exec(t.Context(), unknownOp{}); err != nil || d.Err != runtime.ErrInvalid {
 		t.Fatalf("unknown operation: %+v %v", d, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())

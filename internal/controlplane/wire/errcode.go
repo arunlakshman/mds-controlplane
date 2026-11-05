@@ -1,17 +1,16 @@
-package controlplanetest
+package wire
 
 import (
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// The test client reads error codes from the wire. The topic requests and answers
-// are converted by the generated package wire, like in the server.
-
 // errCodePairs is the one list that ties each runtime error code to its wire code.
-// The test client reads the wire to core direction. To add a code, add one line here, plus the new
+// Both directions read it. To add a code, add one line here, plus the new
 // constant in runtime and the new value in the proto enum. TestErrCodeTableIsComplete
-// fails if a code is missing.
+// fails if a code is missing. The names of the two sides differ (ErrTimeout and
+// ERR_CODE_TIMEOUT), so this table is the one thing that is not derived from the
+// .proto.
 var errCodePairs = [...]struct {
 	core runtime.ErrCode
 	wire cpv1.ErrCode
@@ -34,12 +33,22 @@ var errCodePairs = [...]struct {
 	{runtime.ErrTopicExists, cpv1.ErrCode_ERR_CODE_TOPIC_EXISTS},
 }
 
-// toCoreErr maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
-func toCoreErr(c cpv1.ErrCode) runtime.ErrCode {
+// ErrCodeToCore maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
+func ErrCodeToCore(c cpv1.ErrCode) runtime.ErrCode {
 	for _, pair := range errCodePairs {
 		if pair.wire == c {
 			return pair.core
 		}
 	}
 	return runtime.ErrIO
+}
+
+// ErrCodeFromCore maps runtime.ErrCode to the wire enum. Unknown values become ERR_CODE_IO.
+func ErrCodeFromCore(c runtime.ErrCode) cpv1.ErrCode {
+	for _, pair := range errCodePairs {
+		if pair.core == c {
+			return pair.wire
+		}
+	}
+	return cpv1.ErrCode_ERR_CODE_IO
 }

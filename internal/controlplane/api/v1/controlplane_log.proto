@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package controlplane.v1;
 
+import "v1/controlplane.proto";
+
 option go_package = "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1;controlplanev1";
 
 // The messages in this file are internal. They describe the group operations
@@ -78,4 +80,54 @@ message LogDescribeGroupResponse {
   int32 assigned_generation = 6;
   string state = 7;
   repeated LogGroupMemberInfo members = 8;
+}
+
+// LogPartitionOffset is one committed offset of a group.
+message LogPartitionOffset {
+  TopicPartition tp = 1;
+  int64 offset = 2;
+  int32 leader_epoch = 3;
+  string metadata = 4;
+}
+
+// LogOffsetCommit stores committed offsets for a group. The wire request has no
+// time; the server sets time_ms when it logs the command.
+message LogOffsetCommit {
+  string group = 1;
+  string member = 2;
+  int32 generation = 3;
+  int64 time_ms = 4;
+  repeated LogPartitionOffset offsets = 5;
+}
+
+// LogOffsetCommitResponse has one error code per request offset. The codes are
+// runtime error codes (the wire message carries them as an enum).
+message LogOffsetCommitResponse {
+  repeated int32 errs = 1;
+}
+
+// LogOffsetFetch reads committed offsets of a group.
+message LogOffsetFetch {
+  string group = 1;
+  repeated TopicPartition partitions = 2;
+}
+
+// LogOffsetFetchResponse has one entry per partition asked.
+message LogOffsetFetchResponse {
+  repeated LogPartitionOffset offsets = 1;
+}
+
+// LogListGroups lists every group that was ever installed.
+message LogListGroups {}
+
+// LogGroupSummary is one line of the answer of ListGroups.
+message LogGroupSummary {
+  string name = 1;
+  string protocol_type = 2;
+  string state = 3;
+}
+
+// LogListGroupsResponse answers LogListGroups.
+message LogListGroupsResponse {
+  repeated LogGroupSummary groups = 1;
 }

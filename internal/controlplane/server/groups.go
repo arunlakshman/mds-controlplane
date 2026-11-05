@@ -196,13 +196,15 @@ var (
 	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
 		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, syncGroupRespFromCore}
 	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.GroupOffsetCommitResponse]{
-		(*groups.Coordinator).OffsetCommit, groupOutcome, offsetCommitRespFromCore}
+		(*groups.Coordinator).OffsetCommit, groupOutcome, wire.GroupOffsetCommitResponseFromCore}
 	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.GroupOffsetFetchResponse]{
-		(*groups.Coordinator).OffsetFetch, notApplied, offsetFetchRespFromCore}
+		(*groups.Coordinator).OffsetFetch, notApplied, wire.GroupOffsetFetchResponseFromCore}
 	groupList = groupCodeCall[struct{}, []contract.GroupSummary, *cpv1.ListGroupsResponse]{
 		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]contract.GroupSummary, runtime.ErrCode) {
 			return c.ListGroups(ctx)
-		}, notApplied, listGroupsRespFromCore}
+		}, notApplied, func(g []contract.GroupSummary) *cpv1.ListGroupsResponse {
+			return wire.ListGroupsResponseFromCore(contract.ListGroupsResp{Groups: g})
+		}}
 )
 
 // notApplied is the outcome of a failed read.
@@ -241,12 +243,12 @@ func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) 
 
 // GroupOffsetCommit implements ControlPlane. The answer has one code per partition.
 func (n *Node) GroupOffsetCommit(ctx context.Context, request *cpv1.GroupOffsetCommitRequest) (*cpv1.GroupOffsetCommitResponse, error) {
-	return groupOffsetCommit.run(ctx, n, offsetCommitToCore(request))
+	return groupOffsetCommit.run(ctx, n, wire.GroupOffsetCommitRequestToCore(request))
 }
 
 // GroupOffsetFetch implements ControlPlane.
 func (n *Node) GroupOffsetFetch(ctx context.Context, request *cpv1.GroupOffsetFetchRequest) (*cpv1.GroupOffsetFetchResponse, error) {
-	return groupOffsetFetch.run(ctx, n, offsetFetchToCore(request))
+	return groupOffsetFetch.run(ctx, n, wire.GroupOffsetFetchRequestToCore(request))
 }
 
 // DescribeGroups implements ControlPlane. Any group that fails fails the call.
@@ -329,45 +331,7 @@ func leaveGroupToCore(request *cpv1.LeaveGroupRequest) groups.LeaveReq {
 
 // leaveGroupRespFromCore builds a LeaveGroupResponse from one code per member.
 func leaveGroupRespFromCore(errs []runtime.ErrCode) *cpv1.LeaveGroupResponse {
-	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, fromCoreErr)}
-}
-
-// offsetCommitToCore rebuilds a commit from a request. TimeMs is set by the coordinator.
-func offsetCommitToCore(request *cpv1.GroupOffsetCommitRequest) contract.OffsetCommit {
-	return contract.OffsetCommit{
-		Group: request.GetGroup(), Member: request.GetMemberId(), Generation: request.GetGeneration(),
-		Offsets: mapSlice(request.GetOffsets(), partitionOffsetCommitToCore),
-	}
-}
-
-// offsetCommitRespFromCore builds a GroupOffsetCommitResponse from one code per partition.
-func offsetCommitRespFromCore(r contract.OffsetCommitResp) *cpv1.GroupOffsetCommitResponse {
-	return &cpv1.GroupOffsetCommitResponse{Errs: mapSlice(r.Errs, fromCoreErr)}
-}
-
-// offsetFetchToCore rebuilds an offset fetch from a request.
-func offsetFetchToCore(request *cpv1.GroupOffsetFetchRequest) contract.OffsetFetch {
-	return contract.OffsetFetch{
-		Group:      request.GetGroup(),
-		Partitions: mapSlice(request.GetPartitions(), wire.TopicPartitionToCore),
-	}
-}
-
-// offsetFetchRespFromCore builds a GroupOffsetFetchResponse.
-func offsetFetchRespFromCore(r contract.OffsetFetchResp) *cpv1.GroupOffsetFetchResponse {
-	return &cpv1.GroupOffsetFetchResponse{Offsets: mapSlice(r.Offsets, partitionOffsetFromCore)}
-}
-
-func partitionOffsetCommitToCore(o *cpv1.PartitionOffsetCommit) contract.PartitionOffset {
-	return contract.PartitionOffset{
-		TopicPartition: wire.TopicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
-	}
-}
-
-func partitionOffsetToCore(o *cpv1.PartitionOffset) contract.PartitionOffset {
-	return contract.PartitionOffset{
-		TopicPartition: wire.TopicPartitionToCore(o.GetTp()), Offset: o.GetOffset(), LeaderEpoch: o.GetLeaderEpoch(), Metadata: o.GetMetadata(),
-	}
+	return &cpv1.LeaveGroupResponse{Errs: mapSlice(errs, wire.ErrCodeFromCore)}
 }
 
 // describeGroupsToCore rebuilds the group names of a request.
@@ -392,18 +356,5 @@ func groupDescriptionFromCore(g groups.GroupDescription) *cpv1.GroupDescription 
 				Metadata: m.Metadata, Assignment: m.Assignment,
 			}
 		}),
-	}
-}
-
-// listGroupsRespFromCore builds a ListGroupsResponse.
-func listGroupsRespFromCore(groups []contract.GroupSummary) *cpv1.ListGroupsResponse {
-	return &cpv1.ListGroupsResponse{Groups: mapSlice(groups, func(g contract.GroupSummary) *cpv1.GroupSummary {
-		return &cpv1.GroupSummary{Name: g.Name, ProtocolType: g.ProtocolType, State: g.State}
-	})}
-}
-
-func partitionOffsetFromCore(o contract.PartitionOffset) *cpv1.PartitionOffset {
-	return &cpv1.PartitionOffset{
-		Tp: wire.TopicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
 	}
 }

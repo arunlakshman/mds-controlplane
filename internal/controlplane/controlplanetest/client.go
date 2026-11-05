@@ -130,7 +130,7 @@ func convert(name string, err error) error {
 	}
 	for _, d := range st.Details() {
 		if ed, ok := d.(*cpv1.ErrorDetail); ok {
-			return &Error{Code: toCoreErr(ed.Code)}
+			return &Error{Code: wire.ErrCodeToCore(ed.Code)}
 		}
 	}
 	switch st.Code() {

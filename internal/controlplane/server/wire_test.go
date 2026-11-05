@@ -4,7 +4,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/v1"
@@ -77,41 +76,7 @@ func leaveGroupFromCore(r groups.LeaveReq) *cpv1.LeaveGroupRequest {
 
 // leaveGroupRespToCore rebuilds the codes of a leave answer.
 func leaveGroupRespToCore(r *cpv1.LeaveGroupResponse) []runtime.ErrCode {
-	return mapSlice(r.GetErrs(), toCoreErr)
-}
-
-// offsetCommitFromCore builds a GroupOffsetCommitRequest from a commit.
-func offsetCommitFromCore(operation contract.OffsetCommit) *cpv1.GroupOffsetCommitRequest {
-	return &cpv1.GroupOffsetCommitRequest{
-		Group: operation.Group, MemberId: operation.Member, Generation: operation.Generation,
-		Offsets: mapSlice(operation.Offsets, partitionOffsetCommitFromCore),
-	}
-}
-
-// offsetCommitRespToCore rebuilds the codes of a commit answer.
-func offsetCommitRespToCore(r *cpv1.GroupOffsetCommitResponse) contract.OffsetCommitResp {
-	return contract.OffsetCommitResp{Errs: mapSlice(r.GetErrs(), toCoreErr)}
-}
-
-// offsetFetchFromCore builds a GroupOffsetFetchRequest.
-func offsetFetchFromCore(operation contract.OffsetFetch) *cpv1.GroupOffsetFetchRequest {
-	return &cpv1.GroupOffsetFetchRequest{
-		Group:      operation.Group,
-		Partitions: mapSlice(operation.Partitions, wire.TopicPartitionFromCore),
-	}
-}
-
-// offsetFetchRespToCore rebuilds an offset fetch answer.
-func offsetFetchRespToCore(r *cpv1.GroupOffsetFetchResponse) contract.OffsetFetchResp {
-	return contract.OffsetFetchResp{Offsets: mapSlice(r.GetOffsets(), partitionOffsetToCore)}
-}
-
-// The commit request and the fetch answer carry the same fields in two wire
-// types, PartitionOffsetCommit and PartitionOffset.
-func partitionOffsetCommitFromCore(o contract.PartitionOffset) *cpv1.PartitionOffsetCommit {
-	return &cpv1.PartitionOffsetCommit{
-		Tp: wire.TopicPartitionFromCore(o.TopicPartition), Offset: o.Offset, LeaderEpoch: o.LeaderEpoch, Metadata: o.Metadata,
-	}
+	return mapSlice(r.GetErrs(), wire.ErrCodeToCore)
 }
 
 // describeGroupsFromCore builds a DescribeGroupsRequest from group names.
@@ -148,23 +113,6 @@ func groupDescriptionToCore(d *cpv1.GroupDescription) groups.GroupDescription {
 	}
 }
 
-// listGroupsRespToCore rebuilds the group list from a response.
-func listGroupsRespToCore(r *cpv1.ListGroupsResponse) []contract.GroupSummary {
-	return mapSlice(r.GetGroups(), func(g *cpv1.GroupSummary) contract.GroupSummary {
-		return contract.GroupSummary{Name: g.GetName(), ProtocolType: g.GetProtocolType(), State: g.GetState()}
-	})
-}
-
-// toCoreErr maps a wire ErrCode to runtime.ErrCode. Unknown values become ErrIO.
-func toCoreErr(c cpv1.ErrCode) runtime.ErrCode {
-	for _, pair := range errCodePairs {
-		if pair.wire == c {
-			return pair.core
-		}
-	}
-	return runtime.ErrIO
-}
-
 // toCoreOutcome maps a wire Outcome to runtime.Outcome. Unknown values become NotApplied.
 func toCoreOutcome(o cpv1.Outcome) runtime.Outcome {
 	switch o {
@@ -185,7 +133,7 @@ func TestErrOutcomeMaps(t *testing.T) {
 		runtime.ErrUnknownMember, runtime.ErrIllegalGeneration, runtime.ErrUnknownPartition,
 		runtime.ErrRebalanceInProgress, runtime.ErrInconsistentGroupProtocol, runtime.ErrTopicExists,
 	} {
-		if toCoreErr(fromCoreErr(c)) != c {
+		if wire.ErrCodeToCore(wire.ErrCodeFromCore(c)) != c {
 			t.Fatalf("err %v", c)
 		}
 	}
@@ -231,13 +179,13 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 			{TopicPartition: contract.NewTopicPartition("t", 1), Offset: 10},
 		},
 	}
-	sameValue(t, "offset commit", offsetCommitToCore(offsetCommitFromCore(commit)), commit)
+	sameValue(t, "offset commit", wire.GroupOffsetCommitRequestToCore(wire.GroupOffsetCommitRequestFromCore(commit)), commit)
 
 	fetch := contract.OffsetFetch{
 		Group:      "g",
 		Partitions: []contract.TopicPartition{contract.NewTopicPartition("t", 0), contract.NewTopicPartition("u", 7)},
 	}
-	sameValue(t, "offset fetch", offsetFetchToCore(offsetFetchFromCore(fetch)), fetch)
+	sameValue(t, "offset fetch", wire.GroupOffsetFetchRequestToCore(wire.GroupOffsetFetchRequestFromCore(fetch)), fetch)
 
 	names := []string{"a", "b"}
 	sameValue(t, "describe groups", describeGroupsToCore(describeGroupsFromCore(names)), names)
@@ -257,12 +205,12 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	sameValue(t, "leave resp", leaveGroupRespToCore(leaveGroupRespFromCore(codes)), codes)
 
 	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrIllegalGeneration}}
-	sameValue(t, "offset commit resp", offsetCommitRespToCore(offsetCommitRespFromCore(commit)), commit)
+	sameValue(t, "offset commit resp", wire.GroupOffsetCommitResponseToCore(wire.GroupOffsetCommitResponseFromCore(commit)), commit)
 
 	fetch := contract.OffsetFetchResp{Offsets: []contract.PartitionOffset{
 		{TopicPartition: contract.NewTopicPartition("t", 2), Offset: 5, LeaderEpoch: 1, Metadata: "m"},
 	}}
-	sameValue(t, "offset fetch resp", offsetFetchRespToCore(offsetFetchRespFromCore(fetch)), fetch)
+	sameValue(t, "offset fetch resp", wire.GroupOffsetFetchResponseToCore(wire.GroupOffsetFetchResponseFromCore(fetch)), fetch)
 
 	described := []groups.GroupDescription{{
 		Name: "g",
@@ -281,7 +229,7 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	sameValue(t, "describe groups resp", describeGroupsRespToCore(describeGroupsRespFromCore(described)), described)
 
 	listed := []contract.GroupSummary{{Name: "g", ProtocolType: "consumer", State: "Stable"}}
-	sameValue(t, "list groups resp", listGroupsRespToCore(listGroupsRespFromCore(listed)), listed)
+	sameValue(t, "list groups resp", wire.ListGroupsResponseToCore(wire.ListGroupsResponseFromCore(contract.ListGroupsResp{Groups: listed})).Groups, listed)
 }
 
 func TestBrokerHeartbeatRoundTrip(t *testing.T) {
@@ -305,24 +253,4 @@ func TestNilAndEmptyInputs(t *testing.T) {
 	// A batch with missing parts keeps its place and gets zero values.
 	got := wire.CommitSegmentRequestToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*cpv1.PendingBatch{{Records: 2}}})
 	sameValue(t, "partial batch", got, contract.CommitSegment{SegmentKey: "k", Batches: []contract.PendingBatch{{Records: 2}}})
-}
-
-// Every wire code must map to a runtime code and back, so a new code cannot be forgotten on one side.
-func TestErrCodeTableIsComplete(t *testing.T) {
-	for number, name := range cpv1.ErrCode_name {
-		wire := cpv1.ErrCode(number)
-		if back := fromCoreErr(toCoreErr(wire)); back != wire {
-			t.Errorf("wire code %s comes back as %s", name, back)
-		}
-	}
-	for code := runtime.OK; code <= runtime.ErrTopicExists; code++ {
-		if strings.HasPrefix(code.String(), "ErrCode(") {
-			continue // a retired number
-		}
-		if back := toCoreErr(fromCoreErr(code)); back != code {
-			t.Errorf("core code %s comes back as %s", code, back)
-		}
-	}
-	sameValue(t, "unknown wire code", toCoreErr(cpv1.ErrCode(9999)), runtime.ErrIO)
-	sameValue(t, "unknown core code", fromCoreErr(runtime.ErrCode(9999)), cpv1.ErrCode_ERR_CODE_IO)
 }

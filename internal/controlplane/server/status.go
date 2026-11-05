@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -34,7 +35,7 @@ func toRPCError(code runtime.ErrCode, outcome runtime.Outcome) error {
 		return nil
 	}
 	detail := &cpv1.ErrorDetail{
-		Code:    fromCoreErr(code),
+		Code:    wire.ErrCodeFromCore(code),
 		Outcome: fromCoreOutcome(outcome),
 	}
 	s, err := status.New(st, code.String()).WithDetails(detail)
