@@ -86,3 +86,4 @@ T2.1 | done | cherry-picked 7bd9a27,36f7a2f | make build green, make it green (~
 - T1.10 merged (RE-PIN done). New baseline hashes (300 seeds): basic da8028bc, log-faults bc9f0863, crash-restart 23603524, leader-fencing 67c48ce5, chaos ba61ad2c. P1 gate: build ok, mutants 8/8 ok, race running, campaign next.
 - P1 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 seeds (build/p1-*.txt). P1 complete. Starting T2.1 (serial, sonnet).
 - T2.1 merged; make build + make it green on merged tree. Next: Group D T2.2 (dynamolog), T2.3 (sqllog), T2.4 (s3store) in parallel.
+- USER INSTRUCTION (during T2.4): use the SeaweedFS image for S3 tests instead of MinIO (bitnamilegacy/minio was unmaintained anyway). T2.4 agent told to change internal/testinfra/s3.go + smoke test. Supersedes the MinIO wording in plan T2.1/T2.4 (plan text not edited).
