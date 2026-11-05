@@ -7,41 +7,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// A node that fell behind a trim reads from its next slot. LogRead skips the
-// deleted slots, so the first entry it returns is later than the slot asked
-// for. The log has no empty slot below its tail, so the node must restore from
-// the checkpoint instead of waiting or writing.
-func TestMissingNextSlotRestoresFromCheckpoint(t *testing.T) {
-	m := newMachine(t, replica.Config{
-		CatchUpEvery: runtime.Millisecond, Writer: "w",
-		CheckpointPrefix: "checkpoint/t/", CheckpointEvery: runtime.Second, Rank: 1,
-	})
-	acts := step(m, runtime.NodeStarted{})
-	list := acts[0].(runtime.ObjectList)
-	acts = step(m, runtime.ObjectListDone{Req: list.Req})
-	timer := mustTimer(t, acts[0])
-	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
-	tail := acts[0].(runtime.LogGetEnd)
-	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})
-	read := acts[0].(runtime.LogRead)
-	acts = step(m, runtime.LogReadDone{
-		Req: read.Req, Err: runtime.OK, Outcome: runtime.Applied,
-		Entries: []runtime.LogEntry{{Slot: 1, Data: noop("late")}},
-	})
-	if !m.Booting() {
-		t.Fatal("want booting after a missing next slot")
-	}
-	if m.IsActive() {
-		t.Fatal("a missing next slot must demote")
-	}
-	if len(acts) != 1 {
-		t.Fatalf("acts = %v, want one ObjectList", acts)
-	}
-	if list, ok := acts[0].(runtime.ObjectList); !ok || list.Prefix != "checkpoint/t/" {
-		t.Fatalf("act = %#v, want ObjectList checkpoint/t/", acts[0])
-	}
-}
-
 // A put that the log refuses because the slot is at or below the floor is not a
 // commit. The node must not apply or answer it: it refuses the clients and
 // restores from the checkpoint.

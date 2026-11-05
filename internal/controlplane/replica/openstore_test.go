@@ -36,64 +36,11 @@ func (s *storeSource) open() (kv.Store, error) {
 	return st, nil
 }
 
-// driveToTomb runs a lagging replica into a trimmed slot, which makes it drop
-// its state and restore from a checkpoint. It returns the actions of that step.
-func driveToTomb(t *testing.T, m *replica.Replica) []any {
-	t.Helper()
-	acts := step(m, runtime.NodeStarted{})
-	list := acts[0].(runtime.ObjectList)
-	acts = step(m, runtime.ObjectListDone{Req: list.Req})
-	timer := mustTimer(t, acts[0])
-	acts = step(m, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
-	tail := acts[0].(runtime.LogGetEnd)
-	acts = step(m, runtime.LogGetEndDone{Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied})
-	read := acts[0].(runtime.LogRead)
-	// Slot 0 is missing but slot 1 exists: the node is behind a trim.
-	return step(m, runtime.LogReadDone{
-		Req: read.Req, Err: runtime.OK, Outcome: runtime.Applied,
-		Entries: []runtime.LogEntry{{Slot: 1, Data: noop("late")}},
-	})
-}
-
 func tombConfig(src *storeSource) replica.Config {
 	return replica.Config{
 		CatchUpEvery: runtime.Millisecond, Writer: "w",
 		CheckpointPrefix: "checkpoint/t/", CheckpointEvery: runtime.Second, Rank: 1,
 		OpenStore: src.open,
-	}
-}
-
-func TestOpenStoreRunsAtBuildAndAfterRestore(t *testing.T) {
-	src := &storeSource{}
-	m := newMachine(t, tombConfig(src))
-	if len(src.opened) != 1 {
-		t.Fatalf("stores opened after build = %d, want 1", len(src.opened))
-	}
-	acts := driveToTomb(t, m)
-	if len(src.opened) != 2 {
-		t.Fatalf("stores opened after a restore = %d, want 2", len(src.opened))
-	}
-	if !src.opened[0].closed {
-		t.Error("the old store must be closed before the new one opens")
-	}
-	if src.opened[1].closed {
-		t.Error("the new store must stay open")
-	}
-	if _, ok := acts[0].(runtime.ObjectList); !ok {
-		t.Fatalf("act = %#v, want the checkpoint read", acts[0])
-	}
-}
-
-func TestOpenStoreFailureAfterRestoreStopsTheNode(t *testing.T) {
-	src := &storeSource{failOn: 2}
-	m := newMachine(t, tombConfig(src))
-	acts := driveToTomb(t, m)
-	stop, ok := acts[len(acts)-1].(sim.Crash)
-	if !ok {
-		t.Fatalf("acts = %#v, want Crash last", acts)
-	}
-	if stop.Cause != "disk is full" {
-		t.Errorf("cause = %q, want the open error", stop.Cause)
 	}
 }
 

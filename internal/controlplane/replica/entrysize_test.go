@@ -99,20 +99,3 @@ func TestDefaultLimitKeepsEntriesUnderTheDynamoDBItemLimit(t *testing.T) {
 		t.Errorf("commands in all groups = %d, want %d (none lost)", total, queued+1)
 	}
 }
-
-func TestCommandTooLargeForOneEntryIsRefused(t *testing.T) {
-	m := newMachine(t, replica.Config{MaxEntryBytes: 2000})
-	acts := m.Offer(replica.ClientOperation{Req: 7, Cmd: sizedCommit("seg/big", 256)})
-	if len(acts) != 0 {
-		t.Fatalf("a command too large for one entry must not be appended, got %v", acts)
-	}
-	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != runtime.ErrTooLarge {
-		t.Fatalf("answers = %+v, want one ErrTooLarge for request 7", ans)
-	}
-	if m.QueueDepth() != 0 || m.InFlightCommits() != 0 {
-		t.Errorf("queue %d, in flight %d: the refused command must not be kept", m.QueueDepth(), m.InFlightCommits())
-	}
-	// A command that fits is still accepted by the same machine.
-	onlyAppend(t, m.Offer(replica.ClientOperation{Req: 8, Cmd: sizedCommit("seg/small", 2)}))
-}

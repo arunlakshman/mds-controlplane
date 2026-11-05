@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/metadata"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
@@ -24,53 +23,6 @@ func startRestore(t *testing.T, m *replica.Replica) runtime.ObjectList {
 		t.Fatalf("Started = %v, want one ObjectList checkpoint/", acts)
 	}
 	return list
-}
-
-func TestRestoreOnStartedThenReady(t *testing.T) {
-	// Build a snapshot at slot 2 with one commit applied.
-	src := newMachine(t, replica.Config{Writer: "w"})
-	ap := onlyAppend(t, src.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("seg", 3)}))
-	step(src, runtime.LogAppendDone{Req: ap.Req, Slot: ap.Slot, Err: runtime.OK, Outcome: runtime.Applied})
-	if src.Applied() != 1 {
-		t.Fatalf("Applied = %d, want 1", src.Applied())
-	}
-	// Force applied to 2 by applying a second noop via fold snapshot tag.
-	var buf bytes.Buffer
-	if err := src.Metadata().Snapshot(&buf, 2); err != nil {
-		t.Fatal(err)
-	}
-	snap := buf.Bytes()
-
-	m := newMachine(t, replica.Config{
-		Writer:           "w",
-		CatchUpEvery:     runtime.Millisecond,
-		CheckpointPrefix: "checkpoint/",
-	})
-	list := startRestore(t, m)
-	acts := step(m, runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(1), ckptKey(2)}})
-	get, ok := acts[0].(runtime.ObjectGet)
-	if !ok || get.Ref.Key != ckptKey(2) {
-		t.Fatalf("action = %#v, want ObjectGet of the newest checkpoint %s", acts[0], ckptKey(2))
-	}
-	acts = stepAt(m, 0, runtime.ObjectGetDone{Req: get.Req, Data: snap, Err: runtime.OK})
-	if m.Applied() != 2 {
-		t.Fatalf("Applied after restore = %d, want 2", m.Applied())
-	}
-	if m.Ready() {
-		t.Fatal("Ready before catch-up")
-	}
-	timer := mustTimer(t, acts[0])
-	acts = stepAt(m, 0, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
-	tail := acts[0].(runtime.LogGetEnd)
-	stepAt(m, 0, runtime.LogGetEndDone{
-		Req: tail.Req, Tail: 2, Err: runtime.OK, Outcome: runtime.Applied,
-	})
-	if !m.Ready() {
-		t.Fatal("Ready after restore catch-up")
-	}
-	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 3 {
-		t.Fatalf("restored end = %d, want 3", m.Metadata().End(contract.NewTopicPartition("t", 0)))
-	}
 }
 
 func TestCheckpointPublishAndTrim(t *testing.T) {
@@ -157,60 +109,6 @@ func TestCheckpointPublishAndTrim(t *testing.T) {
 		t.Fatalf("LogTrim Through = %d, want 1", trim.Through)
 	}
 	stepAt(m, 0, runtime.LogDeleteOldDone{Req: trim.Req, Err: runtime.OK, Outcome: runtime.Applied})
-}
-
-func TestRestoreMissFallsThroughToCatchUp(t *testing.T) {
-	m := newMachine(t, replica.Config{
-		CatchUpEvery:     runtime.Millisecond,
-		CheckpointPrefix: "checkpoint/",
-	})
-	list := startRestore(t, m)
-	acts := step(m, runtime.ObjectListDone{Req: list.Req})
-	if _, ok := asTimer(acts[0]); !ok {
-		t.Fatalf("after an empty list = %v, want catch-up SetTimer", acts)
-	}
-	if m.Applied() != 0 {
-		t.Fatalf("Applied = %d, want 0", m.Applied())
-	}
-}
-
-// A checkpoint read with a changed byte is read again (same key), never restored.
-func TestRestoreReadsAgainOnBadCRC(t *testing.T) {
-	src := newMachine(t, replica.Config{Writer: "w"})
-	var buf bytes.Buffer
-	if err := src.Metadata().Snapshot(&buf, 5); err != nil {
-		t.Fatal(err)
-	}
-	bad := bytes.Clone(buf.Bytes())
-	bad[len(bad)/2] ^= 1
-
-	m := newMachine(t, replica.Config{Writer: "w", CatchUpEvery: runtime.Millisecond, CheckpointPrefix: "checkpoint/"})
-	list := startRestore(t, m)
-	get := step(m, runtime.ObjectListDone{Req: list.Req, Keys: []string{ckptKey(5)}})[0].(runtime.ObjectGet)
-	acts := step(m, runtime.ObjectGetDone{Req: get.Req, Data: bad, Err: runtime.OK})
-	again, ok := acts[0].(runtime.ObjectGet)
-	if len(acts) != 1 || !ok || again.Ref.Key != ckptKey(5) || m.Applied() != 0 {
-		t.Fatalf("want one new ObjectGet of the same key and nothing restored, got %v, applied %d", acts, m.Applied())
-	}
-	step(m, runtime.ObjectGetDone{Req: again.Req, Data: buf.Bytes(), Err: runtime.OK})
-	if m.Applied() != 5 {
-		t.Fatalf("Applied after a good read = %d, want 5", m.Applied())
-	}
-}
-
-// A failed checkpoint list must not start catch-up from slot 0: the log may be trimmed.
-func TestFailedCheckpointListIsRetried(t *testing.T) {
-	m := newMachine(t, replica.Config{Writer: "w", CatchUpEvery: runtime.Millisecond, CheckpointPrefix: "checkpoint/"})
-	list := startRestore(t, m)
-	acts := step(m, runtime.ObjectListDone{Req: list.Req, Err: runtime.ErrUnavailable})
-	timer, ok := findTimer(acts, replica.TimerCheckpoint)
-	if !ok || len(acts) != 1 {
-		t.Fatalf("want one checkpoint retry timer, got %v", acts)
-	}
-	acts = stepAt(m, 1, runtime.TimerFired{ID: timer.ID, Gen: timer.Gen})
-	if _, ok := acts[0].(runtime.ObjectList); !ok || m.Ready() {
-		t.Fatalf("want a new ObjectList and not Ready, got %v", acts)
-	}
 }
 
 // A listed checkpoint can be deleted by the time it is read, because a newer

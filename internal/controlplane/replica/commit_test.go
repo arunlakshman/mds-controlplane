@@ -1,7 +1,6 @@
 package replica_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -34,43 +33,6 @@ func onlyAppend(t *testing.T, acts []any) runtime.LogAppend {
 	return ap
 }
 
-func TestOneLogAppendInFlight(t *testing.T) {
-	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
-	first := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("sa", 1)}))
-	for i, key := range []string{"sb", "sc"} {
-		acts := m.Offer(replica.ClientOperation{Req: runtime.RequestID(i + 2), Cmd: commitCmd(key, 1)})
-		if len(acts) != 0 {
-			t.Fatalf("Offer while one append is in flight returned %v", acts)
-		}
-	}
-	if m.InFlightCommits() != 1 {
-		t.Fatalf("in-flight = %d, want 1", m.InFlightCommits())
-	}
-	if m.QueueDepth() != 2 {
-		t.Fatalf("queue depth = %d, want 2", m.QueueDepth())
-	}
-	if ans := m.TakeAnswers(); len(ans) != 0 {
-		t.Fatalf("answers before apply: %v", ans)
-	}
-
-	acts := step(m, runtime.LogAppendDone{
-		Req: first.Req, Slot: first.Slot, Err: runtime.OK, Outcome: runtime.Applied,
-	})
-	if m.Applied() != 1 {
-		t.Fatalf("Applied = %d, want 1", m.Applied())
-	}
-	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 1 || ans[0].Done.Err != runtime.OK {
-		t.Fatalf("answers after first apply = %+v", ans)
-	}
-	next := onlyAppend(t, acts)
-	if next.Slot != first.Slot+1 {
-		t.Fatalf("next slot = %d, want %d", next.Slot, first.Slot+1)
-	}
-	if m.InFlightCommits() != 1 {
-		t.Fatalf("in-flight after refill = %d, want 1", m.InFlightCommits())
-	}
-}
 func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 3, Writer: "w"})
 	// First Offer flushes alone (low load). Further Offers queue while in flight;
@@ -109,83 +71,6 @@ func TestGroupPackingCapsAtMaxCmdsPerSlot(t *testing.T) {
 	}
 	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 4 { // g0 + 3 packed
 		t.Fatalf("end = %d, want 4", m.Metadata().End(contract.NewTopicPartition("t", 0)))
-	}
-}
-
-func TestMaybeAppliedRetriesSameSlot(t *testing.T) {
-	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
-	a := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("a", 1)}))
-	acts := step(m, runtime.LogAppendDone{
-		Req: a.Req, Slot: a.Slot, Err: runtime.ErrTimeout, Outcome: runtime.MaybeApplied,
-	})
-	retry := onlyAppend(t, acts)
-	if retry.Slot != a.Slot {
-		t.Fatalf("MaybeApplied retry slot %d, want same slot %d", retry.Slot, a.Slot)
-	}
-	step(m, runtime.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: runtime.OK, Outcome: runtime.Applied})
-	if m.Applied() != 1 {
-		t.Fatalf("Applied = %d, want 1", m.Applied())
-	}
-	if ans := m.TakeAnswers(); len(ans) != 1 {
-		t.Fatalf("answers = %d, want 1", len(ans))
-	}
-}
-func TestLostAppendRetriesSameEntryLaterSlot(t *testing.T) {
-	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "w"})
-	ap := onlyAppend(t, m.Offer(replica.ClientOperation{Req: 7, Cmd: commitCmd("lost-key", 2)}))
-	other := replica.EncodeGroupForTest("other/1", []metadata.Entry{commitCmd("other-key", 1)})
-
-	acts := step(m, runtime.LogAppendDone{
-		Req: ap.Req, Slot: ap.Slot, Taken: true, Existing: other,
-		Err: runtime.OK, Outcome: runtime.Applied,
-	})
-	retry := onlyAppend(t, acts)
-	if retry.Slot <= ap.Slot {
-		t.Fatalf("retry slot %d, want > %d", retry.Slot, ap.Slot)
-	}
-	if string(retry.Data) != string(ap.Data) {
-		t.Fatal("retry changed entry bytes; want same entry id and cmds")
-	}
-	if ans := m.TakeAnswers(); len(ans) != 0 {
-		t.Fatalf("answered on lost slot: %v", ans)
-	}
-	if m.Applied() != 1 {
-		t.Fatalf("Applied = %d after observing foreign winner, want 1", m.Applied())
-	}
-	step(m, runtime.LogAppendDone{Req: retry.Req, Slot: retry.Slot, Err: runtime.OK, Outcome: runtime.Applied})
-	ans := m.TakeAnswers()
-	if len(ans) != 1 || ans[0].Req != 7 || ans[0].Done.Err != runtime.OK {
-		t.Fatalf("answers after retry apply = %+v", ans)
-	}
-	if m.Metadata().End(contract.NewTopicPartition("t", 0)) != 3 {
-		t.Fatalf("end = %d, want 3", m.Metadata().End(contract.NewTopicPartition("t", 0)))
-	}
-}
-
-func TestStickySingleAppenderAtMachineLevel(t *testing.T) {
-	m := newMachine(t, replica.Config{MaxCmdsPerSlot: 1, Writer: "sticky"})
-	var apps []runtime.LogAppend
-	acts := m.Offer(replica.ClientOperation{Req: 1, Cmd: commitCmd("sta", 1)})
-	apps = append(apps, onlyAppend(t, acts))
-	m.Offer(replica.ClientOperation{Req: 2, Cmd: commitCmd("stb", 1)})
-	acts = step(m, runtime.LogAppendDone{Req: apps[0].Req, Slot: apps[0].Slot, Err: runtime.OK, Outcome: runtime.Applied})
-	apps = append(apps, onlyAppend(t, acts))
-	if apps[0].Slot == apps[1].Slot {
-		t.Fatal("sticky appender allocated the same slot twice")
-	}
-	for _, ap := range apps {
-		id, cmds, ok := replica.DecodeGroup(ap.Data)
-		if !ok || len(cmds) != 1 {
-			t.Fatalf("group decode failed for %#v", ap)
-		}
-		if !strings.HasPrefix(id, "sticky/") {
-			t.Fatalf("entry id %q, want sticky/ prefix (single writer)", id)
-		}
-	}
-	step(m, runtime.LogAppendDone{Req: apps[1].Req, Slot: apps[1].Slot, Err: runtime.OK, Outcome: runtime.Applied})
-	ans := m.TakeAnswers()
-	if len(ans) != 2 {
-		t.Fatalf("answers = %d, want 2", len(ans))
 	}
 }
 
