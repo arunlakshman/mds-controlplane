@@ -30,8 +30,12 @@ T3.2 | done | cherry-picked aee78d3,1c2655c,3fef79b,cc235ba | merged tree: make 
 T3.3 | done | cherry-picked 95a60d7,9e23946 | merged tree: make build green, make mutants 8/8, golden unchanged; agent: vet -tags integration + make it green | metadb pruned: Exec, Command, CommitBatch, Commit, Lookup, Describe, CreateTopicIf, End, Window, Assigned, AssignState, OffsetOwner*, OffsetFetch, DescribeGroup, ListGroups, SnapshotAt, CreateEntry deleted; production +28/-165, tests +119/-93
 T4.1 | done | cherry-picked 2031464,c13557e,933a843,59d5aa0 | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent: make it green + fresh clone make build green; golden unchanged | api/controlplane/{shared/v1 (sharedv1), v1 (controlplanev1/cpv1), log/v1 (logv1)}; Log prefix dropped; PartitionOffset+GroupSummary merged into shared; log pkg has 0 grpc deps; wiregen adapted (duplicate short-name check)
 T4.2 | done | cherry-picked 571a32a,3a4be29,372d61a (commit trailer rewritten from Opus to Sonnet 5.5 per session rule) | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent: make it green + fresh clone make build green; golden unchanged | wiregen (536 lines) deleted; ops/tools/protoc-gen-mdswire (497+38 lines) + options.proto (6 options: no_converters, go_struct, go_existing, go_name, go_type, go_embed); run via `go run` from buf.gen.yaml
+T4.3 | done | cherry-picked 0d802bf,74b1bda,f241908,80bd5fe (trailer normalised to Sonnet 5.5) | merged tree: make build green, make mutants 8/8, vet -tags integration clean; agent: make it green, race x1 green; golden unchanged | RPC renames: Lookup->FindSegments, GroupHeartbeat->Heartbeat, GroupOffsetCommit->OffsetCommit, GroupOffsetFetch->OffsetFetch (+Request/Response); GroupDescription reshaped (GroupMemberJoin, GroupMemberInfo, GroupDetails new nested messages); server converters deleted (-200 lines), wire/rpcerror.go has OutcomeFromCore+ToRPCError
 
 ## Deferred items
+
+- T4.3: commit (b) 74b1bda alone does not build (fixed by (c)); history is not bisectable at that commit. GetStatus still builds cpv1.GetStatusResponse by hand in server (not a contract conversion; would need a contract type + uint64 support in plugin). Old design docs still say Lookup.
+- T4.3: wire API now nests group description (cost of mapping to contract).
 
 - T4.2: generated output same types/docs/bodies but NOT textual zero-diff: declarations now in proto file order (sorted-declaration diff IDENTICAL). Field comments not copied (would add docs). Some proto comments reworded to become Go docs.
 - T4.2: plugin run by `go run` (not make proto-tools) so it never goes stale. architecture_test.go edited: log pkg may import options/v1; options/v1 imports nothing of this module.
@@ -131,3 +135,4 @@ T4.2 | done | cherry-picked 571a32a,3a4be29,372d61a (commit trailer rewritten fr
 - P3 PHASE GATE GREEN: build, mutants 8/8, race x3, campaign 2000 (build/p3-*.txt); make it green per agents. P3 complete. Starting P4: T4.1 split proto files (serial, sonnet).
 - T4.1 merged. Next: T4.2 wiregen -> protoc plugin (serial, opus, higher).
 - T4.2 merged. Next: T4.3 clean up the API (sonnet).
+- T4.3 merged. P4 so far green. Next: T4.4 log entries in protobuf (opus, higher, RE-PIN, needs audit-go-dependency for protobuf in deterministic path; stop and ask if the audit finds a real problem).
