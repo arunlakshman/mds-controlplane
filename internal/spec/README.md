@@ -2,36 +2,58 @@
 
 `spec.ControlPlane` is a small program that gives the correct answer to every
 control plane operation (topics, segments, consumer groups). It keeps plain maps
-and slices, runs one operation at a time, and has no faults. It is about 1% of
-the code it checks. The idea is from the paper "Using Lightweight Formal Methods
-to Validate a Key-Value Storage Node in Amazon S3" (Bornholt et al., SOSP 2021).
+and slices, runs one operation at a time, and has no faults. It is a small
+part of the code it checks. The idea is from the paper "Using Lightweight Formal
+Methods to Validate a Key-Value Storage Node in Amazon S3" (Bornholt et al.,
+SOSP 2021).
+
+## The files
+
+- `spec.go`: the `Model` interface, `ControlPlane`, and the rules for topics
+  and segments.
+- `groups.go`: the rules for the logged half of consumer groups (`GroupInstall`,
+  `GroupAssign`, `GroupRemove`, `OffsetCommit`, `OffsetFetch`, describe, list).
+- `rebalance.go`: `spec.Rebalance`, the model of the classic group protocol
+  (join, sync, heartbeat, leave, timers, role changes). It holds a
+  `ControlPlane` as its `Store` for the logged half. The rules are in
+  `docs/rebalance.md`.
+- `spec_test.go`, `rebalance_test.go`: small examples of each rule.
+
+## The independence rule
+
+The model shares types with the code (`contract`, `runtime`), and never logic.
+It imports none of `domain`, `metadb`, `engine` or `replica`, and no program of
+the product imports it: `go list -deps ./cmd/mdscontrolplane` does not list it.
+A test that compared the code with itself would prove nothing. Only tests and
+the simulator import the model. The simulator reaches it through one file,
+`internal/verify/simulator/spec.go`.
 
 The model is deterministic: no clock, network, goroutines or files, and no map
-order reaches an answer. It is in the determinism gate (`make determinism`). Only
-tests and the simulator import it. `go list -deps ./cmd/mdscontrolplane` does
-not list it.
+order reaches an answer. It is in the determinism gate (`make determinism`).
 
 ```go
 m := spec.New()
 done := m.Apply(contract.CreateTopic{Name: "t", Partitions: 2}) // spec.Model
 ```
 
-The rules are in the comments of `spec.go` and `groups.go`. Small examples of
-each rule are in `spec_test.go`.
-
 ## The tests that use the model
 
-All of them are in `test/conformance` and use
+All of them are in `test/conformance` (the conformance tests). All but
+`TestGRPCRebalance` (a fixed script) use
 [rapid](https://pkg.go.dev/pgregory.net/rapid) (a test-only dependency). Each
-test gives `Run` a target: a few functions (`Exec`, and as many of `Reboot`,
+rapid test of the metadata kind gives `Run` a target: a few functions (`Exec`, and as many of `Reboot`,
 `DirtyReboot`, `Checkpoint` and `Inject` as the target has). The harness is in
-`harness_test.go`, the operations that rapid draws are in `ops_test.go`.
+`harness_test.go`, the operations that rapid draws are in `ops_test.go`. The
+rebalance tests have their own world and steps (`rebalance_test.go`,
+`grpc_rebalance_test.go`), because that model also has time and calls that wait.
 
 | Test | What it checks |
 |---|---|
-| `TestMetadataMemory`, `TestMetadataPebble` | The metadata store, on the memory engine and on Pebble, answers like the model. A reboot writes a checkpoint and restores from it (memory), or closes and opens the engine again (Pebble). |
+| `TestMetadataMemory`, `TestMetadataPebble` | metadb, on the memory engine and on Pebble, answers like the model. A reboot writes a checkpoint and restores from it (memory), or closes and opens the engine again (Pebble). |
 | `TestReplica` | The real replica in one process (in-memory log and object store). Clean restarts, crashes and checkpoints in the middle, with and without log trim, with and without injected storage failures. |
 | `TestGRPC` | The real gRPC stack: client, server, replica, on a trimmed log. Crashes, checkpoints and injected failures, with no clean restart (the replica test has it). The wire API has only some of the group operations, so the target leaves out the others (`Target.Lacks`). |
+| `TestRebalanceMachine` | The rebalance machine (`domain/rebalance`) against `spec.Rebalance`, with timers, failed writes, role changes and abandoned calls. |
+| `TestGRPCRebalance` | The real gRPC group handlers (the node hosts the machine) against `spec.Rebalance`, in a fixed script. |
 | `TestDouble*` | Two known faults of the environment: a crash that loses answered writes, and "no data" after a failure. Each test wraps the replica target with the fault and checks that `Run` FAILS. |
 
 The bugs in the code itself are not tests of this kind. They are the mutants of
@@ -84,7 +106,7 @@ Rapid runs 100 checks by default. Some slow tests run fewer. A number that you
 give with a flag is used for all of them.
 
 ```sh
-make spec-long                                     # 2000 checks of each test
+make spec-long                                     # 2000 checks of each test (timeout 60 min)
 go test ./test/conformance -run TestReplica \
     -rapid.checks=500 -rapid.steps=40              # more checks, longer lists
 ```
