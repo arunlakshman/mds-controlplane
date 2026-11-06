@@ -14,7 +14,7 @@ import (
 )
 
 // faultTransport wraps the transport of the HTTP client that the S3 SDK uses.
-// Every request goes to MinIO, unless the function given to set answers it.
+// Every request goes to SeaweedFS, unless the function given to set answers it.
 type faultTransport struct {
 	base   http.RoundTripper
 	calls  atomic.Int64
@@ -22,7 +22,7 @@ type faultTransport struct {
 }
 
 // RoundTrip counts the request, then lets the injected function answer it, or
-// passes it to MinIO when there is none or it returns nil, nil.
+// passes it to SeaweedFS when there is none or it returns nil, nil.
 func (f *faultTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.calls.Add(1)
 	if p := f.inject.Load(); p != nil {
@@ -54,8 +54,8 @@ func s3ErrorResponse(r *http.Request, status int, code string) *http.Response {
 	}
 }
 
-// newTestStore returns a store on a fresh MinIO bucket. Its HTTP client goes
-// through the returned faultTransport, which passes everything to MinIO until
+// newTestStore returns a store on a fresh SeaweedFS bucket. Its HTTP client goes
+// through the returned faultTransport, which passes everything to SeaweedFS until
 // a test calls set.
 func newTestStore(t *testing.T, prefix string) (*Store, *faultTransport, testinfra.S3Info) {
 	t.Helper()

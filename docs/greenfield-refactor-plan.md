@@ -320,7 +320,7 @@ audit record. Gate: `build`, `campaign`, phase gate for P1.
 `go.sum`, `Makefile`. All files have the `integration` build tag.
 `testinfra.DynamoDB(t)`, `Postgres(t)` and `S3(t)`, each with one shared container per test package and a
 fresh table, schema or bucket per test. Pin image versions (`amazon/dynamodb-local`, the Postgres image
-the Makefile pins today, MinIO). Add `make it`: `go test -tags integration ./...`, which fails when Docker
+the Makefile pinned, SeaweedFS for S3). Add `make it`: `go test -tags integration ./...`, which fails when Docker
 is off. Check that `go list -deps ./cmd/mdscontrolplane` does not list testcontainers.
 Gate: `build`, `it` (needs Docker; if off, see rule 5).
 
@@ -333,7 +333,7 @@ Run `dynamolog_test`, `table_test` and `logtest.Run` on DynamoDB Local under the
 the `MDS_TEST_POSTGRES_DSN` skips in this package. Gate: `build`, `it`.
 
 **T2.4 S3.** Needs: T2.1. Group D. Model: sonnet. Touch: `internal/system/s3store/*_test.go`.
-Delete `fakes3_test.go`. Run the tests on MinIO under the tag. Inject failures with a wrapper on the
+Delete `fakes3_test.go`. Run the tests on SeaweedFS under the tag. Inject failures with a wrapper on the
 HTTP client given to the S3 SDK, not with a fake server. `classify_test` needs no server and stays in the
 normal build. Gate: `build`, `it`.
 

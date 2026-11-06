@@ -13,7 +13,7 @@ import (
 )
 
 // The rules of the object store, as a table of steps. The same table runs on the
-// S3 adapter over MinIO (see TestObjectRulesS3). The steps run in order on one
+// S3 adapter over SeaweedFS (see TestObjectRulesS3). The steps run in order on one
 // store.
 //
 //	Put     An empty key is ErrInvalid. Else the object is stored, and it
@@ -108,7 +108,7 @@ func codeOf(err error) runtime.ErrCode {
 	return runtime.ErrIO
 }
 
-// TestObjectRulesS3 runs the rules on MinIO, in a bucket of its own.
+// TestObjectRulesS3 runs the rules on SeaweedFS, in a bucket of its own.
 func TestObjectRulesS3(t *testing.T) {
 	s, _, _ := newTestStore(t, "rules/")
 	runRules(t, s)
