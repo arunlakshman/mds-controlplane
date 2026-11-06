@@ -11,7 +11,7 @@ require (
 	github.com/aws/smithy-go v1.28.5
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/jackc/pgx/v5 v5.12.0
-	github.com/manifesterio/dst v0.3.0
+	github.com/manifesterio/dst v0.0.0-20261106132358-bc02a6279445
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
 	github.com/testcontainers/testcontainers-go v0.44.0
@@ -20,9 +20,6 @@ require (
 	google.golang.org/protobuf v1.35.2
 	pgregory.net/rapid v1.3.0
 )
-
-// TEMPORARY: drop this replace once github.com/manifesterio/dst is pushed and v0.1.0 is published.
-replace github.com/manifesterio/dst => /Users/arun.lakshman/tmp/dst
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
