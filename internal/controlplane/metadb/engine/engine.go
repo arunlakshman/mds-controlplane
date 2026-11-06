@@ -1,6 +1,7 @@
 // Package engine is the small ordered key-value seam under the control-plane
 // metadata: a read transaction, an atomic write transaction, nothing else. It
-// has an in-memory store here and a Pebble-backed store in engine/pebble.
+// has an in-memory store in engine/memory and a Pebble-backed store in
+// engine/pebble.
 package engine
 
 import "bytes"

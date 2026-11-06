@@ -1,87 +1,103 @@
-// Package controlplane is the control-plane service tree (renamed from cp/).
-// Production mdscontrolplane serves gRPC via controlplane/server over internal/system/live
-// and controlplane/replica (CP-DSM-7). Brokers dial the gRPC API (api/controlplane/v1) with their own client.
+// Package controlplane is the control-plane service tree. The binary
+// cmd/mdscontrolplane serves gRPC through server, which runs the replica and the
+// rebalance machine on internal/system/live. Brokers call the gRPC API
+// (api/controlplane/v1) with their own client.
 //
-// The gRPC wire contract is controlplane/api/controlplane/v1 (decision 57). The reference
-// model in internal/spec stays the independent oracle: it shares the schema
-// types, not the apply code (decision 21).
+// Tests sit next to the code they test. Two exceptions: the model conformance
+// tests are in test/conformance, and the end-to-end tests of the real binary are
+// in test/integration (build tag integration, run by make it).
 //
-// Broker membership (heartbeat and the live broker set) is one feature in
-// several packages. Its file is brokers_handler.go in each; the map is at the top of
-// server/brokers_handler.go.
+// # Generated files
 //
-// Tests sit next to the code they test. The model conformance tests are in
-// test/conformance, and the end-to-end tests of the binary in test/integration. Helpers under
-// this tree (metadata, executor) support the
-// state machine's fold and IO. Not deterministic (goroutines, net): it is not
-// checked by ops/tools/determinismcheck.
+// The .proto files in api/ are the source. make generate (buf, with the plugin
+// ops/tools/protoc-gen-mdswire) writes the *.pb.go files, contract/wire_types_gen.go,
+// domain/rebalance/wire_types_gen.go and wire/wire_gen.go. None of them is in
+// git, and the module does not compile without them. make build runs it first.
 //
 // # Map of the packages
 //
-//   - api/controlplane/v1: the gRPC wire contract (the service and its own messages),
-//     defined in controlplane.proto. It imports api/controlplane/shared/v1.
-//   - api/controlplane/shared/v1: the messages that the service and the log entries both use.
-//     No service, so no grpc.
-//   - api/controlplane/log/v1: the log entries. It imports the shared package only.
-//   - api/controlplane/options/v1: the custom options that say how a message becomes
-//     a contract value type (read by the plugin ops/tools/protoc-gen-mdswire).
-//   - wire: generated (ops/tools/protoc-gen-mdswire, from the .proto) conversions
-//     between the contract value types and the api messages. No hand-written code.
-//   - server: the gRPC adapter for the control-plane machine. Each handler reads the
-//     generated api message and builds the contract value itself (the conversions
-//     sit at the end of its file). It has one file
-//     per context: topics_handler.go, groups_handler.go, brokers_handler.go and
-//     status_handler.go. node.go is
-//     only the node's life: start, stop, the run loop and the roles.
-//   - (outside this tree) internal/system/live: the production runner of a dst
-//     process. One goroutine owns Step, timers and inject work. It imports only dst
-//     and the standard library.
-//   - replica: one node's copy of the replicated log: leader or standby,
-//     catch-up, checkpoint and restore. It has a Step that takes one event and returns dst values and IO calls.
-//   - metadb: the kernel of the replicated state. It keeps one table of the
-//     schemas of the contexts (metadb.Schema: one row per command or read) and
-//     sends each operation to its row. It owns the log entry format (protobuf,
-//     the log package of api/) and the checkpoint, and applies commands in
-//     order to an ordered key-value store.
-//   - domain/topic: the topics and segments context (CreateTopic, DescribeTopics,
-//     CommitSegment, FindSegments). It owns the T, E, R, K and S keys. Its
-//     rules are pure: Decide reads a View and returns events, and Apply writes
-//     the events.
-//   - metadb/engine: the small ordered key-value seam under metadata and domain/group,
-//     with an in-memory store and the record codec they share.
-//   - metadb/engine/pebble: the Pebble-backed key-value store that
-//     metadata uses.
-//   - executor: runs the control-plane IOCalls outside Step, and owns the Log
-//     and ObjectStore ports.
-//   - executor/dynamolog and executor/sqllog: the DynamoDB and Postgres
-//     implementations of executor.Log. executor/logtest is their shared test
-//     suite.
-//   - domain/broker: the broker context: which brokers are alive (leases).
-//     Its state is not logged, so it is not a schema.
-//   - domain/group: the consumer group context in the replicated state (the G,
-//     M and O keys): GroupInstall, GroupAssign, GroupRemove and OffsetCommit,
-//     and the group reads. Its rules are pure like the topic ones: Decide reads
-//     a View and returns events, and Apply writes the events. It does not know
-//     about topics: the partition count comes in as a function at wiring.
-//   - domain/rebalance: the consumer group protocol machine of the active node
-//     (join, sync, heartbeat, leave, offset commit, describe, list). It speaks
-//     the classic group protocol only. It is a dst process step like replica,
-//     with no lock and no clock of its own; the node hosts it. Its call and
-//     answer types are generated from the .proto (wire_types_gen.go).
-//   - controlplanemetrics: the Prometheus instrumentation. It covers HTTP
-//     handler time, DynamoDB call time, in-flight requests and request sizes.
+//   - api/controlplane/v1: the gRPC service and its messages (controlplane.proto).
+//   - api/controlplane/shared/v1: messages that the service and the log both use.
+//   - api/controlplane/log/v1: the log entry.
+//   - api/controlplane/options/v1: custom options that say how a message becomes
+//     a contract value type (read by the plugin).
+//   - contract: the plain value types of every command, read and answer (mostly
+//     generated), and a few hand-written helpers.
+//   - wire: the only place that converts contract types to and from the api
+//     messages. Nearly all generated (wire_gen.go). By hand: the error code table
+//     (errcode.go), the gRPC error of a failed call (rpcerror.go) and the group
+//     call mapping for the rebalance machine (rebalance.go).
+//   - domain/topic: topics and segments. Commands CreateTopic and CommitSegment,
+//     reads FindSegments and DescribeTopics.
+//   - domain/group: the logged state of consumer groups (groups, members,
+//     offsets). Commands GroupInstall, GroupAssign, GroupRemove, OffsetCommit,
+//     and the group reads.
+//   - domain/rebalance: the consumer group protocol (join, sync, heartbeat,
+//     leave and so on) as a pure state machine. See docs/rebalance.md.
+//   - domain/broker: which brokers are alive (leases). Memory only, never logged.
+//   - metadb: the database. It runs commands on schemas, owns the log entry
+//     format, the checkpoint and the state hash.
+//   - metadb/engine: the ordered key-value interface under metadb.
+//     metadb/engine/memory and metadb/engine/pebble implement it.
+//   - replica: one node's copy of the replicated log: writer or standby,
+//     catch-up, checkpoint and restore. A dst sim.Process.
+//   - executor: runs the log and object-store calls that replica asks for. It
+//     owns the Log and ObjectStore ports. executor/dynamolog and executor/sqllog
+//     are the DynamoDB and Postgres logs; executor/logtest is their shared tests.
+//   - server: the gRPC adapter and the node's life (node.go). One handler file
+//     per area: topics_handler.go, groups_handler.go, brokers_handler.go,
+//     status_handler.go.
+//   - controlplanemetrics: Prometheus instrumentation.
+//   - outside this tree: internal/runtime (event and value types, Clock),
+//     internal/system/live (the production runner of a dst process),
+//     internal/spec (the independent model), internal/verify/simulator (the
+//     deterministic simulation, run by cmd/cpsim).
 //
-// Time: all time comes from one interface, runtime.Clock (Mono, Wall, AfterFunc).
-// system/realclock is the production clock and system/fakeclock is the one for
-// tests (the simulator uses dst/clock on its own scheduler). The domain and server packages may not call time.Now,
-// time.AfterFunc and the like (TestControlPlaneTimeComesFromClock).
+// # Mental model
 //
-// How they fit together, from the imports:
+// engine is like InnoDB, and metadb is like the MySQL server on top of it. A
+// schema (topic, group) owns its tables, which are key prefixes in the engine.
+// metadb sends each command or read to its schema. One difference from a normal
+// database: durability is in the replicated log, not in the engine. The engine
+// can be thrown away and rebuilt from the log and a checkpoint.
 //
-//   - server imports live, replica, executor and domain/rebalance.
+// Each schema has the same two steps:
+//
+//	Decide(view, command) -> events, error code   pure rules, writes nothing
+//	Apply(txn, event)                             writes the event to the tables
+//
+// There are no aggregates, repositories or per-command services. The log puts
+// every command in one order, so nothing else is needed for concurrency.
+//
+// Commands are in the log, events are in memory. The log holds only commands.
+// What a command does (for example the offsets of a CommitSegment) is decided
+// when it is applied, on every replica. The events are made at that time and
+// are never stored. A writer that decides outcomes before it appends works from
+// stale state: that is the planted bug writer-offsets.
+//
+// The rebalance machine is a pure sim.Process-shaped state machine (Step takes
+// one input and returns outputs; time and chance come from the step context).
+// server.Node hosts it in a second live.Run loop beside the replica. Its log
+// writes and reads go to the replica as inputs, and the answers come back as
+// inputs. The simulator hosts it the same way (a second dst process per node).
+//
+// # How they fit together, from the imports
+//
+//   - server imports live, replica, executor, metadb, domain/rebalance,
+//     domain/broker, wire and contract.
 //   - replica imports metadb. metadb imports domain/topic and domain/group.
 //     domain/topic and domain/group import engine, and not each other or metadb.
-//     executor imports only runtime. dynamolog and sqllog
-//     import executor. Domain packages import no third-party package; see
-//     TestControlPlaneLayers in architecture_test.go.
+//   - executor imports only runtime. dynamolog and sqllog import executor.
+//   - domain/rebalance imports contract and runtime, and the dst packages. It
+//     does not import replica or metadb.
+//   - internal/spec shares types with the code (contract, runtime) and never
+//     logic: it imports none of domain, metadb or engine.
+//
+// Time: all time comes from one interface, runtime.Clock, or from the step
+// context of a dst process. system/realclock is the production clock and
+// system/fakeclock the test one. The domain and server packages may not call
+// time.Now, time.AfterFunc and the like.
+// The import rules are checked by architecture_test.go in this folder. The
+// deterministic packages are checked by ops/tools/determinismcheck
+// (make determinism); server, executor and metadb are not in that gate.
 package controlplane

@@ -12,25 +12,6 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/system/live"
 )
 
-// Where the pieces of the consumer group feature live:
-//
-//   - domain/rebalance: the coordinator, a pure machine (docs/rebalance.md). It
-//     keeps the phase of each group, the parked calls and the timers.
-//   - server/groups_handler.go: this file. It hosts the machine in its own run
-//     loop, and holds the gRPC group handlers.
-//   - wire/rebalance.go: maps group requests and responses to and from the
-//     inputs and answers of the machine.
-//   - domain/group/schema.go, decide.go, tables.go: the group commands: the rules
-//     of GroupInstall, GroupAssign, GroupRemove and OffsetCommit (Decide), and
-//     their writes on the key-value store (Apply).
-//   - domain/group/tables.go: also the group reads (OffsetFetch, DescribeGroup
-//     and ListGroups).
-//   - metadb/metadb.go: the group schema; the kernel routes each group operation to its row.
-//   - metadb/entry.go: the log format of the group entries.
-//   - replica/client.go: passes the group calls to the replica.
-//   - controlplane/contract/contract.go: the group types (GroupInstall, GroupAssign,
-//     GroupRemove, OffsetCommit and the others).
-//
 // The host (docs/rebalance.md section 11). The machine runs in a second
 // live.Run with its own inbox (Node.groups). Its SubmitCommand goes to the
 // replica inbox as a ControlPlaneDeliver; its SubmitRead as a LocalRead, or as
