@@ -38,7 +38,7 @@ google.golang.org/protobuf/proto
 google.golang.org/protobuf/reflect/protoreflect
 
 # OSS deterministic simulation primitives (github.com/manifesterio/dst), audited in
-# docs/dep-audits/github.com/manifesterio/dst@v0.3.0.md. Listed one by one on purpose.
+# docs/dep-audits/github.com/manifesterio/dst@v0.0.0-20261106132358-bc02a6279445.md. Listed one by one on purpose.
 # Deliberately absent: realclock (reads the real clock), syncclock (uses sync; goroutine
 # callers race, so timer order is not reproducible), model and examples
 # (not audited for determinism).
