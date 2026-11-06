@@ -263,6 +263,15 @@ imports outside the allow-list (plus `context`). The campaign runner
 (`cmd/cpsim`, on `dst/campaign`) uses goroutines to run seeds in parallel
 and the wall clock only to print the duration; it is not in the gate.
 
+Golden pins. `TestGoldenTraceHashes` pins the hash of `basic/17` and
+`chaos/42` (`golden_test.go`), and `TestGoldenWithoutGroups` pins the same seeds
+with the rebalance processes left out. The campaign line of `make sim-campaign`
+is a third pin: the hash of 300 seeds of each scenario. A change that moves any
+of them changed the behaviour of a run. That is allowed only on purpose: say
+why, and re-pin in a commit of its own. At 300 seeds (`-seeds 300`, first seed 1)
+the hashes are: basic `aaf01c86`, log-faults `4032d6fb`, crash-restart
+`f1e59c13`, leader-fencing `0609269d`, chaos `951ef86c`.
+
 ## Read a failure
 
     FAIL seed=7 scenario=chaos step=2123 t=19133ms: sim: replicas agree on every slot: detail=after 22 slots, cp-1 has state b2243c2c93cc1170 but cp-0 had 515376c0e35c0fae (and 3 more)
