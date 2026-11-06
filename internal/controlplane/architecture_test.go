@@ -84,9 +84,12 @@ func TestImportRules(t *testing.T) {
 		cp + "domain/broker": {cp + "contract", rt},
 		cp + "domain/topic":  {cp + "contract", cp + "metadb/engine", rt},
 		cp + "domain/group":  {cp + "contract", cp + "metadb/engine", rt},
-		cp + "groups":        {cp + "contract", rt, "internal/system/realclock"},
-		cp + "replica":       {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
-		cp + "executor":      {rt},
+		// The group protocol machine. Its call types are written in the package
+		// until T6.6 generates them there, so it does not import groups.
+		cp + "domain/rebalance": {cp + "contract", rt},
+		cp + "groups":           {cp + "contract", rt, "internal/system/realclock"},
+		cp + "replica":          {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
+		cp + "executor":         {rt},
 	}
 	for dir, allowed := range layers {
 		onlyImports(t, pkgs, dir, allowed, true)
@@ -101,6 +104,12 @@ func TestImportRules(t *testing.T) {
 	for _, imp := range pkgs[metadb].imports {
 		if local(imp) == "" && strings.Contains(strings.Split(imp, "/")[0], ".") && !slices.Contains(protobuf, imp) {
 			t.Errorf("%s imports %s: the only third-party packages it may use are %v", metadb, imp, protobuf)
+		}
+	}
+	// The log does not know the group protocol machine.
+	for _, imp := range pkgs[metadb].imports {
+		if local(imp) == cp+"domain/rebalance" {
+			t.Errorf("%s imports %s: not allowed", metadb, imp)
 		}
 	}
 	// live is the production runner: it knows no control-plane type.
@@ -135,7 +144,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"metadb/engine", "domain/broker", "domain/group", "domain/topic", "groups", "metadb", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "domain/broker", "domain/group", "domain/rebalance", "domain/topic", "groups", "metadb", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {
