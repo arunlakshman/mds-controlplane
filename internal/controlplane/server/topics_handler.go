@@ -27,8 +27,8 @@ func isCommand(operation runtime.ControlPlaneOperation) bool {
 // its slot applies. A read is sent as a LocalRead and answered at once by the
 // fold of this node.
 // A business error is the Err of the answer; the error result is for the run
-// loop and the context. Node is the log and read side of the group coordinator
-// (through nodeGroups) and of every topics RPC.
+// loop and the context. Node is the log and read side of every topics RPC and
+// of OffsetFetch.
 func (n *Node) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	if _, logged := metadb.EntryOf(operation); logged {
 		return n.ask(ctx, true, func(request runtime.RequestID) runtime.EventData {

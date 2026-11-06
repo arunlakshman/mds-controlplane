@@ -2,26 +2,24 @@ package server
 
 import (
 	"context"
-	"time"
+	"fmt"
 
-	"github.com/manifesterio/mds-controlplane/internal/controlplane"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/rebalance"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/wire"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
+	"github.com/manifesterio/mds-controlplane/internal/system/live"
 )
 
 // Where the pieces of the consumer group feature live:
 //
-//   - groups/coordinator.go, group.go, clock.go: the coordinator
-//     logic. It keeps the phase of each group, the parked calls and the timers.
-//   - server/groups_handler.go: this file. It holds the gRPC group handlers and the
-//     log and read side of the coordinator (nodeGroups, over Node.Exec in
-//     server/topics_handler.go).
-//   - wire/wire_gen.go: maps group requests and responses to and from the wire
-//     types.
+//   - domain/rebalance: the coordinator, a pure machine (docs/rebalance.md). It
+//     keeps the phase of each group, the parked calls and the timers.
+//   - server/groups_handler.go: this file. It hosts the machine in its own run
+//     loop, and holds the gRPC group handlers.
+//   - wire/rebalance.go: maps group requests and responses to and from the
+//     inputs and answers of the machine.
 //   - domain/group/schema.go, decide.go, tables.go: the group commands: the rules
 //     of GroupInstall, GroupAssign, GroupRemove and OffsetCommit (Decide), and
 //     their writes on the key-value store (Apply).
@@ -30,245 +28,185 @@ import (
 //   - metadb/metadb.go: the group schema; the kernel routes each group operation to its row.
 //   - metadb/entry.go: the log format of the group entries.
 //   - replica/client.go: passes the group calls to the replica.
-//   - replica/commit.go: encodes and decodes the group entries in the log.
-//   - replica/replay.go: decodes group entries when it replays the log.
 //   - controlplane/contract/contract.go: the group types (GroupInstall, GroupAssign,
 //     GroupRemove, OffsetCommit and the others).
+//
+// The host (docs/rebalance.md section 11). The machine runs in a second
+// live.Run with its own inbox (Node.groups). Its SubmitCommand goes to the
+// replica inbox as a ControlPlaneDeliver; its SubmitRead as a LocalRead, or as
+// a ControlPlaneDeliver when Fresh. The replica answers to rebalanceFrom, and
+// Node.reply gives that answer to the machine as a ReplicaReply. The replica
+// loop sends RoleChanged when "active appender and Ready" changes. A gRPC
+// handler gives its call an id, delivers the input and waits for the Reply.
 
-// groupWatchEvery is how often the node checks whether it is the active
-// appender, and so whether the group coordinator should serve.
-const groupWatchEvery = 100 * time.Millisecond
+// rebalanceFrom is who the machine is when it talks to the replica: the
+// replica answers to it, and Node.reply hands the answer to the machine.
+var rebalanceFrom = runtime.NodeInstance{Node: "rebalance"}
 
-// nodeGroups is the log and read side of the group coordinator. It is Node.Exec
-// plus one rule: a node that is not ready answers a read with an error, so the
-// coordinator refuses the call.
-type nodeGroups struct{ n *Node }
-
-var _ groups.Store = nodeGroups{}
-
-// Exec runs one group operation through Node.Exec.
-func (s nodeGroups) Exec(ctx context.Context, operation runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
-	d, err := s.n.Exec(ctx, operation)
-	if isCommand(operation) {
-		return d, err
-	}
-	if err != nil {
-		return runtime.ControlPlaneDone{}, err
-	}
-	if d.Err != runtime.OK {
-		return runtime.ControlPlaneDone{}, controlplane.ErrUnavailable
-	}
-	return d, nil
-}
-
-// groupRole reports whether this node is the active appender and ready.
-func (n *Node) groupRole(ctx context.Context) (bool, error) {
-	active := false
-	err := n.onLoop(ctx, func(m *replica.Replica) []any {
-		active = m.IsActive() && m.Ready()
-		return nil
-	})
-	return active, err
-}
-
-// watchGroups keeps the group coordinator in step with the active role. While
-// this node is active and the coordinator is not serving (at start, after a
-// takeover, or after a broken write), it rebuilds from the log. A failed
-// rebuild is tried again on the next tick. A standby drops its memory.
-func (n *Node) watchGroups(ctx context.Context) {
-	for {
-		tick := make(chan struct{})
-		timer := n.config.Clock.AfterFunc(runtime.Duration(groupWatchEvery), func() { close(tick) })
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			n.groups.Stop()
-			return
-		case <-tick:
-		}
-		active, err := n.groupRole(ctx)
-		if err != nil {
-			continue // the loop is stopping; ctx ends the watch
-		}
-		if !active {
-			n.groups.Stop()
-			continue
-		}
-		if !n.groups.Serving() {
-			n.groups.Stop()
-			_ = n.groups.Rebuild(ctx) // a failure is tried again on the next tick
-		}
+// groupsConfig is the run of the rebalance machine. It has no boot, no stop
+// request and no inject: Close ends it with the context. Its timers and the
+// sends to itself are handled by live.
+func (n *Node) groupsConfig() live.Config {
+	return live.Config{
+		Process: rebalance.New(rebalance.Config{InitialDelay: runtime.Duration(n.config.GroupInitialRebalanceDelay)}),
+		Clock:   liveClock{n.config.Clock},
+		Inbox:   n.groups,
+		Exec:    n.groupsExec,
 	}
 }
 
-// groupCoordinator returns the coordinator when this node serves groups now.
-// Otherwise it answers Unavailable, so the client tries the next address.
-func (n *Node) groupCoordinator(ctx context.Context) (*groups.Coordinator, error) {
-	active, err := n.groupRole(ctx)
-	if err != nil {
-		return nil, wire.ToRPCError(runtime.ErrIO, runtime.NotApplied)
+// groupsExec runs one output of the machine. It never blocks.
+func (n *Node) groupsExec(out any) error {
+	switch v := out.(type) {
+	case rebalance.SubmitCommand:
+		n.inbox.Deliver(runtime.ControlPlaneDeliver{From: rebalanceFrom, Req: v.Req, Op: v.Op})
+	case rebalance.SubmitRead:
+		if v.Fresh {
+			n.inbox.Deliver(runtime.ControlPlaneDeliver{From: rebalanceFrom, Req: v.Req, Op: v.Op})
+		} else {
+			n.inbox.Deliver(runtime.LocalRead{From: rebalanceFrom, Req: v.Req, Op: v.Op})
+		}
+	case rebalance.Reply:
+		n.answer(v)
+	default:
+		return fmt.Errorf("controlplane/server: the rebalance machine returned %T, which nothing takes", out)
 	}
-	if !active || !n.groups.Serving() {
-		return nil, wire.ToRPCError(runtime.ErrUnavailable, runtime.NotApplied)
-	}
-	return n.groups, nil
+	return nil
 }
 
-// groupOutcome is the outcome of a group answer that failed. An unavailable
-// answer may come after a log write, so it is MaybeApplied.
-func groupOutcome(code runtime.ErrCode) runtime.Outcome {
-	if code == runtime.ErrUnavailable {
+// setRole keeps the role bit and tells the machine when it changes. It runs
+// on the replica loop (and once more when that loop has ended).
+func (n *Node) setRole(active bool) {
+	if n.active.Swap(active) != active {
+		n.groups.Deliver(rebalance.RoleChanged{Active: active})
+	}
+}
+
+// call gives one group call an id, delivers its input to the machine and
+// waits for the reply. When ctx ends first, the machine is told that the call
+// is abandoned, and a reply that comes later is dropped. When the node stops,
+// the call is Unavailable. A failed answer is an RPC error; read says that the
+// call writes nothing.
+func (n *Node) call(ctx context.Context, read bool, input func(rebalance.CallID) any) (rebalance.Reply, error) {
+	ch := make(chan rebalance.Reply, 1)
+	n.mu.Lock()
+	n.nextCall++
+	call := n.nextCall
+	n.calls[call] = ch
+	n.mu.Unlock()
+	n.groups.Deliver(input(call))
+	select {
+	case r := <-ch:
+		if r.Err != runtime.OK {
+			return r, wire.ToRPCError(r.Err, groupOutcome(read, r.Err))
+		}
+		return r, nil
+	case <-ctx.Done():
+		if n.forget(call) {
+			n.groups.Deliver(rebalance.CallAbandoned{Call: call})
+		}
+		return rebalance.Reply{}, wire.ToRPCError(runtime.ErrTimeout, groupOutcome(read, runtime.ErrTimeout))
+	case <-n.groupsDone:
+	case <-n.shutdown:
+	}
+	n.forget(call)
+	return rebalance.Reply{}, wire.ToRPCError(runtime.ErrUnavailable, groupOutcome(read, runtime.ErrUnavailable))
+}
+
+// forget stops waiting for call. It reports whether the call still waited.
+func (n *Node) forget(call rebalance.CallID) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	_, ok := n.calls[call]
+	delete(n.calls, call)
+	return ok
+}
+
+// answer gives a reply of the machine to the call that waits for it. A call
+// that no longer waits (it was abandoned) gets nothing.
+func (n *Node) answer(r rebalance.Reply) {
+	n.mu.Lock()
+	ch := n.calls[r.Call]
+	delete(n.calls, r.Call)
+	n.mu.Unlock()
+	if ch != nil {
+		ch <- r
+	}
+}
+
+// groupOutcome is the outcome of a group call that failed. A read changed
+// nothing. A write that is unavailable or timed out may have been logged.
+func groupOutcome(read bool, code runtime.ErrCode) runtime.Outcome {
+	if !read && (code == runtime.ErrUnavailable || code == runtime.ErrTimeout) {
 		return runtime.MaybeApplied
 	}
 	return runtime.NotApplied
 }
 
-// groupCtxErr maps a call that ended with its context.
-func groupCtxErr() error {
-	return wire.ToRPCError(runtime.ErrTimeout, runtime.MaybeApplied)
-}
-
-// groupReplyErr maps a coordinator answer to an RPC error. A call that
-// ended with its context gives a timeout. A failed answer gives its code.
-func groupReplyErr(code runtime.ErrCode, err error) error {
-	if err != nil {
-		return groupCtxErr()
-	}
-	if code != runtime.OK {
-		return wire.ToRPCError(code, groupOutcome(code))
-	}
-	return nil
-}
-
-// groupReplyCall describes one group RPC whose coordinator call returns the
-// answer and an error, with the business code inside the answer. The error means
-// that the call ended with its context. codeOf reads the code, and convert makes
-// the wire type Out.
-type groupReplyCall[Op, R, Out any] struct {
-	call    func(*groups.Coordinator, context.Context, Op) (R, error)
-	codeOf  func(R) runtime.ErrCode
-	convert func(R) Out
-}
-
-// run checks that this node serves groups, runs the call, maps a failed answer
-// to an RPC error and converts the answer.
-func (g groupReplyCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out, error) {
-	var zero Out
-	c, err := n.groupCoordinator(ctx)
-	if err != nil {
-		return zero, err
-	}
-	r, err := g.call(c, ctx, op)
-	if err := groupReplyErr(g.codeOf(r), err); err != nil {
-		return zero, err
-	}
-	return g.convert(r), nil
-}
-
-// groupCodeCall describes one group RPC whose coordinator call returns the
-// answer and a code: how to call the coordinator, what the outcome of a failed
-// code is (it differs between a write and a read), and how to convert the answer
+// groupRPC runs one group call on the machine and converts its answer, an A,
 // to the wire type Out.
-type groupCodeCall[Op, R, Out any] struct {
-	call    func(*groups.Coordinator, context.Context, Op) (R, runtime.ErrCode)
-	outcome func(runtime.ErrCode) runtime.Outcome
-	convert func(R) Out
-}
-
-// run checks that this node serves groups, runs the call, maps a failed code to
-// an RPC error and converts the answer.
-func (g groupCodeCall[Op, R, Out]) run(ctx context.Context, n *Node, op Op) (Out, error) {
+func groupRPC[Req any, A rebalance.Answer, Out any](ctx context.Context, n *Node, read bool, request Req,
+	input func(rebalance.CallID, Req) any, convert func(A) Out) (Out, error) {
 	var zero Out
-	c, err := n.groupCoordinator(ctx)
+	r, err := n.call(ctx, read, func(call rebalance.CallID) any { return input(call, request) })
 	if err != nil {
 		return zero, err
 	}
-	r, code := g.call(c, ctx, op)
-	if code != runtime.OK {
-		return zero, wire.ToRPCError(code, g.outcome(code))
-	}
-	return g.convert(r), nil
+	a, _ := r.Body.(A) // a heartbeat has no body
+	return convert(a), nil
 }
-
-var (
-	groupJoin = groupReplyCall[groups.JoinReq, groups.JoinResp, *cpv1.JoinGroupResponse]{
-		(*groups.Coordinator).JoinGroup, func(r groups.JoinResp) runtime.ErrCode { return r.Err }, wire.JoinGroupResponseFromCore}
-	groupSync = groupReplyCall[groups.SyncReq, groups.SyncResp, *cpv1.SyncGroupResponse]{
-		(*groups.Coordinator).SyncGroup, func(r groups.SyncResp) runtime.ErrCode { return r.Err }, wire.SyncGroupResponseFromCore}
-	groupOffsetCommit = groupCodeCall[contract.OffsetCommit, contract.OffsetCommitResp, *cpv1.OffsetCommitResponse]{
-		(*groups.Coordinator).OffsetCommit, groupOutcome, wire.OffsetCommitResponseFromCore}
-	groupOffsetFetch = groupCodeCall[contract.OffsetFetch, contract.OffsetFetchResp, *cpv1.OffsetFetchResponse]{
-		(*groups.Coordinator).OffsetFetch, notApplied, wire.OffsetFetchResponseFromCore}
-	groupList = groupCodeCall[struct{}, []contract.GroupSummary, *cpv1.ListGroupsResponse]{
-		func(c *groups.Coordinator, ctx context.Context, _ struct{}) ([]contract.GroupSummary, runtime.ErrCode) {
-			return c.ListGroups(ctx)
-		}, notApplied, func(g []contract.GroupSummary) *cpv1.ListGroupsResponse {
-			return wire.ListGroupsResponseFromCore(contract.ListGroupsResp{Groups: g})
-		}}
-)
-
-// notApplied is the outcome of a failed read.
-func notApplied(runtime.ErrCode) runtime.Outcome { return runtime.NotApplied }
 
 // JoinGroup implements ControlPlane.
 func (n *Node) JoinGroup(ctx context.Context, request *cpv1.JoinGroupRequest) (*cpv1.JoinGroupResponse, error) {
-	return groupJoin.run(ctx, n, wire.JoinGroupRequestToCore(request))
+	return groupRPC(ctx, n, false, request, asInput(wire.JoinToMachine), wire.JoinAnswerToWire)
 }
 
 // SyncGroup implements ControlPlane.
 func (n *Node) SyncGroup(ctx context.Context, request *cpv1.SyncGroupRequest) (*cpv1.SyncGroupResponse, error) {
-	return groupSync.run(ctx, n, wire.SyncGroupRequestToCore(request))
+	return groupRPC(ctx, n, false, request, asInput(wire.SyncToMachine), wire.SyncAnswerToWire)
 }
 
 // Heartbeat implements ControlPlane.
 func (n *Node) Heartbeat(ctx context.Context, request *cpv1.HeartbeatRequest) (*cpv1.HeartbeatResponse, error) {
-	c, err := n.groupCoordinator(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if code := c.Heartbeat(ctx, wire.HeartbeatRequestToCore(request)); code != runtime.OK {
-		return nil, wire.ToRPCError(code, groupOutcome(code))
-	}
-	return &cpv1.HeartbeatResponse{}, nil
+	return groupRPC(ctx, n, false, request, asInput(wire.HeartbeatToMachine), wire.HeartbeatAnswerToWire)
 }
 
 // LeaveGroup implements ControlPlane. The answer has one code per member.
 func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) (*cpv1.LeaveGroupResponse, error) {
-	c, err := n.groupCoordinator(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return wire.LeaveGroupResponseFromCore(groups.LeaveResp{Errs: c.LeaveGroup(ctx, wire.LeaveGroupRequestToCore(request))}), nil
+	return groupRPC(ctx, n, false, request, asInput(wire.LeaveToMachine), wire.LeaveAnswerToWire)
 }
 
 // OffsetCommit implements ControlPlane. The answer has one code per partition.
 func (n *Node) OffsetCommit(ctx context.Context, request *cpv1.OffsetCommitRequest) (*cpv1.OffsetCommitResponse, error) {
-	return groupOffsetCommit.run(ctx, n, wire.OffsetCommitRequestToCore(request))
-}
-
-// OffsetFetch implements ControlPlane.
-func (n *Node) OffsetFetch(ctx context.Context, request *cpv1.OffsetFetchRequest) (*cpv1.OffsetFetchResponse, error) {
-	return groupOffsetFetch.run(ctx, n, wire.OffsetFetchRequestToCore(request))
+	return groupRPC(ctx, n, false, request, asInput(wire.OffsetCommitToMachine), wire.CommitAnswerToWire)
 }
 
 // DescribeGroups implements ControlPlane. Any group that fails fails the call.
 func (n *Node) DescribeGroups(ctx context.Context, request *cpv1.DescribeGroupsRequest) (*cpv1.DescribeGroupsResponse, error) {
-	c, err := n.groupCoordinator(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []groups.GroupDescription
-	for _, name := range wire.DescribeGroupsRequestToCore(request).Groups {
-		d, code := c.DescribeGroup(ctx, name)
-		if code != runtime.OK {
-			return nil, wire.ToRPCError(code, runtime.NotApplied)
-		}
-		out = append(out, groups.GroupDescription{Name: name, DescribeGroupResp: d})
-	}
-	return wire.DescribeGroupsResponseFromCore(groups.DescribeGroupsResp{Groups: out}), nil
+	return groupRPC(ctx, n, true, request, asInput(wire.DescribeToMachine), wire.DescribeAnswerToWire)
 }
 
 // ListGroups implements ControlPlane.
-func (n *Node) ListGroups(ctx context.Context, _ *cpv1.ListGroupsRequest) (*cpv1.ListGroupsResponse, error) {
-	return groupList.run(ctx, n, struct{}{})
+func (n *Node) ListGroups(ctx context.Context, request *cpv1.ListGroupsRequest) (*cpv1.ListGroupsResponse, error) {
+	return groupRPC(ctx, n, true, request, asInput(wire.ListToMachine), wire.ListAnswerToWire)
+}
+
+// asInput turns a converter that returns one input type into one that returns any.
+func asInput[Req, In any](convert func(rebalance.CallID, Req) In) func(rebalance.CallID, Req) any {
+	return func(call rebalance.CallID, request Req) any { return convert(call, request) }
+}
+
+// OffsetFetch implements ControlPlane. It is not a call of the machine: it
+// reads the log of this node at once, behind the role bit, so a node that does
+// not serve groups now answers Unavailable and the client tries the next
+// address.
+func (n *Node) OffsetFetch(ctx context.Context, request *cpv1.OffsetFetchRequest) (*cpv1.OffsetFetchResponse, error) {
+	if !n.active.Load() {
+		return nil, wire.ToRPCError(runtime.ErrUnavailable, runtime.NotApplied)
+	}
+	d, err := n.Exec(ctx, wire.OffsetFetchRequestToCore(request))
+	if err != nil || d.Err != runtime.OK {
+		return nil, wire.ToRPCError(runtime.ErrUnavailable, runtime.NotApplied)
+	}
+	return wire.OffsetFetchResponseFromCore(runtime.ResponseAs[contract.OffsetFetchResp](d)), nil
 }

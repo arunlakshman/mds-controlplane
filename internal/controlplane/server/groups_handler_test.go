@@ -21,7 +21,9 @@ func TestStandbyGroupCallsUnavailable(t *testing.T) {
 	defer stop()
 	ctx := t.Context()
 	checks := map[string]error{}
-	_, checks["JoinGroup"] = cli.JoinGroup(ctx, &cpv1.JoinGroupRequest{Group: "g", SessionTimeoutMs: 1000})
+	// A well-formed join: a malformed one is ErrInvalid on any node (rule 1 comes first).
+	_, checks["JoinGroup"] = cli.JoinGroup(ctx, &cpv1.JoinGroupRequest{Group: "g", SessionTimeoutMs: 1000,
+		ProtocolType: "consumer", Protocols: []*cpv1.GroupProtocol{{Name: "range"}}})
 	_, checks["SyncGroup"] = cli.SyncGroup(ctx, &cpv1.SyncGroupRequest{Group: "g", MemberId: "m"})
 	_, checks["Heartbeat"] = cli.Heartbeat(ctx, &cpv1.HeartbeatRequest{Group: "g", MemberId: "m"})
 	_, checks["LeaveGroup"] = cli.LeaveGroup(ctx, &cpv1.LeaveGroupRequest{Group: "g", Members: []string{"m"}})

@@ -2,9 +2,14 @@ package server_test
 
 import (
 	"context"
+	goruntime "runtime"
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/server"
@@ -55,4 +60,53 @@ func TestCloseAfterStartStopsTheLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	closeWithin(t, n)
+}
+
+// Close answers a parked group call Unavailable, returns soon, and leaves no
+// goroutine of the node behind. The join parks for the initial delay of a new
+// group, which is an hour here.
+func TestCloseAnswersParkedGroupCall(t *testing.T) {
+	before := goruntime.NumGoroutine()
+	n := server.New(server.Config{
+		Machine: replica.Config{CatchUpEvery: runtime.Duration(time.Millisecond), Heartbeat: runtime.Duration(time.Second)},
+		Log:     executor.NewMemoryLog(), Objects: executor.NewMemoryObjects(),
+		Self:                       runtime.NodeInstance{Node: "cp-0"},
+		GroupInitialRebalanceDelay: time.Hour,
+	})
+	if err := n.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	// The machine serves once it has read the groups of the log.
+	for _, err := n.ListGroups(ctx, &cpv1.ListGroupsRequest{}); err != nil; _, err = n.ListGroups(ctx, &cpv1.ListGroupsRequest{}) {
+		time.Sleep(time.Millisecond)
+	}
+	joined := make(chan error, 1)
+	go func() {
+		_, err := n.JoinGroup(ctx, &cpv1.JoinGroupRequest{Group: "g", SessionTimeoutMs: 30000, ProtocolType: "consumer",
+			Protocols: []*cpv1.GroupProtocol{{Name: "range"}}})
+		joined <- err
+	}()
+	for {
+		d, err := n.DescribeGroups(ctx, &cpv1.DescribeGroupsRequest{Groups: []string{"g"}})
+		if err == nil && d.GetGroups()[0].GetDetails().GetState() == "PreparingRebalance" {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	closeWithin(t, n)
+	select {
+	case err := <-joined:
+		if st, _ := status.FromError(err); st.Code() != codes.Unavailable {
+			t.Fatalf("parked join after Close: %v, want Unavailable", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the parked join was not answered")
+	}
+	for end := time.Now().Add(5 * time.Second); goruntime.NumGoroutine() > before; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(end) {
+			buf := make([]byte, 1<<20)
+			t.Fatalf("%d goroutines after Close, %d before:\n%s", goruntime.NumGoroutine(), before, buf[:goruntime.Stack(buf, true)])
+		}
+	}
 }

@@ -15,8 +15,8 @@ import (
 	"github.com/manifesterio/dst/sched"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/broker"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/rebalance"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/executor"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 	"github.com/manifesterio/mds-controlplane/internal/system/live"
@@ -41,7 +41,10 @@ type Config struct {
 	GroupInitialRebalanceDelay time.Duration
 }
 
-// Node owns the machine run loop and serves ControlPlane RPCs.
+// Node owns the run loops and serves ControlPlane RPCs. It runs two loops:
+// the replica, and the group coordinator (the rebalance machine), each with
+// its own inbox. The machine talks to the replica through the replica inbox,
+// and the replica answers it through reply.
 type Node struct {
 	cpv1.UnimplementedControlPlaneServer
 
@@ -50,16 +53,26 @@ type Node struct {
 	inject chan live.InjectFunc
 	m      atomic.Pointer[replica.Replica]
 	health *health.Server
-	leases *broker.Leases      // run loop only; empty until brokers heartbeat
-	groups *groups.Coordinator // serves group calls while this node is active
+	leases *broker.Leases // run loop only; empty until brokers heartbeat
+
+	// groups is the inbox of the rebalance machine. groupsDone is closed when
+	// its loop has ended. active is the role bit: the replica is the active
+	// appender and Ready. Only the replica loop writes it (in AfterStep), and
+	// the machine hears of every change as a RoleChanged.
+	groups     *live.Inbox
+	groupsDone chan struct{}
+	groupsErr  error // the result of the rebalance loop; set before groupsDone is closed
+	active     atomic.Bool
 
 	mu        sync.Mutex
 	waiters   map[runtime.RequestID]chan runtime.ControlPlaneDone
 	nextReq   runtime.RequestID
+	calls     map[rebalance.CallID]chan rebalance.Reply // group calls that wait for the machine
+	nextCall  rebalance.CallID
 	shutdown  chan struct{}
-	started   bool          // Start launched the loop (guarded by mu)
-	loopDone  chan struct{} // closed when the loop has ended
-	loopErr   error         // the result of the loop; set before loopDone is closed
+	started   bool          // Start launched the loops (guarded by mu)
+	loopDone  chan struct{} // closed when the replica loop has ended
+	loopErr   error         // the result of the replica loop; set before loopDone is closed
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
@@ -91,19 +104,18 @@ func New(config Config) *Node {
 		config.BrokerLeaseTTL = time.Duration(broker.DefaultTTL)
 	}
 	n := &Node{
-		config:   config,
-		inbox:    live.NewInbox(),
-		inject:   make(chan live.InjectFunc, 64),
-		health:   health.NewServer(),
-		leases:   broker.New(runtime.Duration(config.BrokerLeaseTTL)),
-		waiters:  map[runtime.RequestID]chan runtime.ControlPlaneDone{},
-		shutdown: make(chan struct{}),
-		loopDone: make(chan struct{}),
+		config:     config,
+		inbox:      live.NewInbox(),
+		inject:     make(chan live.InjectFunc, 64),
+		health:     health.NewServer(),
+		leases:     broker.New(runtime.Duration(config.BrokerLeaseTTL)),
+		waiters:    map[runtime.RequestID]chan runtime.ControlPlaneDone{},
+		calls:      map[rebalance.CallID]chan rebalance.Reply{},
+		groups:     live.NewInbox(),
+		groupsDone: make(chan struct{}),
+		shutdown:   make(chan struct{}),
+		loopDone:   make(chan struct{}),
 	}
-	n.groups = groups.New(groups.Config{
-		InitialRebalanceDelay: config.GroupInitialRebalanceDelay,
-		Clock:                 config.Clock,
-	}, nodeGroups{n: n})
 	return n
 }
 
@@ -119,11 +131,12 @@ func (c liveClock) AfterFunc(d sched.TimeNs, f func()) live.Timer {
 // Health returns the health server to register on the gRPC server.
 func (n *Node) Health() *health.Server { return n.health }
 
-// Start launches the run loop. Ready flips health to Serving.
-// ctx bounds only the Ready wait; the loop runs until Close (or the replica returns Crash or Exit).
+// Start launches the run loops. Ready flips health to Serving.
+// ctx bounds only the Ready wait; the loops run until Close (or the replica returns Crash or Exit).
 func (n *Node) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	n.cancel = cancel
+	groupsCtx, stopGroups := context.WithCancel(runCtx)
 	ex := executor.New(runCtx, executor.Config{}, n.config.Log, n.config.Objects, n.inbox)
 	m := replica.New(n.config.Machine)(n.config.Env, n.config.Self)
 	n.m.Store(m)
@@ -150,14 +163,21 @@ func (n *Node) Start(ctx context.Context) error {
 		AfterStep: func() {
 			n.epoch.Store(m.Epoch())
 			n.stepDowns.Store(m.StepDowns())
+			n.setRole(m.IsActive() && m.Ready())
 		},
 	}
 	n.mu.Lock()
 	n.started = true
 	n.mu.Unlock()
-	go n.watchGroups(runCtx)
+	go func() {
+		err := live.Run(groupsCtx, n.groupsConfig())
+		n.groupsErr = err
+		close(n.groupsDone)
+	}()
 	go func() {
 		err := live.Run(runCtx, cfg)
+		n.setRole(false)
+		stopGroups() // the machine can not reach the log any more
 		n.health.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 		n.loopErr = err
 		close(n.loopDone)
@@ -214,8 +234,9 @@ func (n *Node) waitReady(ctx context.Context, cancel context.CancelFunc) error {
 	}
 }
 
-// Close asks the loop to stop and waits for it. Safe to call more than once,
-// after a failed Start (the loop has ended then), and when Start was never called.
+// Close asks the loops to stop and waits for them. Safe to call more than once,
+// after a failed Start (the loops have ended then), and when Start was never
+// called. Group calls that still wait are answered Unavailable.
 func (n *Node) Close() error {
 	n.closeOnce.Do(func() {
 		select {
@@ -231,9 +252,12 @@ func (n *Node) Close() error {
 				n.cancel()
 			}
 			<-n.loopDone
+			<-n.groupsDone
 			n.closeErr = n.loopErr
+			if n.groupsErr != nil && !errors.Is(n.groupsErr, live.ErrStopped) {
+				n.closeErr = errors.Join(n.closeErr, n.groupsErr)
+			}
 		}
-		n.groups.Close()
 	})
 	return n.closeErr
 }
@@ -303,14 +327,21 @@ func (n *Node) ask(ctx context.Context, maybeApplied bool, body func(request run
 }
 
 // reply is the reply sink of the run loop: it gives the answer of the replica
-// to the RPC that waits for it.
+// to the RPC that waits for it, or to the rebalance machine. The server and the
+// machine count request ids apart, so the same id can wait in both: look at To
+// first, and touch the waiters only for the server.
 func (n *Node) reply(r runtime.ControlPlaneReply) {
-	n.mu.Lock()
-	ch := n.waiters[r.Done.Req]
-	delete(n.waiters, r.Done.Req)
-	n.mu.Unlock()
-	if ch != nil && r.To == serverFrom {
-		ch <- r.Done
+	switch r.To {
+	case rebalanceFrom:
+		n.groups.Deliver(rebalance.ReplicaReply{Req: r.Done.Req, Done: r.Done})
+	case serverFrom:
+		n.mu.Lock()
+		ch := n.waiters[r.Done.Req]
+		delete(n.waiters, r.Done.Req)
+		n.mu.Unlock()
+		if ch != nil {
+			ch <- r.Done
+		}
 	}
 }
 

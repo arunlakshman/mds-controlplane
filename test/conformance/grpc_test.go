@@ -145,21 +145,34 @@ func (p *grpcProcess) List(ctx context.Context, prefix string) ([]string, error)
 
 const grpcCheckpointPrefix = "checkpoint/"
 
+// grpcT is what a grpcNode needs of a test: a *rapid.T or a *testing.T.
+type grpcT interface {
+	Context() context.Context
+	Fatalf(format string, args ...any)
+	Cleanup(func())
+}
+
 // grpcNode is a server.Node behind a gRPC server, with a client, that can be
 // restarted on the same disk.
 type grpcNode struct {
-	t    *rapid.T
-	cfg  replica.Config
-	disk *grpcDisk
-	proc *grpcProcess
-	node *server.Node
-	gs   *grpc.Server
-	conn *grpc.ClientConn
-	api  cpv1.ControlPlaneClient
+	t          grpcT
+	cfg        replica.Config
+	groupDelay time.Duration // the initial rebalance delay of a new group; 0 is the default
+	disk       *grpcDisk
+	proc       *grpcProcess
+	node       *server.Node
+	gs         *grpc.Server
+	conn       *grpc.ClientConn
+	api        cpv1.ControlPlaneClient
 }
 
 // newGRPCNode starts a node. The log is cut behind each checkpoint.
-func newGRPCNode(rt *rapid.T) *grpcNode {
+func newGRPCNode(rt grpcT) *grpcNode {
+	return newGRPCNodeDelay(rt, 0)
+}
+
+// newGRPCNodeDelay is newGRPCNode with an initial rebalance delay.
+func newGRPCNodeDelay(rt grpcT, groupDelay time.Duration) *grpcNode {
 	cfg := replica.Config{
 		CatchUpEvery: runtime.Duration(time.Millisecond), Rank: 0, Writer: "cp-0",
 		Heartbeat:       runtime.Duration(time.Second),
@@ -167,7 +180,7 @@ func newGRPCNode(rt *rapid.T) *grpcNode {
 		CheckpointEvery: runtime.Duration(3 * time.Millisecond), CheckpointMinSlots: 1, CheckpointPrefix: grpcCheckpointPrefix,
 		KeepSlots: 2,
 	}
-	n := &grpcNode{t: rt, cfg: cfg, disk: &grpcDisk{log: executor.NewMemoryLog(), objs: executor.NewMemoryObjects()}}
+	n := &grpcNode{t: rt, cfg: cfg, groupDelay: groupDelay, disk: &grpcDisk{log: executor.NewMemoryLog(), objs: executor.NewMemoryObjects()}}
 	n.start()
 	rt.Cleanup(n.stop)
 	return n
@@ -178,6 +191,7 @@ func (n *grpcNode) start() {
 	n.node = server.New(server.Config{
 		Machine: n.cfg, Log: n.proc, Objects: n.proc,
 		Self: runtime.NodeInstance{Node: "cp-0"}, StopGrace: runtime.Duration(50 * time.Millisecond),
+		GroupInitialRebalanceDelay: n.groupDelay,
 	})
 	ctx, cancel := context.WithTimeout(n.t.Context(), 10*time.Second)
 	defer cancel()
@@ -215,10 +229,21 @@ func (n *grpcNode) stop() {
 // Exec asks again while the node says ErrUnavailable (it is not the writer
 // yet, or not ready), as a real client does. That answer means "not accepted,
 // try later".
+//
+// DescribeGroups gives the state of the group coordinator in memory (a Kafka
+// state), and the metadata model the state of the log. This target never
+// installs a group, so the coordinator never has one: it says Dead, which is
+// the empty state of the model for a group that does not exist. Any other
+// state of DescribeGroups is checked against the rebalance model in
+// TestGRPCRebalance.
 func (n *grpcNode) Exec(ctx context.Context, op runtime.ControlPlaneOperation) (runtime.ControlPlaneDone, error) {
 	for {
 		d, err := n.send(ctx, op)
 		if err != nil || d.Err != runtime.ErrUnavailable || ctx.Err() != nil {
+			if r, ok := d.Resp.(contract.DescribeGroupResp); ok && !r.Exists && r.State == "Dead" {
+				r.State = ""
+				d.Resp = r
+			}
 			return d, err
 		}
 		time.Sleep(time.Millisecond)
@@ -444,17 +469,20 @@ func codeFromWire(c cpv1.ErrCode) runtime.ErrCode {
 	return runtime.ErrIO
 }
 
-// grpcLacks are the operations that the API has no call for: a group is
-// installed, assigned and changed by JoinGroup, SyncGroup and LeaveGroup,
-// which have a different shape (the coordinator decides the generation).
+// grpcLacks are the operations that the API has no call for: they are log
+// commands with a generation and members that the caller chooses. Over the
+// wire a group is installed, assigned and changed only by JoinGroup,
+// SyncGroup, Heartbeat and LeaveGroup, which the rebalance machine turns into
+// these commands. TestGRPCRebalance checks those calls against the rebalance
+// model.
 var grpcLacks = []string{"groupInstall", "groupAssign", "groupRemove", "groupAssignLarge"}
 
 // TestGRPC is the real replica behind a gRPC server, with crash restarts,
 // checkpoints and injected storage failures, on a log that is trimmed behind
 // each checkpoint. It has no clean restart and no variant without trim: those
 // belong to the replica, and TestReplica has them. The wire does not change
-// with them. A restart takes long here, because the group coordinator serves
-// again only at its next watch tick (100 ms).
+// with them. After a restart the group calls are Unavailable until the group
+// coordinator has read the groups of the log again.
 func TestGRPC(t *testing.T) {
 	fewerChecks(t, 10, 40)
 	Run(t, func(rt *rapid.T) Target {
