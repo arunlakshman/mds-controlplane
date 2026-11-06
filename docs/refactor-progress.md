@@ -197,3 +197,4 @@ T6.3 | done | cherry-picked 617e0ee,725306d | merged tree: make build green, mak
 - T6.1b merged. Next: T6.2 the machine in domain/rebalance (opus, higher, serial).
 - T6.2 merged. Next: T6.3 conformance of machine vs model + mutants (opus, serial).
 - T6.3 merged; 13 mutants killed. Next: T6.4 host the machine in the node (opus, serial, higher; needs race + it).
+- PAUSED at user request (token limit), 2026-11-06 10:15 IST, for 3 hours. T6.4 agent STOPPED mid-work; its unmerged work is in worktree .claude/worktrees/agent-a8151449573b2fdc0 (branch worktree-agent-a8151449573b2fdc0, locked, last seen commit eedaa4d): do not delete it. A one-shot timer is set for about 13:17 IST: it restarts T6.4 as a new opus agent that first looks at that worktree, then T6.5 (simulator hosts the machine, RE-PIN), unless the user says otherwise. Branch refactor/greenfield HEAD = Record T6.3; main untouched; nothing pushed.
