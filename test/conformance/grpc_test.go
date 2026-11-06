@@ -164,6 +164,7 @@ type grpcNode struct {
 	gs         *grpc.Server
 	conn       *grpc.ClientConn
 	api        cpv1.ControlPlaneClient
+	ended      atomic.Int64 // the calls whose handler has returned, over every run
 }
 
 // newGRPCNode starts a node. The log is cut behind each checkpoint.
@@ -203,7 +204,7 @@ func (n *grpcNode) start() {
 	if err != nil {
 		n.t.Fatalf("listen: %v", err)
 	}
-	gs := grpc.NewServer()
+	gs := grpc.NewServer(grpc.UnaryInterceptor(n.count))
 	n.gs = gs
 	n.node.Register(gs)
 	go func() { _ = gs.Serve(ln) }() // not n.gs: a reboot replaces it while this runs
@@ -212,6 +213,14 @@ func (n *grpcNode) start() {
 		n.t.Fatalf("dial: %v", err)
 	}
 	n.api = cpv1.NewControlPlaneClient(n.conn)
+}
+
+// count runs one handler and then counts it in ended. A handler that has
+// returned has given the node all it will: an abandoned group call has told
+// the machine.
+func (n *grpcNode) count(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	defer n.ended.Add(1)
+	return handler(ctx, req)
 }
 
 // stop closes the client, the gRPC server and the node. A crash stops the

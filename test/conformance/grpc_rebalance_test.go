@@ -34,9 +34,11 @@ import (
 // from the answer of the node: inputs go to the model only at check points,
 // when every call before has its answer.
 //
-// Order. Calls that park run on their own goroutine. Before the next call the
-// test waits until the node shows the state that the parked call made (the
-// order matters there), or the order does not change any answer.
+// Order. Calls that park run on their own goroutine. Where the order of two
+// calls changes an answer, the test waits before the second one: until the
+// node shows the state that the first call made, or until the handler of an
+// abandoned call has returned (it has told the machine then, and the inbox of
+// the machine keeps the order). Elsewhere the order does not change any answer.
 
 const (
 	rbgDelay   = 200 * time.Millisecond
@@ -105,8 +107,10 @@ func TestGRPCRebalance(t *testing.T) {
 	w.heartbeat("a", 1)                               // ErrRebalanceInProgress
 	w.join("a", w.id("a"), "consumer", "rr", "range") // the round is done: generation 2, protocol rr
 	w.wait()
-	w.sync("b", 2, nil) // a follower waits for the leader's assignment
-	time.Sleep(50 * time.Millisecond)
+	// A follower's sync waits for the leader's assignment. If the leader's sync
+	// gets there first, the follower's gets the stored assignment at once: the
+	// same answer, so the test does not wait in between.
+	w.sync("b", 2, nil)
 	w.sync("a", 2, map[string]string{"a": "a2", "b": "b2"})
 	w.wait()
 	w.commit("b", 2, 7)
@@ -131,10 +135,10 @@ func TestGRPCRebalance(t *testing.T) {
 	w.fetch()
 
 	// B rejoins and gives up: its call is abandoned and gets no answer. The
-	// round then waits for B; A's join waits with it, until B joins again.
+	// round then waits for B; A's join waits with it, until B joins again (in
+	// either order the second join ends the round).
 	w.abandonedJoin("b")
 	w.join("a", w.id("a"), "consumer", "range")
-	time.Sleep(50 * time.Millisecond)
 	w.join("b", w.id("b"), "consumer", "range")
 	w.wait()
 	w.check()
@@ -243,12 +247,20 @@ func (w *rbgWorld) abandonedJoin(name string) {
 		return "abandoned"
 	})
 	w.waitState("PreparingRebalance") // the join opened a round and waits
+	// Every call but the join has ended: a handler returns before its client
+	// gets the answer.
+	ended := w.n.ended.Load()
 	cancel()
 	<-done
 	w.input("", func(spec.CallID) any { return spec.Abandon{Call: call} })
-	// The node hears of the abandon on its own goroutine: give it time before
-	// the next call, whose answer depends on it.
-	time.Sleep(300 * time.Millisecond)
+	// The answer of the next call depends on the abandon, so wait until the
+	// handler of the join has returned: it has told the machine then. No other
+	// call is in flight.
+	for end := time.Now().Add(10 * time.Second); w.n.ended.Load() == ended; time.Sleep(time.Millisecond) {
+		if time.Now().After(end) {
+			w.t.Fatal("the handler of the abandoned join does not return")
+		}
+	}
 }
 
 // sync sends a SyncGroup. The leader gives assign (member name to bytes).
