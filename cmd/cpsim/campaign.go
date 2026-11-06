@@ -65,9 +65,10 @@ func (c campaignOut) line() string {
 		c.sum.Elapsed.Seconds(), uint32(c.sum.Hash), status)
 }
 
-// coverageText lists the replica paths that no run reached. The replica says
-// which paths matter with Reachable and Sometimes; a path that no seed reaches
-// is not tested, so it is worth a look.
+// coverageText lists the replica and rebalance paths that no run reached. The
+// replica says which paths matter with Reachable and Sometimes, and the
+// simulator does it for the rebalance machine; a path that no seed reaches is
+// not tested, so it is worth a look.
 func coverageText(total dstcampaign.Summary) string {
 	missing := dstcampaign.Missing(total.Coverage, expectedReachable)
 	if len(missing) == 0 {
@@ -76,8 +77,9 @@ func coverageText(total dstcampaign.Summary) string {
 	return "coverage: not reached by any seed:\n  " + strings.Join(missing, "\n  ")
 }
 
-// expectedReachable are the Reachable paths of the replica that a long campaign
-// should reach. A short campaign may miss some.
+// expectedReachable are the Reachable paths of the replica, and of the
+// rebalance machine as its host in the simulator sees them, that a long
+// campaign should reach. A short campaign may miss some.
 var expectedReachable = []string{
 	"logcp-sim: epoch claimed",
 	"logcp-sim: standby took over",
@@ -90,4 +92,20 @@ var expectedReachable = []string{
 	"logcp-sim: checkpoint read had a bad CRC, read again",
 	"logcp-sim: replica crashed",
 	"logcp-sim: replica stalled",
+	"rebalance-sim: a join round completes",
+	"rebalance-sim: a round completes with many members",
+	"rebalance-sim: a member gets its assignment",
+	"rebalance-sim: an offset commit is acked",
+	"rebalance-sim: a leave removes a member",
+	"rebalance-sim: a heartbeat is told to join again",
+	"rebalance-sim: a silent member is removed",
+	"rebalance-sim: a member that never synced is removed",
+	"rebalance-sim: a takeover loads a group with members",
+	"rebalance-sim: a failed write ends the term",
+	"rebalance-sim: the write timer ends the term",
+	"rebalance-sim: groups are read again from a fresh tail",
+	"rebalance-sim: a refused load read is sent again",
+	"rebalance-sim: the role is lost while calls wait",
+	"rebalance-sim: a call is abandoned",
+	"rebalance-sim: a late reply to an abandoned call is dropped",
 }

@@ -373,11 +373,18 @@ func (o *oracle) joinAnswered(c *consumer, op *groupOp, a rebalance.JoinAnswer) 
 	}
 	g.lastGen[a.MemberID] = max(g.lastGen[a.MemberID], a.Generation)
 	g.joins = append(g.joins, joinRec{group: c.group, member: a.MemberID, leader: a.Leader, gen: a.Generation, at: int64(s.mono())})
+	s.env.Reachable("rebalance-sim: a join round completes")
+	if len(a.Members) > 1 {
+		s.env.Reachable("rebalance-sim: a round completes with many members")
+	}
 }
 
 // syncAnswered keeps a sync answer for the log checks.
 func (o *oracle) syncAnswered(c *consumer, op *groupOp, a rebalance.SyncAnswer) {
 	o.groups.syncs = append(o.groups.syncs, syncRec{group: c.group, member: op.member, gen: op.gen, bytes: a.Assignment, at: int64(o.s.mono())})
+	if len(a.Assignment) > 0 {
+		o.s.env.Reachable("rebalance-sim: a member gets its assignment")
+	}
 }
 
 // commitAnswered keeps the offsets of a commit that were acked.
@@ -390,6 +397,7 @@ func (o *oracle) commitAnswered(c *consumer, op *groupOp, a rebalance.CommitAnsw
 	for i, code := range a.Errs {
 		if code == runtime.OK {
 			o.groups.commits = append(o.groups.commits, commitRec{group: c.group, offset: op.offsets[i], at: int64(s.mono())})
+			s.env.Reachable("rebalance-sim: an offset commit is acked")
 		}
 	}
 }

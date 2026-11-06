@@ -3,6 +3,7 @@ package simulator
 import (
 	"github.com/manifesterio/dst/fault"
 	"github.com/manifesterio/dst/rng"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/rebalance"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -54,7 +55,9 @@ func isLogCall(call runtime.IOCall) bool {
 	return false
 }
 
-// SiteNames returns the names of all buggify sites of the simulator, in order.
+// SiteNames returns the names of all buggify sites that a run can reach, in
+// order: the sites of the simulator, then the sites of the rebalance machine
+// (domain/rebalance sites.go), which gets the fault injector of the run.
 func SiteNames() []string {
-	return []string{SiteLogSlowAnswer, SiteLogShortPage, SiteObjectsSlowAnswer}
+	return append([]string{SiteLogSlowAnswer, SiteLogShortPage, SiteObjectsSlowAnswer}, rebalance.SiteNames()...)
 }

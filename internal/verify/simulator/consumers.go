@@ -221,6 +221,22 @@ func (p *consumerPool) newReq() runtime.RequestID {
 // a client walks its list of addresses.
 func (p *consumerPool) otherNode(last int) int { return (last + 1) % len(p.s.nodes) }
 
+// expiring is told of a GroupRemove that the machine logs because members
+// expired. It marks the coverage paths of silent members.
+func (p *consumerPool) expiring(rm contract.GroupRemove) {
+	for _, id := range rm.Members {
+		c := p.byMember[id]
+		if c == nil || !c.silent || c.lastMember != id {
+			continue
+		}
+		if c.silentIn == needSync {
+			p.s.env.Reachable("rebalance-sim: a member that never synced is removed")
+		} else {
+			p.s.env.Reachable("rebalance-sim: a silent member is removed")
+		}
+	}
+}
+
 // fetched is the replica's answer to the OffsetFetch of a consumer.
 func (p *consumerPool) fetched(n *simNode, a runtime.ControlPlaneReply) bool {
 	c := p.byName[a.To.Node]
@@ -532,6 +548,9 @@ func (c *consumer) handle(op *groupOp, code runtime.ErrCode, body rebalance.Answ
 			return
 		}
 	case callLeave:
+		if a, ok := body.(rebalance.LeaveAnswer); ok && code == runtime.OK && len(a.Errs) == 1 && a.Errs[0] == runtime.OK {
+			c.pool.s.env.Reachable("rebalance-sim: a leave removes a member")
+		}
 		c.member, c.stage = "", needJoin
 		c.later(runtime.Duration(c.pool.s.rand.Between(int64(200*runtime.Millisecond), int64(runtime.Second))))
 		return
@@ -557,7 +576,10 @@ func (c *consumer) handle(op *groupOp, code runtime.ErrCode, body rebalance.Answ
 // rejoin follows a refused join, sync, heartbeat or commit, as Kafka's
 // client does: an unknown member joins again as a new member; any other
 // code means the group is in a new round.
-func (c *consumer) rejoin(_ callKind, code runtime.ErrCode) {
+func (c *consumer) rejoin(kind callKind, code runtime.ErrCode) {
+	if kind == callHeartbeat && code == runtime.ErrRebalanceInProgress {
+		c.pool.s.env.Reachable("rebalance-sim: a heartbeat is told to join again")
+	}
 	if code == runtime.ErrUnknownMember {
 		c.member = ""
 	}

@@ -103,7 +103,9 @@ type groupHost struct {
 	calls    map[rebalance.CallID]*groupCall // calls that wait for a reply
 	gone     map[rebalance.CallID]bool       // calls that were abandoned
 	nextCall rebalance.CallID
-	sent     map[runtime.RequestID]bool // every request id the machine of this boot used
+	reads    map[runtime.RequestID]readNote // reads of the machine not answered yet
+	sent     map[runtime.RequestID]bool     // every request id the machine of this boot used
+	timers   map[uint64]bool                // write timers: the timer that the machine sets with each command
 }
 
 // sentWrite is a command of the machine that the replica has not answered yet.
@@ -115,6 +117,14 @@ type sentWrite struct {
 // groupCall is one call that waits for the machine.
 type groupCall struct {
 	try *callTry
+}
+
+// readNote is what the host knows about one read of the machine, for the
+// coverage notes.
+type readNote struct {
+	list  bool // a ListGroups read
+	load  bool // a read of the load (not of a Describe call)
+	fresh bool
 }
 
 // groupProc is the dst process of one boot of the machine.
@@ -137,8 +147,10 @@ func (h *groupHost) start() {
 	h.proc = &groupProc{h: h, m: rebalance.New(machineConfig(h.n.idx, h.s.env))}
 	h.role, h.told = false, false
 	h.sent = map[runtime.RequestID]bool{}
+	h.timers = map[uint64]bool{}
 	h.calls = map[rebalance.CallID]*groupCall{}
 	h.gone = map[rebalance.CallID]bool{}
+	h.reads = map[runtime.RequestID]readNote{}
 	h.writes = map[runtime.RequestID]sentWrite{}
 	h.terms = 0
 	h.nextCall = 0
@@ -154,7 +166,7 @@ func (h *groupHost) stop() {
 	}
 	h.proc, h.role, h.told = nil, false, false
 	h.in, h.toReplica, h.held = queue{}, queue{}, nil
-	h.calls, h.gone, h.writes, h.sent = nil, nil, nil, nil
+	h.calls, h.gone, h.reads, h.writes, h.sent, h.timers = nil, nil, nil, nil, nil, nil
 }
 
 // writing reports that a command of the machine still waits for the replica.
@@ -209,6 +221,7 @@ func (h *groupHost) step(p *groupProc, cx dstsim.Context, inbox any) []any {
 		}
 	}
 	outs := p.m.Step(cx, inbox)
+	h.note(inbox, outs)
 	return h.outbound(outs)
 }
 
@@ -340,6 +353,7 @@ func (h *groupHost) deadline(call rebalance.CallID, gc *groupCall) {
 	}
 	delete(h.calls, call)
 	h.gone[call] = true
+	h.s.env.Reachable("rebalance-sim: a call is abandoned")
 	h.deliver(rebalance.CallAbandoned{Call: call})
 	if !gc.try.onPurpose && gc.try.quiet {
 		h.s.violation("every call gets an answer", "%s: %s sent call %d in the quiet tail and had no answer after %dms",
@@ -358,6 +372,7 @@ func (h *groupHost) answer(r rebalance.Reply) {
 	gc, ok := h.calls[r.Call]
 	if !ok {
 		if h.gone[r.Call] {
+			h.s.env.Reachable("rebalance-sim: a late reply to an abandoned call is dropped")
 			return
 		}
 		h.s.violation("every call gets one answer", "%s: the machine answered call %d, which does not wait for an answer", h.n.name(), r.Call)
@@ -377,4 +392,82 @@ func (h *groupHost) fetch(t *callTry, req runtime.RequestID) {
 	t.req = req
 	h.toReplica.push(runtime.LocalRead{From: t.c.from, Req: req, Op: t.op.fetch})
 	h.s.runner.Inject(nodeID(h.n.idx), 0, replicaWake{})
+}
+
+// note marks the paths of the machine that the coverage report lists. The
+// machine has no assertions of its own, so the host reads them from its
+// inputs and outputs.
+func (h *groupHost) note(in any, outs []any) {
+	o := h.noteOutputs(in, outs)
+	env := h.s.env
+	switch in := in.(type) {
+	case runtime.TimerFired:
+		switch {
+		case o.freshList && h.timers[uint64(in.ID)]:
+			env.Reachable("rebalance-sim: the write timer ends the term")
+		case o.sentRead:
+			env.Reachable("rebalance-sim: a refused load read is sent again")
+		}
+	case rebalance.ReplicaReply:
+		if o.freshList {
+			env.Reachable("rebalance-sim: a failed write ends the term")
+		}
+		h.noteRead(in)
+	case rebalance.RoleChanged:
+		if !in.Active && o.unavailable {
+			env.Reachable("rebalance-sim: the role is lost while calls wait")
+		}
+	}
+}
+
+// stepOutputs is what note found in the outputs of one step.
+type stepOutputs struct {
+	freshList   bool // a fresh ListGroups read: the term ended
+	sentRead    bool
+	unavailable bool // a call was answered ErrUnavailable
+}
+
+// noteOutputs remembers the reads and the write timers of one step.
+func (h *groupHost) noteOutputs(in any, outs []any) stepOutputs {
+	var r stepOutputs
+	afterSubmit := false
+	for _, o := range outs {
+		if st, ok := o.(dstsim.SetTimer); ok && afterSubmit {
+			h.timers[st.ID] = true // the machine arms the timer of a write right after it
+		}
+		_, afterSubmit = o.(rebalance.SubmitCommand)
+		switch o := o.(type) {
+		case rebalance.SubmitRead:
+			_, list := o.Op.(contract.ListGroups)
+			_, describeCall := in.(rebalance.Describe)
+			h.reads[o.Req] = readNote{list: list, load: !describeCall, fresh: o.Fresh}
+			r.sentRead = true
+			r.freshList = r.freshList || (list && o.Fresh)
+		case rebalance.SubmitCommand:
+			if rm, ok := o.Op.(contract.GroupRemove); ok && rm.Reason == "expire" {
+				h.s.consumers.expiring(rm)
+			}
+		case rebalance.Reply:
+			r.unavailable = r.unavailable || o.Err == runtime.ErrUnavailable
+		}
+	}
+	return r
+}
+
+// noteRead marks the paths of a read that came back.
+func (h *groupHost) noteRead(in rebalance.ReplicaReply) {
+	r, ok := h.reads[in.Req]
+	if !ok {
+		return
+	}
+	delete(h.reads, in.Req)
+	if in.Done.Err != runtime.OK {
+		return
+	}
+	if r.list && r.fresh {
+		h.s.env.Reachable("rebalance-sim: groups are read again from a fresh tail")
+	}
+	if d, ok := in.Done.Resp.(contract.DescribeGroupResp); ok && r.load && !r.fresh && len(d.Members) > 0 {
+		h.s.env.Reachable("rebalance-sim: a takeover loads a group with members")
+	}
 }

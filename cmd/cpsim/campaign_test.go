@@ -9,7 +9,8 @@ import (
 )
 
 // TestCampaignReachesReplicaPaths: over a campaign of four scenarios the
-// replica reaches every path that the coverage line expects.
+// replica and the rebalance machine reach every path that the coverage line
+// expects.
 func TestCampaignReachesReplicaPaths(t *testing.T) {
 	var total dstcampaign.Summary
 	for _, sc := range []string{"crash-restart", "leader-fencing", "chaos", "log-faults"} {
