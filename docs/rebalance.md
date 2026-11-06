@@ -4,7 +4,7 @@ Status: design note for phase P6 (task T6.1), revised to the user's decisions. T
 
 ## 1. Purpose and scope
 
-`domain/rebalance` replaces the coordinator in `groups/`. It is a `sim.Process`-shaped machine,
+`domain/rebalance` replaced the old coordinator in `groups/` (deleted in T6.6). It is a `sim.Process`-shaped machine,
 `Step(cx, input) -> outputs`, with no locks, goroutines, channels or clock; time and randomness come
 from `cx`. It runs in production (a second `live.Run`) and in the simulator (a second dst process per
 node). The independent model is `internal/spec/rebalance.go` (section 12).
@@ -89,7 +89,7 @@ does not have. Waiting for a log write is not a phase either; a busy group has a
 
 ## 5. Rules
 
-Today's tests are in `groups/coordinator_test.go` (C), `groups/rules_test.go` (R) and
+Today's tests (before T6.2; the files are deleted and ported to `domain/rebalance`) were in `groups/coordinator_test.go` (C), `groups/rules_test.go` (R) and
 `groups/waitjoin_test.go` (W). "code" means today's code has the rule but no test checks it. CHANGED
 marks a rule that differs from today (section 6).
 

@@ -2,6 +2,9 @@
 
 Note: docs/greenfield-refactor-plan.md replaces this file's later steps.
 
+Note: the `groups` package named below was deleted in T6.6. Its tests live on in `domain/rebalance`
+(same test names). The paths below are history.
+
 Goal: cut the test code from about 12,000 lines (plus about 1,400 of test support) without losing the
 ability to catch bugs. This file is the plan (step 0). Nothing is deleted yet.
 

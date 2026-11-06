@@ -61,7 +61,7 @@ ascii-check:
 determinism:
 	bash ops/scripts/ci-determinism.sh
 
-# All generated Go: the *.pb.go files and the contract, groups and wire *_gen.go
+# All generated Go: the *.pb.go files and the contract, rebalance and wire *_gen.go
 # files. One buf run writes all of them (see make proto). None of it is in git,
 # and the module does not compile without it.
 generate: proto

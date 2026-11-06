@@ -9,7 +9,7 @@
 # allowed import: context, because the in-memory log API takes a context. Its
 # campaign runner (cmd/cpsim) uses goroutines and wall time on purpose,
 # to run many seeds at once, so it is not in the gate.
-# Other control-plane packages (engine/memory, groups, metadb) use sync,
+# Other control-plane packages (engine/memory, metadb) use sync,
 # time or other banned things and are not in this gate yet.
 #   1. determinismcheck: exact-path import allow-list plus banned constructs.
 #   2. Every third-party module they depend on has a reviewed audit record
