@@ -1,6 +1,11 @@
 # Deploy the control plane to a local kind cluster
 
-Needs docker, kind and helm.
+Status: these steps have not been run end to end yet. The image build cannot work until
+`dst` is published, because `go.mod` has a temporary `replace` for it that points to a local
+folder. Treat the commands as the plan, not as a tested recipe.
+
+Needs docker, kind and helm. The Dockerfile makes the generated files itself (they are
+not in git).
 
     docker build -f deploy/docker/mdscontrolplane.Dockerfile -t mdscontrolplane:dev .
     kind create cluster --name mds
