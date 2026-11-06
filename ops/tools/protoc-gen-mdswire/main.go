@@ -137,7 +137,7 @@ func readMessages(gen *protogen.Plugin, opts *options) ([]*message, error) {
 			if msg == nil {
 				continue
 			}
-			msg.converters = !opts.flag(fileOpts, "no_converters")
+			msg.converters = !opts.flag(fileOpts, "no_converters") && !inGroups(msg.goType)
 			msgs = append(msgs, msg)
 			byName[m.Desc.FullName()] = msg
 		}
@@ -216,6 +216,16 @@ func readField(opts *options, f *protogen.Field, byName map[protoreflect.FullNam
 		}
 	}
 	return fd, nil
+}
+
+// inGroups reports whether a Go type is in package groups, the old group
+// coordinator. Its types get a struct but no converters: the gRPC handlers turn
+// the group messages into the inputs of domain/rebalance (wire/rebalance.go),
+// so package wire, and the server with it, does not import groups. T6.6 deletes
+// groups and moves these types to domain/rebalance.
+func inGroups(goType string) bool {
+	pkg, _, _ := strings.Cut(goType, ".")
+	return pkg == "groups"
 }
 
 // checkType checks that a Go type of an option names a package the plugin

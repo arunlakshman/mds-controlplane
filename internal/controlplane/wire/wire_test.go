@@ -7,7 +7,6 @@ import (
 	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
-	"github.com/manifesterio/mds-controlplane/internal/controlplane/groups"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
@@ -50,26 +49,9 @@ func sameValue(t *testing.T, name string, got, want any) {
 	}
 }
 
+// The group messages that are not contract types are converted by hand in
+// rebalance.go and tested in rebalance_test.go.
 func TestGroupRequestsRoundTrip(t *testing.T) {
-	join := groups.JoinReq{
-		Group: "g", MemberID: "m", GroupInstanceID: "i", ClientID: "c", ClientHost: "h",
-		SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, ProtocolType: "consumer",
-		Protocols: []groups.Protocol{{Name: "range", Metadata: []byte{1}}, {Name: "rr", Metadata: []byte{2}}},
-	}
-	sameValue(t, "join", JoinGroupRequestToCore(JoinGroupRequestFromCore(join)), join)
-
-	sync := groups.SyncReq{
-		Group: "g", MemberID: "m", Generation: 3,
-		Assignments: []groups.Assignment{{Member: "a", Bytes: []byte{1}}, {Member: "b", Bytes: []byte{2}}},
-	}
-	sameValue(t, "sync", SyncGroupRequestToCore(SyncGroupRequestFromCore(sync)), sync)
-
-	beat := groups.HeartbeatReq{Group: "g", MemberID: "m", Generation: 4}
-	sameValue(t, "heartbeat", HeartbeatRequestToCore(HeartbeatRequestFromCore(beat)), beat)
-
-	leave := groups.LeaveReq{Group: "g", Members: []string{"a", "b"}}
-	sameValue(t, "leave", LeaveGroupRequestToCore(LeaveGroupRequestFromCore(leave)), leave)
-
 	commit := contract.OffsetCommit{
 		Group: "g", Member: "m", Generation: 5,
 		Offsets: []contract.PartitionOffset{
@@ -84,24 +66,9 @@ func TestGroupRequestsRoundTrip(t *testing.T) {
 		Partitions: []contract.TopicPartition{contract.NewTopicPartition("t", 0), contract.NewTopicPartition("u", 7)},
 	}
 	sameValue(t, "offset fetch", OffsetFetchRequestToCore(OffsetFetchRequestFromCore(fetch)), fetch)
-
-	names := groups.DescribeGroupsReq{Groups: []string{"a", "b"}}
-	sameValue(t, "describe groups", DescribeGroupsRequestToCore(DescribeGroupsRequestFromCore(names)), names)
 }
 
 func TestGroupResponsesRoundTrip(t *testing.T) {
-	join := groups.JoinResp{
-		MemberID: "m", Generation: 3, Protocol: "range", Leader: "l",
-		Members: []groups.Member{{ID: "a", InstanceID: "i", Metadata: []byte{1}}, {ID: "b"}},
-	}
-	sameValue(t, "join resp", JoinGroupResponseToCore(JoinGroupResponseFromCore(join)), join)
-
-	sync := groups.SyncResp{Assignment: []byte{7, 8}}
-	sameValue(t, "sync resp", SyncGroupResponseToCore(SyncGroupResponseFromCore(sync)), sync)
-
-	leave := groups.LeaveResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}}
-	sameValue(t, "leave resp", LeaveGroupResponseToCore(LeaveGroupResponseFromCore(leave)), leave)
-
 	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrIllegalGeneration}}
 	sameValue(t, "offset commit resp", OffsetCommitResponseToCore(OffsetCommitResponseFromCore(commit)), commit)
 
@@ -110,21 +77,18 @@ func TestGroupResponsesRoundTrip(t *testing.T) {
 	}}
 	sameValue(t, "offset fetch resp", OffsetFetchResponseToCore(OffsetFetchResponseFromCore(fetch)), fetch)
 
-	described := groups.DescribeGroupsResp{Groups: []groups.GroupDescription{{
-		Name: "g",
-		DescribeGroupResp: contract.DescribeGroupResp{
-			Exists: true, Generation: 2, ProtocolType: "consumer", Protocol: "range",
-			Leader: "l", AssignedGeneration: 2, State: "Stable",
-			Members: []contract.GroupMemberInfo{{
-				GroupMember: contract.GroupMember{
-					MemberID: "m", ClientID: "c", ClientHost: "h", GroupInstanceID: "i",
-					SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, Metadata: []byte{1},
-				},
-				JoinedTimeMs: 99, Assignment: []byte{2},
-			}},
-		},
-	}, {Name: "empty"}}}
-	sameValue(t, "describe groups resp", DescribeGroupsResponseToCore(DescribeGroupsResponseFromCore(described)), described)
+	details := contract.DescribeGroupResp{
+		Exists: true, Generation: 2, ProtocolType: "consumer", Protocol: "range",
+		Leader: "l", AssignedGeneration: 2, State: "Stable",
+		Members: []contract.GroupMemberInfo{{
+			GroupMember: contract.GroupMember{
+				MemberID: "m", ClientID: "c", ClientHost: "h", GroupInstanceID: "i",
+				SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, Metadata: []byte{1},
+			},
+			JoinedTimeMs: 99, Assignment: []byte{2},
+		}},
+	}
+	sameValue(t, "group details", GroupDetailsToCore(GroupDetailsFromCore(details)), details)
 
 	listed := []contract.GroupSummary{{Name: "g", ProtocolType: "consumer", State: "Stable"}}
 	sameValue(t, "list groups resp", ListGroupsResponseToCore(ListGroupsResponseFromCore(contract.ListGroupsResp{Groups: listed})).Groups, listed)
@@ -143,11 +107,8 @@ func TestNilAndEmptyInputs(t *testing.T) {
 	sameValue(t, "nil commit", CommitSegmentRequestToCore(nil), contract.CommitSegment{})
 	sameValue(t, "nil lookup", FindSegmentsRequestToCore(nil), contract.FindSegments{})
 	sameValue(t, "nil describe", DescribeTopicsRequestToCore(nil), contract.DescribeTopics{})
-	sameValue(t, "nil join", JoinGroupRequestToCore(nil), groups.JoinReq{})
-	sameValue(t, "nil join resp", JoinGroupResponseToCore(nil), groups.JoinResp{})
 	sameValue(t, "nil broker heartbeat", BrokerHeartbeatRequestToCore(nil), contract.BrokerHeartbeat{})
 	sameValue(t, "empty live set", BrokerHeartbeatResponseToCore(BrokerHeartbeatResponseFromCore(contract.BrokerHeartbeatResp{})), contract.BrokerHeartbeatResp{})
-	sameValue(t, "nil describe groups", DescribeGroupsRequestToCore(nil), groups.DescribeGroupsReq{})
 
 	// A batch with missing parts keeps its place and gets zero values.
 	got := CommitSegmentRequestToCore(&cpv1.CommitSegmentRequest{SegmentKey: "k", Batches: []*sharedv1.PendingBatch{{Records: 2}}})

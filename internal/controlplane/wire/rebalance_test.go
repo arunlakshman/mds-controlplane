@@ -3,6 +3,8 @@ package wire
 import (
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	sharedv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/shared/v1"
 	cpv1 "github.com/manifesterio/mds-controlplane/internal/controlplane/api/controlplane/v1"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
@@ -41,16 +43,21 @@ func TestGroupRequestsToMachine(t *testing.T) {
 }
 
 // Every field of a machine answer reaches the response. The generated
-// converters read the responses back.
+// converters of the contract types read the responses back.
 func TestMachineAnswersToWire(t *testing.T) {
 	join := JoinAnswerToWire(rebalance.JoinAnswer{Generation: 2, Protocol: "range", Leader: "a", MemberID: "b",
 		Members: []rebalance.Member{{ID: "a", InstanceID: "i", Metadata: []byte{1}}}})
 	want := &cpv1.JoinGroupResponse{MemberId: "b", Generation: 2, Protocol: "range", Leader: "a",
 		Members: []*cpv1.GroupMember{{MemberId: "a", GroupInstanceId: "i", Metadata: []byte{1}}}}
-	sameValue(t, "join", JoinGroupResponseToCore(join), JoinGroupResponseToCore(want))
+	if !proto.Equal(join, want) {
+		t.Fatalf("join\n got  %v\n want %v", join, want)
+	}
 	sameValue(t, "sync", SyncAnswerToWire(rebalance.SyncAnswer{Assignment: []byte{3}}).GetAssignment(), []byte{3})
+	if !proto.Equal(HeartbeatAnswerToWire(nil), &cpv1.HeartbeatResponse{}) {
+		t.Fatal("a heartbeat answer is an empty response")
+	}
 	errs := []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}
-	sameValue(t, "leave", LeaveGroupResponseToCore(LeaveAnswerToWire(rebalance.LeaveAnswer{Errs: errs})).Errs, errs)
+	sameValue(t, "leave", mapSlice(LeaveAnswerToWire(rebalance.LeaveAnswer{Errs: errs}).GetErrs(), ErrCodeToCore), errs)
 	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrUnknownPartition}}
 	sameValue(t, "commit", OffsetCommitResponseToCore(CommitAnswerToWire(rebalance.CommitAnswer{OffsetCommitResp: commit})), commit)
 	desc := contract.DescribeGroupResp{Exists: true, Generation: 4, ProtocolType: "consumer", Protocol: "range", Leader: "a",
@@ -64,4 +71,13 @@ func TestMachineAnswersToWire(t *testing.T) {
 	sameValue(t, "describe", GroupDetailsToCore(got[0].GetDetails()), desc)
 	list := []contract.GroupSummary{{Name: "g", ProtocolType: "consumer", State: "Empty"}}
 	sameValue(t, "list", ListGroupsResponseToCore(ListAnswerToWire(rebalance.ListAnswer{Groups: list})).Groups, list)
+}
+
+// Nil requests give the zero input with the call id, never a panic.
+func TestNilGroupRequestsToMachine(t *testing.T) {
+	sameValue(t, "nil join", JoinToMachine(1, nil), rebalance.Join{Call: 1})
+	sameValue(t, "nil sync", SyncToMachine(2, nil), rebalance.Sync{Call: 2})
+	sameValue(t, "nil heartbeat", HeartbeatToMachine(3, nil), rebalance.Heartbeat{Call: 3})
+	sameValue(t, "nil leave", LeaveToMachine(4, nil), rebalance.Leave{Call: 4})
+	sameValue(t, "nil describe", DescribeToMachine(5, nil), rebalance.Describe{Call: 5})
 }
