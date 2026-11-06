@@ -78,14 +78,27 @@ func (h *rb) heartbeat(group, member string, gen int32) runtime.ErrCode {
 	return h.step(Heartbeat{Call: c, Group: group, MemberID: member, Generation: gen})[c].Err
 }
 
-func (h *rb) store(op runtime.ControlPlaneOperation) Reply {
+func (h *rb) commit(group, member string, gen int32) runtime.ErrCode {
 	c := h.call()
-	return h.step(StoreCall{Call: c, Op: op})[c]
+	op := contract.OffsetCommit{Group: group, Member: member, Generation: gen, Offsets: []contract.PartitionOffset{{TopicPartition: contract.NewTopicPartition("t", 0), Offset: 5}}}
+	return h.step(Commit{Call: c, Op: op})[c].Err
 }
 
+// describe is the Describe call: the log's description with the memory state.
 func (h *rb) describe(group string) contract.DescribeGroupResp {
-	d, _ := h.store(contract.DescribeGroup{Group: group}).Body.(contract.DescribeGroupResp)
+	c := h.call()
+	d, _ := h.step(Describe{Call: c, Group: group})[c].Body.(contract.DescribeGroupResp)
 	return d
+}
+
+// logged is the members the log has for group.
+func (h *rb) logged(group string) []string {
+	d, _ := h.r.Store.Apply(contract.DescribeGroup{Group: group}).Resp.(contract.DescribeGroupResp)
+	var ids []string
+	for _, m := range d.Members {
+		ids = append(ids, m.MemberID)
+	}
+	return ids
 }
 
 func joined(t *testing.T, r Reply, gen int32, leader string, members int) {
@@ -118,7 +131,7 @@ func (h *rb) stableTwo() {
 func TestRebalanceOneMemberJoinsAndSyncs(t *testing.T) {
 	h := newRB(t)
 	c, id, out := h.join("g", "")
-	if len(out) != 0 || h.r.Phase("g") != PhaseJoining {
+	if len(out) != 0 || h.describe("g").State != PhaseJoining {
 		t.Fatalf("a new group waits the initial delay: %+v %s", out, h.r.Phase("g"))
 	}
 	r := h.wait(3 * sec)[c]
@@ -126,14 +139,17 @@ func TestRebalanceOneMemberJoinsAndSyncs(t *testing.T) {
 	if j := r.Body.(JoinResult); j.Protocol != "range" || string(j.Members[0].Metadata) != "meta-range" {
 		t.Fatalf("protocol or metadata: %+v", j)
 	}
+	if d := h.describe("g"); d.State != PhaseSyncing || d.Generation != 1 {
+		t.Fatalf("describe after the round: %+v", d)
+	}
 	if c, out := h.sync("g", id, 1, id, "all"); string(out[c].Body.([]byte)) != "all" {
 		t.Fatalf("leader sync: %+v", out)
 	}
-	if code := h.heartbeat("g", id, 1); code != runtime.OK {
-		t.Fatalf("stable heartbeat: %v", code)
-	}
-	if d := h.describe("g"); d.State != "Stable" || d.AssignedGeneration != 1 {
+	if d := h.describe("g"); d.State != PhaseStable || d.AssignedGeneration != 1 {
 		t.Fatalf("describe: %+v", d)
+	}
+	if d := h.describe("nope"); d.State != PhaseDead || d.Exists {
+		t.Fatalf("describe of an unknown group: %+v", d)
 	}
 }
 
@@ -141,16 +157,13 @@ func TestRebalanceNewMemberStartsARound(t *testing.T) {
 	h := newRB(t)
 	h.stableTwo()
 	c3, m3, _ := h.join("g", "")
-	if code := h.heartbeat("g", "m1", 2); code != runtime.ErrRebalanceInProgress {
-		t.Fatalf("heartbeat during a round: %v", code)
-	}
 	c1, _, _ := h.join("g", "m1")
 	c2, _, out := h.join("g", "m2")
 	joined(t, out[c1], 3, "m1", 3)
 	joined(t, out[c2], 3, "m1", 0)
 	joined(t, out[c3], 3, "m1", 0)
-	if d := h.describe("g"); len(d.Members) != 3 || d.Members[2].MemberID != m3 {
-		t.Fatalf("logged members: %+v", d.Members)
+	if got := h.logged("g"); len(got) != 3 || got[2] != m3 {
+		t.Fatalf("logged members: %v", got)
 	}
 }
 
@@ -186,8 +199,27 @@ func TestRebalanceChecksMemberAndGeneration(t *testing.T) {
 	if c, out := h.sync("g", "m1", 3, "m1", "x", "m1", "y"); out[c].Err != runtime.ErrInvalid {
 		t.Fatalf("member assigned twice: %+v", out)
 	}
-	if code := h.heartbeat("g", "m1", 3); code != runtime.ErrRebalanceInProgress {
-		t.Fatalf("heartbeat in CompletingRebalance: %v", code)
+}
+
+// Kafka's heartbeat: PreparingRebalance is ErrRebalanceInProgress,
+// CompletingRebalance and Stable are OK, and an Empty group has no members.
+func TestRebalanceHeartbeatByState(t *testing.T) {
+	h := newRB(t)
+	h.stableTwo()
+	if code := h.heartbeat("g", "m1", 2); code != runtime.OK {
+		t.Fatalf("Stable: %v", code)
+	}
+	h.join("g", "m1")
+	if code := h.heartbeat("g", "m2", 2); code != runtime.ErrRebalanceInProgress || h.r.Phase("g") != PhaseJoining {
+		t.Fatalf("PreparingRebalance: %v", code)
+	}
+	h.join("g", "m2")
+	if code := h.heartbeat("g", "m2", 3); code != runtime.OK || h.r.Phase("g") != PhaseSyncing {
+		t.Fatalf("CompletingRebalance: %v", code)
+	}
+	h.step(Leave{Call: h.call(), Group: "g", Members: []string{"m1", "m2"}})
+	if code := h.heartbeat("g", "m2", 3); code != runtime.ErrUnknownMember || h.r.Phase("g") != PhaseEmpty {
+		t.Fatalf("Empty: %v", code)
 	}
 }
 
@@ -201,8 +233,8 @@ func TestRebalanceLeave(t *testing.T) {
 	c1, _, out := h.join("g", "m1")
 	joined(t, out[c1], 3, "m1", 1)
 	h.step(Leave{Call: h.call(), Group: "g", Members: []string{"m1"}})
-	if d := h.describe("g"); h.r.Phase("g") != PhaseEmpty || d.Generation != 3 || d.State != "Empty" {
-		t.Fatalf("after the last leave: %s %+v", h.r.Phase("g"), d)
+	if d := h.describe("g"); d.Generation != 3 || d.State != PhaseEmpty {
+		t.Fatalf("after the last leave: %+v", d)
 	}
 }
 
@@ -215,64 +247,160 @@ func TestRebalanceSessionExpiry(t *testing.T) {
 		h.heartbeat("g", "m1", 2)
 	}
 	h.wait(sec)
-	if d := h.describe("g"); h.r.Phase("g") != PhaseJoining || len(d.Members) != 1 || h.heartbeat("g", "m2", 2) != runtime.ErrUnknownMember {
-		t.Fatalf("silent m2 not removed: %s %+v", h.r.Phase("g"), d.Members)
+	if h.r.Phase("g") != PhaseJoining || len(h.logged("g")) != 1 || h.heartbeat("g", "m2", 2) != runtime.ErrUnknownMember {
+		t.Fatalf("silent m2 not removed: %s %v", h.r.Phase("g"), h.logged("g"))
 	}
-	// A member that waits in a join is not silent, even past its session.
-	h.rebalance = 20000
-	c3, _, _ := h.join("g", "")
-	for range 8 { // m3 waits past its own session of 5s; m1 keeps beating
-		h.wait(sec)
-		h.heartbeat("g", "m1", 2)
-	}
-	c1, _, out := h.join("g", "m1")
-	joined(t, out[c1], 3, "m1", 2)
-	joined(t, out[c3], 3, "m1", 0)
 }
 
-func TestRebalanceLeaderNeverSyncs(t *testing.T) {
+// An existing member that waits in a join or a sync is not removed by its
+// session timer (Kafka hasSatisfiedHeartbeat).
+func TestRebalanceWaitingMemberDoesNotExpire(t *testing.T) {
+	h := newRB(t)
+	h.session, h.rebalance = 5000, 20000
+	h.stableTwo()
+	c1, _, _ := h.join("g", "m1")
+	for range 8 { // m1 waits past its session; m2 beats but does not join yet
+		h.wait(sec)
+		h.heartbeat("g", "m2", 2)
+	}
+	c2, _, out := h.join("g", "m2")
+	joined(t, out[c1], 3, "m1", 2)
+	joined(t, out[c2], 3, "m1", 0)
+	cs, _ := h.sync("g", "m2", 3)
+	for range 8 { // m2 waits in its sync past its session; the leader beats
+		h.wait(sec)
+		h.heartbeat("g", "m1", 3)
+	}
+	if _, out := h.sync("g", "m1", 3, "m2", "b"); string(out[cs].Body.([]byte)) != "b" {
+		t.Fatalf("waiting follower: %+v", out)
+	}
+}
+
+// A new member can be removed while it waits in its first join, by the new
+// member timeout. Its join gets ErrUnknownMember.
+func TestRebalanceNewMemberExpires(t *testing.T) {
+	h := newRB(t)
+	h.rebalance = 20000
+	h.stableTwo()
+	h.r.NewMemberTimeout = 4 * runtime.Second
+	c3, _, _ := h.join("g", "")
+	c1, _, _ := h.join("g", "m1")
+	var out map[CallID]Reply
+	for range 4 { // m2 beats but does not join; m3 waits as a new member
+		out = h.wait(sec)
+		h.heartbeat("g", "m2", 2)
+	}
+	if out[c3].Err != runtime.ErrUnknownMember || h.r.Phase("g") != PhaseJoining {
+		t.Fatalf("new member not removed: %+v", out)
+	}
+	c2, _, out := h.join("g", "m2")
+	joined(t, out[c1], 3, "m1", 2)
+	joined(t, out[c2], 3, "m1", 0)
+}
+
+// At the round end (the join timeout) the members that did not join again
+// are removed, even when they beat.
+func TestRebalanceJoinTimeoutRemovesSilentMembers(t *testing.T) {
+	h := newRB(t)
+	h.rebalance = 5000
+	h.stableTwo()
+	c1, _, _ := h.join("g", "m1")
+	var out map[CallID]Reply
+	for range 5 {
+		out = h.wait(sec)
+		h.heartbeat("g", "m2", 2)
+	}
+	joined(t, out[c1], 3, "m1", 1)
+	if got := h.logged("g"); !slices.Equal(got, []string{"m1"}) || h.heartbeat("g", "m2", 2) != runtime.ErrUnknownMember {
+		t.Fatalf("m2 kept: %v", got)
+	}
+}
+
+// At the sync deadline the members that sent no sync are removed and a round
+// opens; waiting syncs get ErrRebalanceInProgress.
+func TestRebalanceSyncTimeout(t *testing.T) {
 	h := newRB(t)
 	h.rebalance = 5000
 	h.join("g", "")
 	h.join("g", "")
 	h.wait(3 * sec)
 	cs, _ := h.sync("g", "m2", 1)
-	if out := h.wait(5 * sec); out[cs].Err != runtime.ErrRebalanceInProgress || h.r.Phase("g") != PhaseJoining {
-		t.Fatalf("sync deadline: %+v %s", out, h.r.Phase("g"))
+	var out map[CallID]Reply
+	for range 5 { // the leader m1 beats in CompletingRebalance but never syncs
+		if code := h.heartbeat("g", "m1", 1); code != runtime.OK {
+			t.Fatalf("leader heartbeat: %v", code)
+		}
+		out = h.wait(sec)
 	}
-	// A waiting sync that is abandoned gets no reply.
-	h.join("g", "m1")
-	h.join("g", "m2")
-	cs, _ = h.sync("g", "m2", 2)
+	if out[cs].Err != runtime.ErrRebalanceInProgress || h.r.Phase("g") != PhaseJoining || !slices.Equal(h.logged("g"), []string{"m2"}) {
+		t.Fatalf("leader that never synced: %+v %s %v", out, h.r.Phase("g"), h.logged("g"))
+	}
+	c2, _, out := h.join("g", "m2")
+	joined(t, out[c2], 2, "m2", 1)
+	// In Stable too: a follower that never syncs is removed.
+	c4, m4, _ := h.join("g", "")
+	c2, _, out = h.join("g", "m2")
+	joined(t, out[c2], 3, "m2", 2)
+	joined(t, out[c4], 3, "m2", 0)
+	h.sync("g", "m2", 3)
+	for range 5 {
+		h.wait(sec)
+		h.heartbeat("g", m4, 3)
+	}
+	if h.r.Phase("g") != PhaseJoining || h.heartbeat("g", m4, 3) != runtime.ErrUnknownMember {
+		t.Fatalf("follower that never synced: %s %v", h.r.Phase("g"), h.logged("g"))
+	}
+}
+
+func TestRebalanceAbandonedSync(t *testing.T) {
+	h := newRB(t)
+	h.join("g", "")
+	h.join("g", "")
+	h.wait(3 * sec)
+	cs, _ := h.sync("g", "m2", 1)
 	h.step(Abandon{Call: cs})
-	if _, out := h.sync("g", "m1", 2, "m2", "x"); out[cs].Call != 0 {
+	if _, out := h.sync("g", "m1", 1, "m2", "x"); out[cs].Call != 0 {
 		t.Fatalf("abandoned sync answered: %+v", out)
 	}
 }
 
-func TestRebalanceOffsetCommitAndReads(t *testing.T) {
+// Offset commit: Kafka's checks on memory first, then the log's.
+func TestRebalanceOffsetCommit(t *testing.T) {
 	h := newRB(t)
 	h.r.Store.Apply(contract.CreateTopic{Name: "t", Partitions: 2})
 	h.stableTwo()
-	tp := contract.NewTopicPartition("t", 0)
-	commit := func(member string, gen int32) Reply {
-		return h.store(contract.OffsetCommit{Group: "g", Member: member, Generation: gen, Offsets: []contract.PartitionOffset{{TopicPartition: tp, Offset: 5}}})
-	}
-	if r := commit("m1", 2); r.Err != runtime.OK {
-		t.Fatalf("member commit: %+v", r)
-	}
-	for _, bad := range []struct {
+	h.join("g", "")
+	h.join("g", "m1")
+	h.join("g", "m2") // generation 3, CompletingRebalance
+	for _, tc := range []struct {
 		member string
 		gen    int32
 		want   runtime.ErrCode
-	}{{"m1", 1, runtime.ErrIllegalGeneration}, {"zz", 2, runtime.ErrUnknownMember}, {"", -1, runtime.ErrIllegalGeneration}} {
-		if r := commit(bad.member, bad.gen); r.Err != bad.want {
-			t.Errorf("commit %+v: %v", bad, r.Err)
+	}{
+		{"m1", 3, runtime.ErrRebalanceInProgress},
+		{"zz", 3, runtime.ErrUnknownMember},
+		{"m1", 2, runtime.ErrIllegalGeneration},
+		{"", -1, runtime.ErrUnknownMember},
+	} {
+		if got := h.commit("g", tc.member, tc.gen); got != tc.want {
+			t.Errorf("CompletingRebalance commit %+v: %v", tc, got)
 		}
 	}
-	f, _ := h.store(contract.OffsetFetch{Group: "g", Partitions: []contract.TopicPartition{tp}}).Body.(contract.OffsetFetchResp)
-	l, _ := h.store(contract.ListGroups{}).Body.(contract.ListGroupsResp)
-	if len(f.Offsets) != 1 || f.Offsets[0].Offset != 5 || len(l.Groups) != 1 {
+	h.sync("g", "m1", 3)
+	if got := h.commit("g", "m1", 3); got != runtime.OK {
+		t.Fatalf("Stable commit: %v", got)
+	}
+	h.step(Leave{Call: h.call(), Group: "g", Members: []string{"m1", "m2", "m3"}})
+	if got, gen := h.commit("g", "", -1), h.commit("g", "m1", 3); got != runtime.OK || gen != runtime.ErrUnknownMember {
+		t.Fatalf("Empty group: generation -1 %v, member %v", got, gen)
+	}
+	if got := h.commit("fresh", "", -1); got != runtime.OK {
+		t.Fatalf("a group with no memory: %v", got)
+	}
+	f, _ := h.r.Store.Apply(contract.OffsetFetch{Group: "fresh"}).Resp.(contract.OffsetFetchResp)
+	c := h.call()
+	l, _ := h.step(List{Call: c})[c].Body.(contract.ListGroupsResp)
+	if len(f.Offsets) != 1 || f.Offsets[0].Offset != 5 || len(l.Groups) != 1 || l.Groups[0].State != PhaseEmpty {
 		t.Fatalf("fetch %+v, list %+v", f, l)
 	}
 }
@@ -314,7 +442,7 @@ func TestRebalanceRoleChange(t *testing.T) {
 	}
 	h.wait(60 * sec)
 	h.step(RoleChanged{Active: true})
-	if h.r.Phase("g") != PhaseStable || h.r.Phase("p") != "" {
+	if h.r.Phase("g") != PhaseStable || h.r.Phase("p") != PhaseDead {
 		t.Fatalf("after takeover: g %s, p %s", h.r.Phase("g"), h.r.Phase("p"))
 	}
 	h.wait(4 * sec) // the sessions start at the takeover
@@ -322,7 +450,7 @@ func TestRebalanceRoleChange(t *testing.T) {
 		t.Fatal("m1 expired in the grace window")
 	}
 	h.wait(1500 * runtime.NodeTime(runtime.Millisecond))
-	if h.r.Phase("g") != PhaseJoining || len(h.describe("g").Members) != 1 {
-		t.Fatalf("silent m2 kept: %+v", h.describe("g"))
+	if h.r.Phase("g") != PhaseJoining || len(h.logged("g")) != 1 {
+		t.Fatalf("silent m2 kept: %v", h.logged("g"))
 	}
 }
