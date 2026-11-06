@@ -1,7 +1,7 @@
 # Host tools for `make build` / the pre-commit hook.
 # Bootstrap: install https://mise.jdx.dev then run  mise install
 # (installs go, golangci-lint, buf; postinstall runs make install-hooks).
-# make it-postgres needs Docker (Docker Desktop or Engine) on the host; mise cannot install it. It runs the pinned image postgres:17.11-alpine, see POSTGRES_IMAGE in the Makefile.
+# make it needs Docker (Docker Desktop or Engine) on the host; mise cannot install it. The images it runs are pinned in internal/testinfra.
 
 [tools]
 go = "1.26.10"
