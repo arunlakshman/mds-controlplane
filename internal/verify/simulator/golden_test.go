@@ -10,8 +10,8 @@ import (
 // goldenHashes pins named scenario/seed traces. An accidental determinism
 // change fails this test in review; bump a pin only after intentional review.
 var goldenHashes = map[string]uint64{
-	"basic/17": 0x08bfa86385d8e8ae,
-	"chaos/42": 0x45d210abda0e2bed,
+	"basic/17": 0xb8160450304fcc49,
+	"chaos/42": 0xfe0e8c6763239d00,
 }
 
 // goldenWithoutGroups are the pins of the same seeds from before the consumer

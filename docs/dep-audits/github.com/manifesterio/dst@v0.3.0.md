@@ -26,6 +26,6 @@
 3. Quiet must go through `fault.Injector.SetQuiet` (suppresses `Fault` only).
 
 ## Evidence
-- Corpus gate (since T1.10, with the simulator buggify sites): `cpsim -scenario basic -seed 17` -> `hash=08bfa86385d8e8ae`; `cpsim -scenario chaos -seed 42` -> `hash=45d210abda0e2bed`. Before T1.10 these were `f79ae0cb6ac19047` and `841e92a10f1559f3`; the move is caused only by the new sites, see the re-pin commit.
+- Corpus gate (since T6.5, with the rebalance machine and the consumers in the simulator): `cpsim -scenario basic -seed 17` -> `hash=b8160450304fcc49`; `cpsim -scenario chaos -seed 42` -> `hash=fe0e8c6763239d00`. From T1.10 to T6.5 these were `08bfa86385d8e8ae` and `45d210abda0e2bed` (they still are with the consumer groups left out, see TestGoldenWithoutGroups), and before T1.10 `f79ae0cb6ac19047` and `841e92a10f1559f3`; each move is caused only by what its re-pin commit names.
 - `go test ./...` in dst and `go run ./ops/tools/determinismcheck ./fault/...` in dst pass on `67d894b`.
 - `go test ./internal/verify/simulator/...` and `make determinism` after the move.
