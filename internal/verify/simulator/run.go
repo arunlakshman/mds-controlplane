@@ -3,6 +3,7 @@ package simulator
 import (
 	"fmt"
 	"github.com/manifesterio/dst/check"
+	"slices"
 	"strings"
 
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
@@ -43,6 +44,9 @@ func (s *sim) boot() {
 		s.after(runtime.Duration(s.rand.Between(0, int64(30*runtime.Millisecond))), "boot", n.boot)
 	}
 	s.clients.start()
+	if s.consumers != nil {
+		s.consumers.start()
+	}
 	s.startNemesis()
 }
 
@@ -66,7 +70,8 @@ func (s *sim) faultPhase() {
 }
 
 // quietPhase stops all faults, heals the cluster, and lets it settle: every node
-// up, ready, and at the end of the log, and every client done.
+// up, ready, and at the end of the log, and every client done. The consumers
+// keep going in the quiet tail, so they are not waited for here.
 func (s *sim) quietPhase() {
 	s.tracef("quiet tail begins")
 	s.quiet, s.faults = true, Faults{}
@@ -78,10 +83,13 @@ func (s *sim) quietPhase() {
 			n.boot()
 		}
 	}
+	if s.consumers != nil {
+		s.consumers.watch()
+	}
 	start := s.now()
 	s.runUntil(func() bool {
 		waited := runtime.Duration(s.now() - start)
-		return waited >= maxQuiet || (waited >= minQuiet && !s.clients.busy() && s.converged())
+		return waited >= maxQuiet || (waited >= minQuiet && !s.clients.busy() && s.converged() && s.groupsSettled())
 	})
 	s.stats.QuietMs = (s.now() - start) / int64(runtime.Millisecond)
 	s.verdict(s.converged(), "live replicas converge", "after %dms of quiet the replicas did not reach the end of the log together: %s", s.stats.QuietMs, s.describeNodes())
@@ -113,8 +121,31 @@ func (s *sim) describeNodes() string {
 	return b.String()
 }
 
-// finalPhase reads all the state from every node.
+// groupsWriting reports that a command of a rebalance machine still waits
+// for its replica.
+func (s *sim) groupsWriting() bool {
+	return slices.ContainsFunc(s.nodes, func(n *simNode) bool { return n.groups.writing() })
+}
+
+// groupsSettled reports that the consumer groups were read in the quiet tail
+// (always true in a run with no consumer groups).
+func (s *sim) groupsSettled() bool { return s.consumers == nil || s.consumers.settled() }
+
+// finalPhase reads all the state from every node. With consumer groups, the
+// consumers stop first, and the machines are frozen: a machine writes on its
+// own timers, and the final reads need a log that no longer changes.
 func (s *sim) finalPhase() {
+	if s.consumers != nil {
+		s.consumers.stop()
+		s.runUntil(func() bool { return !s.consumers.busy() })
+		for _, n := range s.nodes {
+			n.groups.freeze()
+		}
+		start := s.now()
+		s.runUntil(func() bool {
+			return runtime.Duration(s.now()-start) >= maxQuiet || (!s.groupsWriting() && s.converged())
+		})
+	}
 	s.clients.startFinal()
 	s.runUntil(func() bool { return !s.clients.busy() })
 }
@@ -170,6 +201,9 @@ func Report(r Result) string {
 	fmt.Fprintf(&b, "ops=%d acked=%d rejected=%d gave-up=%d retries=%d reads=%d log-slots=%d\n", st.Ops, st.Acked, st.Rejected, st.GaveUp, st.Retries, st.ReadsOK, st.LogSlots)
 	fmt.Fprintf(&b, "boots=%d crashes=%d trips=%d pauses=%d partitions=%d failed-calls=%d lost-replies=%d cut-calls=%d quiet=%dms\n",
 		st.Boots, st.Crashes, st.Trips, st.Pauses, st.Partitions, st.FailedCalls, st.LostReplies, st.CutCalls, st.QuietMs)
+	if st.GroupCalls > 0 {
+		fmt.Fprintf(&b, "group-calls=%d group-ok=%d\n", st.GroupCalls, st.GroupOK)
+	}
 	if r.OK() {
 		b.WriteString("PASS")
 		return b.String()

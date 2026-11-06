@@ -7,6 +7,7 @@ import (
 
 	"github.com/manifesterio/dst/check"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/contract"
+	"github.com/manifesterio/mds-controlplane/internal/controlplane/domain/rebalance"
 	"github.com/manifesterio/mds-controlplane/internal/controlplane/replica"
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
@@ -286,3 +287,15 @@ func (o *oracle) judgeAcks(spec specModel, committed map[string]runtime.ControlP
 		}
 	}
 }
+
+// The answers of the consumers (consumers.go) come here, for the checks of
+// the consumer groups.
+
+// joinAnswered takes a join answer.
+func (o *oracle) joinAnswered(*consumer, *groupOp, rebalance.JoinAnswer) {}
+
+// syncAnswered takes a sync answer.
+func (o *oracle) syncAnswered(*consumer, *groupOp, rebalance.SyncAnswer) {}
+
+// commitAnswered takes a commit answer.
+func (o *oracle) commitAnswered(*consumer, *groupOp, rebalance.CommitAnswer) {}

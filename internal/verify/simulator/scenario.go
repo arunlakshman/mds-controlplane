@@ -25,27 +25,29 @@ type Faults struct {
 	SoftFault float64
 }
 
-// Scenario is a named set of faults.
+// Scenario is a named set of faults, and the number of consumers (clients of
+// the consumer groups, consumers.go) that run in it.
 type Scenario struct {
-	Name   string
-	Detail string
-	Faults Faults
+	Name      string
+	Detail    string
+	Faults    Faults
+	Consumers int
 }
 
 const second = runtime.Second
 
 func allScenarios() []Scenario {
 	return []Scenario{
-		{Name: "basic", Detail: "no faults, only random delays and reordering"},
+		{Name: "basic", Detail: "no faults, only random delays and reordering", Consumers: 5},
 		{Name: "log-faults", Detail: "log and object store calls fail, time out, are slow, or apply with a lost reply",
-			Faults: Faults{Fail: 0.04, Timeout: 0.02, Lost: 0.04, Slow: 0.05, Corrupt: 0.1}},
+			Faults: Faults{Fail: 0.04, Timeout: 0.02, Lost: 0.04, Slow: 0.05, Corrupt: 0.1}, Consumers: 6},
 		{Name: "crash-restart", Detail: "nodes crash and restart with a fresh boot number; nodes pause; replicas crash by themselves",
-			Faults: Faults{CrashEvery: 3 * second, PauseEvery: 4 * second, SoftFault: 0.05, Fail: 0.005, Slow: 0.02}},
+			Faults: Faults{CrashEvery: 3 * second, PauseEvery: 4 * second, SoftFault: 0.05, Fail: 0.005, Slow: 0.02}, Consumers: 6},
 		{Name: "leader-fencing", Detail: "the node that is the writer is cut off from the log, another node claims the epoch",
-			Faults: Faults{PartitionEvery: 5 * second, TargetLeader: true, PauseEvery: 8 * second, Slow: 0.02}},
+			Faults: Faults{PartitionEvery: 5 * second, TargetLeader: true, PauseEvery: 8 * second, Slow: 0.02}, Consumers: 6},
 		{Name: "chaos", Detail: "all of the above together",
 			Faults: Faults{Fail: 0.03, Timeout: 0.02, Lost: 0.03, Slow: 0.05, Corrupt: 0.1, CrashEvery: 4 * second, PauseEvery: 5 * second,
-				PartitionEvery: 6 * second, TargetLeader: true, SoftFault: 0.03}},
+				PartitionEvery: 6 * second, TargetLeader: true, SoftFault: 0.03}, Consumers: 6},
 	}
 }
 

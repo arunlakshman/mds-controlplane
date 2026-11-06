@@ -150,11 +150,17 @@ func (w *workload) acked(op runtime.ControlPlaneOperation) {
 }
 
 // finalReads are the reads that every live node must answer the same way when
-// the faults have stopped. They cover all the state the workload can make.
-func finalReads() []runtime.ControlPlaneOperation {
+// the faults have stopped. They cover all the state the workload can make,
+// and the state of the consumer groups when the run has them.
+func finalReads(consumers bool) []runtime.ControlPlaneOperation {
 	ops := []runtime.ControlPlaneOperation{contract.DescribeTopics{}, contract.ListGroups{}}
 	for g := range groupCount {
 		ops = append(ops, contract.DescribeGroup{Group: groupName(g)}, contract.OffsetFetch{Group: groupName(g)})
+	}
+	if consumers {
+		for _, g := range consumerGroups() {
+			ops = append(ops, contract.DescribeGroup{Group: g}, contract.OffsetFetch{Group: g})
+		}
 	}
 	for t := range topicCount {
 		for p := range partitionCount {

@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/manifesterio/dst/assert"
 	"github.com/manifesterio/dst/check"
@@ -23,6 +24,11 @@ type Config struct {
 	Steps    int               // events in the fault phase; zero means DefaultSteps
 	Bug      Bug               // a planted bug; normally BugNone
 	Trace    func(line string) // when set, every step is passed to it
+
+	// noGroups leaves out the rebalance machines and the consumers. A run is
+	// then the run of before they were added, step for step: a test uses it
+	// to show that the old trace hashes come back.
+	noGroups bool
 }
 
 // DefaultSteps is the length of the fault phase of a run, in scheduler events.
@@ -44,6 +50,7 @@ type Stats struct {
 	FailedCalls, LostReplies, CutCalls             int
 	LogSlots                                       int
 	QuietMs                                        int64
+	GroupCalls, GroupOK                            int // tries of consumer calls, and the ones answered OK
 }
 
 // Result is the outcome of one run.
@@ -72,17 +79,18 @@ func nodeWriter(idx int) string { return fmt.Sprintf("cp-%d", idx) }
 
 // sim is the state of one run.
 type sim struct {
-	cfg      Config
-	scenario Scenario
-	runner   *dstsim.Runner // runs the node processes and the storage engine
-	rand     *rng.Rand
-	sched    *sched.Scheduler // shares its event heap with clock
-	clock    *dstclock.Clock
-	env      *env
-	store    *storage
-	nodes    []*simNode
-	clients  *clientPool
-	oracle   *oracle
+	cfg       Config
+	scenario  Scenario
+	runner    *dstsim.Runner // runs the node processes and the storage engine
+	rand      *rng.Rand
+	sched     *sched.Scheduler // shares its event heap with clock
+	clock     *dstclock.Clock
+	env       *env
+	store     *storage
+	nodes     []*simNode
+	clients   *clientPool
+	consumers *consumerPool // nil in a run with no consumer groups
+	oracle    *oracle
 
 	faults Faults // the faults that are on now; zero in the quiet tail
 	quiet  bool
@@ -109,17 +117,17 @@ const traceRing = 48
 type traceLine struct {
 	step int
 	at   int64
-	node int
-	body runtime.EventData
+	who  dstsim.ProcessID
+	body any
 	acts int
 }
 
 func (t traceLine) String() string {
-	return fmt.Sprintf("step %d t=%dms cp-%d <- %s (%d actions)", t.step, t.at/int64(runtime.Millisecond), t.node, bodyText(t.body), t.acts)
+	return fmt.Sprintf("step %d t=%dms %s <- %s (%d actions)", t.step, t.at/int64(runtime.Millisecond), t.who, bodyText(t.body), t.acts)
 }
 
 // bodyText is a short text of an event. Long byte slices are cut.
-func bodyText(b runtime.EventData) string {
+func bodyText(b any) string {
 	s := fmt.Sprintf("%T%+v", b, b)
 	const limit = 160
 	if len(s) > limit {
@@ -175,6 +183,12 @@ func newSim(cfg Config) (*sim, error) {
 	for i := range cfg.Nodes {
 		s.nodes = append(s.nodes, newNode(s, i, replicaFactory(i, sc.Faults, cfg.Bug)))
 	}
+	if sc.Consumers > 0 && !cfg.noGroups {
+		for _, n := range s.nodes {
+			n.groups = newGroupHost(s, n)
+		}
+		s.consumers = newConsumerPool(s, sc.Consumers)
+	}
 	return s, nil
 }
 
@@ -222,31 +236,59 @@ func (s *sim) noteBoot(n *simNode) {
 	s.tracef("%s boots (boot %d)", n.name(), n.boots)
 }
 
-// onStep is dst's Config.OnStep hook. It runs after every Step of a node: it
-// folds the state into the trace hash, keeps the trace ring, and checks the
-// properties that can be checked on one node. A step that did not run the
-// machine (the node is down or paused and keeps the value) is not observed.
+// onStep is dst's Config.OnStep hook. It runs after every Step of a node or
+// of a rebalance machine: it folds the state into the trace hash, keeps the
+// trace ring, and checks the properties that can be checked on one node. A
+// step that did not run the machine (the node is down or paused and keeps the
+// value) is not observed.
 func (s *sim) onStep(info dstsim.StepInfo) {
 	if info.Who == ctlID {
 		return
 	}
-	n := s.nodeOf(eng.ActorID(info.Who))
-	if !n.up || n.paused {
+	if strings.HasPrefix(string(info.Who), "rb-") {
+		s.onGroupsStep(info)
 		return
 	}
-	body, _ := info.Inbox.(runtime.EventData)
+	n := s.nodeOf(eng.ActorID(info.Who))
+	if !n.ran {
+		return
+	}
+	body := info.Inbox
+	if _, ok := body.(replicaWake); ok {
+		body = n.groups.lastToReplica
+	}
 	acts := info.Out
 	h := &s.hash
 	h.Uint64(uint64(s.now()))
 	h.Uint64(uint64(n.idx))
 	h.Uint64(n.m.StateHash())
 	h.Uint64(uint64(len(acts)))
-	s.ring[s.rpos%traceRing] = traceLine{step: s.steps(), at: s.now(), node: n.idx, body: body, acts: len(acts)}
+	s.observe(info.Who, body, len(acts))
+	s.checkNode(n)
+}
+
+// onGroupsStep folds a step of a rebalance machine into the trace hash.
+func (s *sim) onGroupsStep(info dstsim.StepInfo) {
+	n := s.nodeOf(eng.ActorID("cp-" + strings.TrimPrefix(string(info.Who), "rb-")))
+	g := n.groups
+	if !g.ran {
+		return
+	}
+	h := &s.hash
+	h.Uint64(uint64(s.now()))
+	h.Uint64(uint64(len(s.nodes) + n.idx))
+	h.Uint64(g.proc.m.StateHash())
+	h.Uint64(uint64(len(info.Out)))
+	s.observe(info.Who, g.last, len(info.Out))
+}
+
+// observe keeps one step in the trace ring, and prints it when tracing.
+func (s *sim) observe(who dstsim.ProcessID, body any, acts int) {
+	s.ring[s.rpos%traceRing] = traceLine{step: s.steps(), at: s.now(), who: who, body: body, acts: acts}
 	s.rpos++
 	if s.cfg.Trace != nil {
 		s.cfg.Trace(s.ring[(s.rpos-1)%traceRing].String())
 	}
-	s.checkNode(n)
 }
 
 // checkNode checks the epoch and the state of one node. An epoch has one

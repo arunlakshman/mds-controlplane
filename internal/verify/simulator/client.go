@@ -79,7 +79,7 @@ func (p *clientPool) busy() bool {
 func (p *clientPool) startFinal() {
 	for _, n := range p.s.nodes {
 		c := p.add(fmt.Sprintf("final-%d", n.idx))
-		reads := finalReads()
+		reads := finalReads(p.s.consumers != nil)
 		var next func()
 		next = func() {
 			if len(reads) == 0 {
@@ -108,6 +108,9 @@ func (p *clientPool) pickNode(last int) int {
 func (p *clientPool) reply(n *simNode, a runtime.ControlPlaneReply) {
 	c := p.byName[a.To.Node]
 	if c == nil {
+		if p.s.consumers != nil {
+			p.s.consumers.fetched(n, a)
+		}
 		return
 	}
 	prefix := n.replica().Applied()
