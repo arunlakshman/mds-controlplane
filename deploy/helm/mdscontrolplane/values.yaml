@@ -14,6 +14,14 @@ controlPlane:
   # Extra command line flags, for example ["-region=us-west-2"].
   extraArgs: []
 
+# The root filesystem is read-only. With -store dynamolog or postgres and no
+# -pebble-dir, the binary keeps its Pebble state in a temporary directory under
+# /tmp, so /tmp needs a writable volume. The mem store does not write files.
+# The state is rebuilt from the log at every start, so an emptyDir is enough.
+tmpVolume:
+  enabled: true
+  sizeLimit: 1Gi
+
 service:
   type: ClusterIP
   grpcPort: 8080
