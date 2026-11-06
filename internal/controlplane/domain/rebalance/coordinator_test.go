@@ -6,7 +6,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Ports of groups/coordinator_test.go.
+// Ports of the tests of the old coordinator (groups/coordinator_test.go, deleted in T6.6).
 
 func TestOneMemberJoinsAndSyncs(t *testing.T) {
 	h := newHarness(t, Config{})

@@ -63,9 +63,11 @@
 //     and the group reads. Its rules are pure like the topic ones: Decide reads
 //     a View and returns events, and Apply writes the events. It does not know
 //     about topics: the partition count comes in as a function at wiring.
-//   - groups: the consumer group coordinator of the active node. It
-//     speaks the classic group protocol only. It owns the Store port that the
-//     node implements over the log.
+//   - domain/rebalance: the consumer group protocol machine of the active node
+//     (join, sync, heartbeat, leave, offset commit, describe, list). It speaks
+//     the classic group protocol only. It is a dst process step like replica,
+//     with no lock and no clock of its own; the node hosts it. Its call and
+//     answer types are generated from the .proto (wire_types_gen.go).
 //   - controlplanemetrics: the Prometheus instrumentation. It covers HTTP
 //     handler time, DynamoDB call time, in-flight requests and request sizes.
 //
@@ -76,7 +78,7 @@
 //
 // How they fit together, from the imports:
 //
-//   - server imports live, replica, executor and groups.
+//   - server imports live, replica, executor and domain/rebalance.
 //   - replica imports metadb. metadb imports domain/topic and domain/group.
 //     domain/topic and domain/group import engine, and not each other or metadb.
 //     executor imports only runtime. dynamolog and sqllog

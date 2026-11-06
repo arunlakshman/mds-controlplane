@@ -2,7 +2,7 @@ package rebalance
 
 import "testing"
 
-// Ports of groups/waitjoin_test.go, and the abandoned sync of the old
+// Ports of the tests of the old coordinator (groups/waitjoin_test.go, deleted in T6.6), and the abandoned sync of the old
 // TestLeaderNeverSyncs. An abandoned call gets no reply (rule 33).
 
 // A join whose call is abandoned while it is parked gets no reply, and the

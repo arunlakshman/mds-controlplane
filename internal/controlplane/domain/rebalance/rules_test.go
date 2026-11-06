@@ -9,7 +9,7 @@ import (
 	"github.com/manifesterio/mds-controlplane/internal/runtime"
 )
 
-// Ports of groups/rules_test.go.
+// Ports of the tests of the old coordinator (groups/rules_test.go, deleted in T6.6).
 
 func TestProtocolMismatch(t *testing.T) {
 	h := newHarness(t, Config{})

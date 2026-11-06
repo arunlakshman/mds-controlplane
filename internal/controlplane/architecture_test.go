@@ -86,10 +86,9 @@ func TestImportRules(t *testing.T) {
 		cp + "domain/broker": {cp + "contract", rt},
 		cp + "domain/topic":  {cp + "contract", cp + "metadb/engine", rt},
 		cp + "domain/group":  {cp + "contract", cp + "metadb/engine", rt},
-		// The group protocol machine. Its call types are written in the package
-		// until T6.6 generates them there, so it does not import groups.
+		// The group protocol machine. Its call types are generated into the
+		// package (wire_types_gen.go).
 		cp + "domain/rebalance": {cp + "contract", rt},
-		cp + "groups":           {cp + "contract", rt, "internal/system/realclock"},
 		cp + "replica":          {cp + "contract", cp + "metadb/engine", cp + "metadb", rt},
 		cp + "executor":         {rt},
 	}
@@ -112,14 +111,6 @@ func TestImportRules(t *testing.T) {
 	for _, imp := range pkgs[metadb].imports {
 		if local(imp) == cp+"domain/rebalance" {
 			t.Errorf("%s imports %s: not allowed", metadb, imp)
-		}
-	}
-	// The node hosts the rebalance machine, not the old coordinator: neither
-	// the server (directly or through wire) nor its tests import groups.
-	server := cp + "server"
-	for _, imp := range slices.Concat(pkgs[server].deps, pkgs[server].tests) {
-		if local(imp) == cp+"groups" {
-			t.Errorf("%s needs %s: the node hosts domain/rebalance", server, local(imp))
 		}
 	}
 	// live is the production runner: it knows no control-plane type.
@@ -154,7 +145,7 @@ var wallClock = regexp.MustCompile(`\btime\.(Now|Since|Until|AfterFunc|After|New
 
 func TestNoWallClockInTheDomain(t *testing.T) {
 	pkgs := load(t)
-	for _, dir := range []string{"metadb/engine", "domain/broker", "domain/group", "domain/rebalance", "domain/topic", "groups", "metadb", "replica", "server"} {
+	for _, dir := range []string{"metadb/engine", "domain/broker", "domain/group", "domain/rebalance", "domain/topic", "metadb", "replica", "server"} {
 		for _, file := range pkgs[cp+dir].files {
 			src, err := os.ReadFile(file) //nolint:gosec // G304: the path comes from go list
 			if err != nil {
