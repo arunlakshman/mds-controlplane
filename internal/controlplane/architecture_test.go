@@ -112,6 +112,15 @@ func TestImportRules(t *testing.T) {
 			t.Errorf("%s imports %s: not allowed", metadb, imp)
 		}
 	}
+	// The node hosts the rebalance machine, not the old coordinator (tests
+	// included). It still reaches groups through the generated converters of
+	// wire, until T6.6 generates the call types into domain/rebalance.
+	server := cp + "server"
+	for _, imp := range append(slices.Clone(pkgs[server].imports), pkgs[server].tests...) {
+		if local(imp) == cp+"groups" {
+			t.Errorf("%s imports %s: the node hosts domain/rebalance", server, local(imp))
+		}
+	}
 	// live is the production runner: it knows no control-plane type.
 	onlyImports(t, pkgs, "internal/system/live", nil, true)
 	// The log adapters import the port and little else of the module.
