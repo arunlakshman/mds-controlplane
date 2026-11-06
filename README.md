@@ -11,8 +11,10 @@ It was extracted from the MDS broker repository. It talks to the broker only thr
 
 The generated Go files (`*.pb.go`, and the `*_gen.go` files of `contract`, `wire` and
 `domain/rebalance`) are not in git. `make generate` writes them, and `make build` runs it first.
-Until `dst` is published, `go.mod` has a temporary `replace` for `github.com/manifesterio/dst`
-that points to a local checkout.
+The simulation library `github.com/manifesterio/dst` is a public repo with no tags. `go.mod`
+pins it to a pseudo-version of its `main` tip, so the build fetches it through the normal Go
+proxy and needs no credentials. Moving to a newer dst commit needs a new audit record
+(`docs/dep-audits/README.md`).
 
 Run: `go run ./cmd/mdscontrolplane`. Docker and Helm: see `deploy/README.md`.
 

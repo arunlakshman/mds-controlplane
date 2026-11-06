@@ -1,8 +1,8 @@
 # Deploy the control plane to a local kind cluster
 
-Status: these steps have not been run end to end yet. The image build cannot work until
-`dst` is published, because `go.mod` has a temporary `replace` for it that points to a local
-folder. Treat the commands as the plan, not as a tested recipe.
+Status: these steps have not been run end to end yet; `deploy/docker/mdscontrolplane.Dockerfile`
+has not been built. `dst` is a public module pinned in `go.mod`, so the image build needs no
+secret for it. Treat the commands as the plan, not as a tested recipe.
 
 Needs docker, kind and helm. The Dockerfile makes the generated files itself (they are
 not in git).
