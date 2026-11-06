@@ -24,6 +24,7 @@ type pkg struct {
 	files   []string // non-test .go files
 	imports []string // direct imports of the non-test files
 	tests   []string // direct imports of the test files
+	deps    []string // every package the non-test files need, directly or not
 }
 
 // load lists every package of the module with go list. It uses the import path, not ./...,
@@ -31,7 +32,7 @@ type pkg struct {
 func load(t *testing.T) map[string]pkg {
 	t.Helper()
 	out, err := exec.CommandContext(t.Context(), "go", "list", "-f",
-		`{{.ImportPath}}|{{.Dir}}|{{join .GoFiles ","}}|{{join .Imports ","}}|{{join .TestImports ","}} {{join .XTestImports ","}}`, module+"...").Output()
+		`{{.ImportPath}}|{{.Dir}}|{{join .GoFiles ","}}|{{join .Imports ","}}|{{join .TestImports ","}} {{join .XTestImports ","}}|{{join .Deps ","}}`, module+"...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
@@ -46,6 +47,7 @@ func load(t *testing.T) map[string]pkg {
 		}
 		p.imports = strings.Split(f[3], ",")
 		p.tests = strings.Fields(strings.ReplaceAll(f[4], ",", " "))
+		p.deps = strings.Split(f[5], ",")
 		pkgs[p.dir] = p
 	}
 	return pkgs
@@ -112,13 +114,12 @@ func TestImportRules(t *testing.T) {
 			t.Errorf("%s imports %s: not allowed", metadb, imp)
 		}
 	}
-	// The node hosts the rebalance machine, not the old coordinator (tests
-	// included). It still reaches groups through the generated converters of
-	// wire, until T6.6 generates the call types into domain/rebalance.
+	// The node hosts the rebalance machine, not the old coordinator: neither
+	// the server (directly or through wire) nor its tests import groups.
 	server := cp + "server"
-	for _, imp := range append(slices.Clone(pkgs[server].imports), pkgs[server].tests...) {
+	for _, imp := range slices.Concat(pkgs[server].deps, pkgs[server].tests) {
 		if local(imp) == cp+"groups" {
-			t.Errorf("%s imports %s: the node hosts domain/rebalance", server, local(imp))
+			t.Errorf("%s needs %s: the node hosts domain/rebalance", server, local(imp))
 		}
 	}
 	// live is the production runner: it knows no control-plane type.
