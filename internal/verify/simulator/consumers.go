@@ -186,8 +186,22 @@ func (p *consumerPool) watch() {
 	w.later(0)
 }
 
-// settled reports that the watcher read the groups in the quiet tail.
-func (p *consumerPool) settled() bool { return p.lastOK }
+// settled reports that the last read of the watcher, made in the quiet tail,
+// shows every consumer group settled (groupsUnsettled).
+func (p *consumerPool) settled() bool {
+	return p.lastOK && groupsUnsettled(p, p.last) == ""
+}
+
+// live lists the consumers of group that still run, in order.
+func (p *consumerPool) live(group string) []*consumer {
+	var out []*consumer
+	for _, c := range p.all {
+		if c.group == group && !c.silent && !c.watcher {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // consumerGroups lists the names of the consumer groups.
 func consumerGroups() []string {

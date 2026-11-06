@@ -70,8 +70,9 @@ func (s *sim) faultPhase() {
 }
 
 // quietPhase stops all faults, heals the cluster, and lets it settle: every node
-// up, ready, and at the end of the log, and every client done. The consumers
-// keep going in the quiet tail, so they are not waited for here.
+// up, ready, and at the end of the log, every client done, and no silent
+// member left in the consumer groups. The consumers keep going in the quiet
+// tail, so they are not waited for here.
 func (s *sim) quietPhase() {
 	s.tracef("quiet tail begins")
 	s.quiet, s.faults = true, Faults{}
@@ -93,6 +94,9 @@ func (s *sim) quietPhase() {
 	})
 	s.stats.QuietMs = (s.now() - start) / int64(runtime.Millisecond)
 	s.verdict(s.converged(), "live replicas converge", "after %dms of quiet the replicas did not reach the end of the log together: %s", s.stats.QuietMs, s.describeNodes())
+	if s.consumers != nil {
+		s.oracle.checkGroupsSettled(s.consumers)
+	}
 }
 
 // converged reports that every node is up and ready, and has applied the whole log.
@@ -127,7 +131,7 @@ func (s *sim) groupsWriting() bool {
 	return slices.ContainsFunc(s.nodes, func(n *simNode) bool { return n.groups.writing() })
 }
 
-// groupsSettled reports that the consumer groups were read in the quiet tail
+// groupsSettled reports that no silent member is left in the consumer groups
 // (always true in a run with no consumer groups).
 func (s *sim) groupsSettled() bool { return s.consumers == nil || s.consumers.settled() }
 

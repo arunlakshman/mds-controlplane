@@ -89,6 +89,7 @@ type groupHost struct {
 	proc      *groupProc // the process of this boot; nil while the node is down
 	frozen    bool       // the final phase stopped the machine: it takes no more input
 	role      bool       // the role bit: the replica is the active appender and Ready
+	told      bool       // the role the machine was told last (the last RoleChanged it took)
 	in        queue      // inputs of the machine, in the order they were delivered
 	toReplica queue      // values for the replica inbox, in order
 	held      []any      // inputs that wait while the node is paused, in order
@@ -102,6 +103,7 @@ type groupHost struct {
 	calls    map[rebalance.CallID]*groupCall // calls that wait for a reply
 	gone     map[rebalance.CallID]bool       // calls that were abandoned
 	nextCall rebalance.CallID
+	sent     map[runtime.RequestID]bool // every request id the machine of this boot used
 }
 
 // sentWrite is a command of the machine that the replica has not answered yet.
@@ -133,7 +135,8 @@ func newGroupHost(s *sim, n *simNode) *groupHost { return &groupHost{s: s, n: n}
 // Standby until the replica becomes active and Ready.
 func (h *groupHost) start() {
 	h.proc = &groupProc{h: h, m: rebalance.New(machineConfig(h.n.idx, h.s.env))}
-	h.role = false
+	h.role, h.told = false, false
+	h.sent = map[runtime.RequestID]bool{}
 	h.calls = map[rebalance.CallID]*groupCall{}
 	h.gone = map[rebalance.CallID]bool{}
 	h.writes = map[runtime.RequestID]sentWrite{}
@@ -149,18 +152,26 @@ func (h *groupHost) stop() {
 			h.s.after(h.s.store.netDelay(h.s.rand), "group-call-closed", func() { gc.try.answered(runtime.ErrUnavailable, nil) })
 		}
 	}
-	h.proc, h.role = nil, false
+	h.proc, h.role, h.told = nil, false, false
 	h.in, h.toReplica, h.held = queue{}, queue{}, nil
-	h.calls, h.gone, h.writes = nil, nil, nil
+	h.calls, h.gone, h.writes, h.sent = nil, nil, nil, nil
 }
 
 // writing reports that a command of the machine still waits for the replica.
 func (h *groupHost) writing() bool { return len(h.writes) > 0 }
 
 // replied takes the replica's answer to the machine: a command is no longer
-// in flight. It returns the token that hands the answer to the machine.
+// in flight. It returns the token that hands the answer to the machine. A
+// write of the membership that applied after the term that sent it ended
+// makes its group late (groupChecks.late).
 func (h *groupHost) replied(d runtime.ControlPlaneDone) dstsim.Send {
-	delete(h.writes, d.Req)
+	if w, ok := h.writes[d.Req]; ok {
+		delete(h.writes, d.Req)
+		if w.group != "" && w.term < h.terms && d.Err == runtime.OK {
+			h.s.oracle.groups.late[w.group] = true
+			h.s.tracef("%s: a write of group %s that the machine gave up applied late", h.n.name(), w.group)
+		}
+	}
 	return h.toMachine(rebalance.ReplicaReply{Req: d.Req, Done: d})
 }
 
@@ -192,6 +203,7 @@ func (h *groupHost) step(p *groupProc, cx dstsim.Context, inbox any) []any {
 	}
 	h.ran, h.last = true, inbox
 	if r, ok := inbox.(rebalance.RoleChanged); ok {
+		h.told = r.Active
 		if !r.Active {
 			h.endTerm()
 		}
@@ -242,7 +254,11 @@ func (h *groupHost) afterStep(out []any) []any {
 	return append(out, h.toMachine(rebalance.RoleChanged{Active: active}))
 }
 
-// outbound turns the outputs of the machine into what the runner takes.
+// outbound turns the outputs of the machine into what the runner takes. It
+// also checks two promises of the machine to its host (docs/rebalance.md
+// sections 3 and 9): a request id is never used twice in one run of the
+// process (Node.reply depends on it), and no call is answered OK while the
+// machine was last told that it does not have the role.
 func (h *groupHost) outbound(outs []any) []any {
 	var out []any
 	for _, o := range outs {
@@ -250,9 +266,11 @@ func (h *groupHost) outbound(outs []any) []any {
 		case dstsim.SetTimer, dstsim.CancelTimer, dstsim.Send:
 			out = append(out, o) // timers, and sends of the machine to itself
 		case rebalance.SubmitCommand:
+			h.newRequest(o.Req)
 			h.writes[o.Req] = sentWrite{group: groupOf(o.Op), term: h.terms}
 			out = append(out, h.replicaSend(runtime.ControlPlaneDeliver{From: rebalanceFrom(), Req: o.Req, Op: o.Op}))
 		case rebalance.SubmitRead:
+			h.newRequest(o.Req)
 			if _, list := o.Op.(contract.ListGroups); list && o.Fresh {
 				h.endTerm() // a fresh load: the term ended
 			}
@@ -262,12 +280,23 @@ func (h *groupHost) outbound(outs []any) []any {
 				out = append(out, h.replicaSend(runtime.LocalRead{From: rebalanceFrom(), Req: o.Req, Op: o.Op}))
 			}
 		case rebalance.Reply:
+			if o.Err == runtime.OK && !h.told {
+				h.s.violation("a machine answers only with the role", "%s: the machine answered call %d OK after it was told that it lost the role", h.n.name(), o.Call)
+			}
 			out = append(out, groupReply{node: h.n.idx, reply: o})
 		default:
 			h.s.violation("known action", "the rebalance machine of %s returned %T", h.n.name(), o)
 		}
 	}
 	return out
+}
+
+// newRequest notes a request id of the machine. It must be new in this boot.
+func (h *groupHost) newRequest(req runtime.RequestID) {
+	if h.sent[req] {
+		h.s.violation("request ids never repeat", "%s: the machine sent request %d twice in one run", h.n.name(), req)
+	}
+	h.sent[req] = true
 }
 
 // groupOf is the group of a write of the membership, "" for an offset commit.
@@ -312,18 +341,27 @@ func (h *groupHost) deadline(call rebalance.CallID, gc *groupCall) {
 	delete(h.calls, call)
 	h.gone[call] = true
 	h.deliver(rebalance.CallAbandoned{Call: call})
+	if !gc.try.onPurpose && gc.try.quiet {
+		h.s.violation("every call gets an answer", "%s: %s sent call %d in the quiet tail and had no answer after %dms",
+			h.n.name(), gc.try.c.name, call, gc.try.deadline/runtime.Millisecond)
+	}
 	gc.try.answered(runtime.ErrTimeout, nil)
 }
 
 // answer gives a reply of the machine to the call that waits for it. A reply
-// to an abandoned call is dropped, as in production.
+// to an abandoned call is dropped, as in production. A reply to a call that
+// never waited, or a second reply, is a failure.
 func (h *groupHost) answer(r rebalance.Reply) {
 	if h.calls == nil {
 		return
 	}
 	gc, ok := h.calls[r.Call]
 	if !ok {
-		return // the call was abandoned
+		if h.gone[r.Call] {
+			return
+		}
+		h.s.violation("every call gets one answer", "%s: the machine answered call %d, which does not wait for an answer", h.n.name(), r.Call)
+		return
 	}
 	delete(h.calls, r.Call)
 	h.s.after(h.s.store.netDelay(h.s.rand), "group-reply", func() { gc.try.answered(r.Err, r.Body) })
