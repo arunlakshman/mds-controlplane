@@ -158,12 +158,12 @@ func groupRPC[Req any, A rebalance.Answer, Out any](ctx context.Context, n *Node
 
 // JoinGroup implements ControlPlane.
 func (n *Node) JoinGroup(ctx context.Context, request *cpv1.JoinGroupRequest) (*cpv1.JoinGroupResponse, error) {
-	return groupRPC(ctx, n, false, request, asInput(wire.JoinToMachine), wire.JoinAnswerToWire)
+	return groupRPC(ctx, n, false, request, asInput(wire.JoinToMachine), wire.JoinGroupResponseFromCore)
 }
 
 // SyncGroup implements ControlPlane.
 func (n *Node) SyncGroup(ctx context.Context, request *cpv1.SyncGroupRequest) (*cpv1.SyncGroupResponse, error) {
-	return groupRPC(ctx, n, false, request, asInput(wire.SyncToMachine), wire.SyncAnswerToWire)
+	return groupRPC(ctx, n, false, request, asInput(wire.SyncToMachine), wire.SyncGroupResponseFromCore)
 }
 
 // Heartbeat implements ControlPlane.
@@ -173,7 +173,7 @@ func (n *Node) Heartbeat(ctx context.Context, request *cpv1.HeartbeatRequest) (*
 
 // LeaveGroup implements ControlPlane. The answer has one code per member.
 func (n *Node) LeaveGroup(ctx context.Context, request *cpv1.LeaveGroupRequest) (*cpv1.LeaveGroupResponse, error) {
-	return groupRPC(ctx, n, false, request, asInput(wire.LeaveToMachine), wire.LeaveAnswerToWire)
+	return groupRPC(ctx, n, false, request, asInput(wire.LeaveToMachine), wire.LeaveGroupResponseFromCore)
 }
 
 // OffsetCommit implements ControlPlane. The answer has one code per partition.
@@ -183,7 +183,7 @@ func (n *Node) OffsetCommit(ctx context.Context, request *cpv1.OffsetCommitReque
 
 // DescribeGroups implements ControlPlane. Any group that fails fails the call.
 func (n *Node) DescribeGroups(ctx context.Context, request *cpv1.DescribeGroupsRequest) (*cpv1.DescribeGroupsResponse, error) {
-	return groupRPC(ctx, n, true, request, asInput(wire.DescribeToMachine), wire.DescribeAnswerToWire)
+	return groupRPC(ctx, n, true, request, asInput(wire.DescribeToMachine), wire.DescribeGroupsResponseFromCore)
 }
 
 // ListGroups implements ControlPlane.

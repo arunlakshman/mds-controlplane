@@ -9,9 +9,10 @@ import (
 )
 
 // The converters between the group RPCs and the inputs and answers of the
-// rebalance machine (domain/rebalance). They are written by hand because the
-// call types of the machine are written by hand; T6.6 generates both into
-// domain/rebalance and this file goes. A request takes the call id that the
+// rebalance machine (domain/rebalance). The answers JoinAnswer, SyncAnswer,
+// LeaveAnswer and DescribeAnswer are generated with their converters
+// (JoinGroupResponseFromCore and so on, see wire_gen.go). The inputs carry a
+// call id, so they are written by hand. A request takes the call id that the
 // server gives the RPC.
 
 // JoinToMachine is the Join input of a JoinGroup request.
@@ -26,22 +27,18 @@ func JoinToMachine(call rebalance.CallID, m *cpv1.JoinGroupRequest) rebalance.Jo
 		SessionTimeoutMs:   m.GetSessionTimeoutMs(),
 		RebalanceTimeoutMs: m.GetRebalanceTimeoutMs(),
 		ProtocolType:       m.GetProtocolType(),
-		Protocols: mapSlice(m.GetProtocols(), func(p *cpv1.GroupProtocol) rebalance.Protocol {
-			return rebalance.Protocol{Name: p.GetName(), Metadata: slices.Clone(p.GetMetadata())}
-		}),
+		Protocols:          mapSlice(m.GetProtocols(), GroupProtocolToCore),
 	}
 }
 
 // SyncToMachine is the Sync input of a SyncGroup request.
 func SyncToMachine(call rebalance.CallID, m *cpv1.SyncGroupRequest) rebalance.Sync {
 	return rebalance.Sync{
-		Call:       call,
-		Group:      m.GetGroup(),
-		MemberID:   m.GetMemberId(),
-		Generation: m.GetGeneration(),
-		Assignments: mapSlice(m.GetAssignments(), func(a *cpv1.GroupAssignment) rebalance.Assignment {
-			return rebalance.Assignment{Member: a.GetMemberId(), Bytes: slices.Clone(a.GetAssignment())}
-		}),
+		Call:        call,
+		Group:       m.GetGroup(),
+		MemberID:    m.GetMemberId(),
+		Generation:  m.GetGeneration(),
+		Assignments: mapSlice(m.GetAssignments(), GroupAssignmentToCore),
 	}
 }
 
@@ -70,41 +67,9 @@ func ListToMachine(call rebalance.CallID, _ *cpv1.ListGroupsRequest) rebalance.L
 	return rebalance.List{Call: call}
 }
 
-// JoinAnswerToWire is the JoinGroup response of a join answer.
-func JoinAnswerToWire(a rebalance.JoinAnswer) *cpv1.JoinGroupResponse {
-	return &cpv1.JoinGroupResponse{
-		MemberId:   a.MemberID,
-		Generation: a.Generation,
-		Protocol:   a.Protocol,
-		Leader:     a.Leader,
-		Members: mapSlice(a.Members, func(m rebalance.Member) *cpv1.GroupMember {
-			return &cpv1.GroupMember{MemberId: m.ID, GroupInstanceId: m.InstanceID, Metadata: slices.Clone(m.Metadata)}
-		}),
-	}
-}
-
-// SyncAnswerToWire is the SyncGroup response of a sync answer.
-func SyncAnswerToWire(a rebalance.SyncAnswer) *cpv1.SyncGroupResponse {
-	return &cpv1.SyncGroupResponse{Assignment: slices.Clone(a.Assignment)}
-}
-
-// LeaveAnswerToWire is the LeaveGroup response of a leave answer.
-func LeaveAnswerToWire(a rebalance.LeaveAnswer) *cpv1.LeaveGroupResponse {
-	return &cpv1.LeaveGroupResponse{Errs: mapSlice(a.Errs, ErrCodeFromCore)}
-}
-
 // CommitAnswerToWire is the OffsetCommit response of a commit answer.
 func CommitAnswerToWire(a rebalance.CommitAnswer) *cpv1.OffsetCommitResponse {
 	return OffsetCommitResponseFromCore(a.OffsetCommitResp)
-}
-
-// DescribeAnswerToWire is the DescribeGroups response of a describe answer.
-func DescribeAnswerToWire(a rebalance.DescribeAnswer) *cpv1.DescribeGroupsResponse {
-	return &cpv1.DescribeGroupsResponse{
-		Groups: mapSlice(a.Groups, func(g rebalance.GroupDescription) *cpv1.GroupDescription {
-			return &cpv1.GroupDescription{Name: g.Name, Details: GroupDetailsFromCore(g.DescribeGroupResp)}
-		}),
-	}
 }
 
 // ListAnswerToWire is the ListGroups response of a list answer.

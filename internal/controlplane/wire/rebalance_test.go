@@ -45,26 +45,26 @@ func TestGroupRequestsToMachine(t *testing.T) {
 // Every field of a machine answer reaches the response. The generated
 // converters of the contract types read the responses back.
 func TestMachineAnswersToWire(t *testing.T) {
-	join := JoinAnswerToWire(rebalance.JoinAnswer{Generation: 2, Protocol: "range", Leader: "a", MemberID: "b",
+	join := JoinGroupResponseFromCore(rebalance.JoinAnswer{Generation: 2, Protocol: "range", Leader: "a", MemberID: "b",
 		Members: []rebalance.Member{{ID: "a", InstanceID: "i", Metadata: []byte{1}}}})
 	want := &cpv1.JoinGroupResponse{MemberId: "b", Generation: 2, Protocol: "range", Leader: "a",
 		Members: []*cpv1.GroupMember{{MemberId: "a", GroupInstanceId: "i", Metadata: []byte{1}}}}
 	if !proto.Equal(join, want) {
 		t.Fatalf("join\n got  %v\n want %v", join, want)
 	}
-	sameValue(t, "sync", SyncAnswerToWire(rebalance.SyncAnswer{Assignment: []byte{3}}).GetAssignment(), []byte{3})
+	sameValue(t, "sync", SyncGroupResponseFromCore(rebalance.SyncAnswer{Assignment: []byte{3}}).GetAssignment(), []byte{3})
 	if !proto.Equal(HeartbeatAnswerToWire(nil), &cpv1.HeartbeatResponse{}) {
 		t.Fatal("a heartbeat answer is an empty response")
 	}
 	errs := []runtime.ErrCode{runtime.OK, runtime.ErrUnknownMember}
-	sameValue(t, "leave", mapSlice(LeaveAnswerToWire(rebalance.LeaveAnswer{Errs: errs}).GetErrs(), ErrCodeToCore), errs)
+	sameValue(t, "leave", mapSlice(LeaveGroupResponseFromCore(rebalance.LeaveAnswer{Errs: errs}).GetErrs(), ErrCodeToCore), errs)
 	commit := contract.OffsetCommitResp{Errs: []runtime.ErrCode{runtime.OK, runtime.ErrUnknownPartition}}
 	sameValue(t, "commit", OffsetCommitResponseToCore(CommitAnswerToWire(rebalance.CommitAnswer{OffsetCommitResp: commit})), commit)
 	desc := contract.DescribeGroupResp{Exists: true, Generation: 4, ProtocolType: "consumer", Protocol: "range", Leader: "a",
 		AssignedGeneration: 4, State: "Stable", Members: []contract.GroupMemberInfo{{
 			GroupMember:  contract.GroupMember{MemberID: "a", ClientID: "c", ClientHost: "h", SessionTimeoutMs: 1, RebalanceTimeoutMs: 2, Metadata: []byte{5}},
 			JoinedTimeMs: 9, Assignment: []byte{6}}}}
-	got := DescribeAnswerToWire(rebalance.DescribeAnswer{Groups: []rebalance.GroupDescription{{Name: "g", DescribeGroupResp: desc}}}).GetGroups()
+	got := DescribeGroupsResponseFromCore(rebalance.DescribeAnswer{Groups: []rebalance.GroupDescription{{Name: "g", DescribeGroupResp: desc}}}).GetGroups()
 	if len(got) != 1 || got[0].GetName() != "g" {
 		t.Fatalf("describe: %v", got)
 	}

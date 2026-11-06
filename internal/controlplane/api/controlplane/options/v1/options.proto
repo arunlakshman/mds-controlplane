@@ -12,7 +12,7 @@ option go_package = "github.com/manifesterio/mds-controlplane/internal/controlpl
 // writes three files that are not in git:
 //
 //   internal/controlplane/contract/wire_types_gen.go  the structs of package contract
-//   internal/controlplane/groups/wire_types_gen.go    the structs of package groups
+//   internal/controlplane/domain/rebalance/wire_types_gen.go  the structs of package rebalance
 //   internal/controlplane/wire/wire_gen.go            <Message>ToCore and <Message>FromCore
 //
 // The plugin looks only at messages with go_struct or go_existing. Every message
@@ -23,7 +23,7 @@ option go_package = "github.com/manifesterio/mds-controlplane/internal/controlpl
 // in its place. Field comments are not copied.
 //
 // Go types are always written with their package, such as "contract.Offset". The
-// plugin knows the packages contract, groups and runtime.
+// plugin knows the packages contract, rebalance and runtime.
 
 extend google.protobuf.FileOptions {
   // no_converters gives the messages of the file a struct but no converters,
@@ -33,7 +33,7 @@ extend google.protobuf.FileOptions {
 
 extend google.protobuf.MessageOptions {
   // go_struct is the struct that the plugin writes for the message, such as
-  // "contract.CommitSegment". Its package is contract or groups.
+  // "contract.CommitSegment". Its package is contract or rebalance.
   string go_struct = 51001;
   // go_existing is a Go type that is declared somewhere else, by hand or by the
   // go_struct of another message, such as "runtime.SegmentRef". The plugin

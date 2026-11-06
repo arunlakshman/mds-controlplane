@@ -9,28 +9,11 @@ import (
 // run of the process. Every call gets one Reply, unless it is abandoned.
 type CallID uint64
 
-// Protocol, Member and Assignment are the plain call types of the group
-// protocol. They are written here by hand until T6.6 generates them into this
-// package (today the generated copies are in package groups, which uses sync
-// and time, so the machine can not import it).
-type (
-	// Protocol is one protocol a member supports, with its metadata.
-	Protocol struct {
-		Name     string
-		Metadata []byte
-	}
-	// Member is one member in the join answer. Only the leader gets the list.
-	Member struct {
-		ID         string
-		InstanceID string
-		Metadata   []byte
-	}
-	// Assignment is the bytes the leader gives one member.
-	Assignment struct {
-		Member string
-		Bytes  []byte
-	}
-)
+// The plain call types of the group protocol (Protocol, Member, Assignment) and
+// the answers JoinAnswer, SyncAnswer, LeaveAnswer, DescribeAnswer and
+// GroupDescription are generated from api/controlplane/v1/controlplane.proto
+// into wire_types_gen.go. The inputs below carry a call id, so they are written
+// by hand.
 
 // The inputs (docs/rebalance.md section 3). TimerFired is runtime.TimerFired.
 type (
@@ -127,42 +110,15 @@ type (
 type Answer interface{ isAnswer() }
 
 type (
-	// JoinAnswer is the answer of a join. Only the leader gets Members.
-	JoinAnswer struct {
-		Generation int32
-		Protocol   string
-		Leader     string
-		MemberID   string
-		Members    []Member
-	}
-	// SyncAnswer is the assignment of the member that synced.
-	SyncAnswer struct {
-		Assignment []byte
-	}
-	// LeaveAnswer has one code per member of the call, in order.
-	LeaveAnswer struct {
-		Errs []runtime.ErrCode
-	}
 	// CommitAnswer has one code per offset of the call, in order.
 	CommitAnswer struct {
 		contract.OffsetCommitResp
-	}
-	// DescribeAnswer has one description per group of the call, in order.
-	DescribeAnswer struct {
-		Groups []GroupDescription
 	}
 	// ListAnswer has every group in memory, by name.
 	ListAnswer struct {
 		Groups []contract.GroupSummary
 	}
 )
-
-// GroupDescription is the log's description of one group, with the state
-// from memory (Dead for a group the machine does not have).
-type GroupDescription struct {
-	Name string
-	contract.DescribeGroupResp
-}
 
 func (JoinAnswer) isAnswer()     {}
 func (SyncAnswer) isAnswer()     {}

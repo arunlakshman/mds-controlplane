@@ -176,7 +176,7 @@ message BrokerHeartbeatResponse {
 
 // GroupProtocol is one protocol a member supports, with its metadata.
 message GroupProtocol {
-  option (controlplane.options.v1.go_struct) = "groups.Protocol";
+  option (controlplane.options.v1.go_struct) = "rebalance.Protocol";
   string name = 1;
   bytes metadata = 2;
 }
@@ -185,7 +185,6 @@ message GroupProtocol {
 //
 // RebalanceTimeoutMs 0 means the session timeout.
 message JoinGroupRequest {
-  option (controlplane.options.v1.go_struct) = "groups.JoinReq";
   string group = 1;
   string member_id = 2;
   string group_instance_id = 3;
@@ -199,14 +198,15 @@ message JoinGroupRequest {
 
 // GroupMember is one member in the join result. Only the leader gets the list.
 message GroupMember {
-  option (controlplane.options.v1.go_struct) = "groups.Member";
+  option (controlplane.options.v1.go_struct) = "rebalance.Member";
   string member_id = 1 [(controlplane.options.v1.go_name) = "ID"];
   string group_instance_id = 2 [(controlplane.options.v1.go_name) = "InstanceID"];
   bytes metadata = 3;
 }
 
+// JoinGroupResponse is the answer of a join. Only the leader gets Members.
 message JoinGroupResponse {
-  option (controlplane.options.v1.go_existing) = "groups.JoinResp";
+  option (controlplane.options.v1.go_struct) = "rebalance.JoinAnswer";
   string member_id = 1;
   int32 generation = 2;
   string protocol = 3;
@@ -216,28 +216,27 @@ message JoinGroupResponse {
 
 // GroupAssignment is the bytes the leader gives one member.
 message GroupAssignment {
-  option (controlplane.options.v1.go_struct) = "groups.Assignment";
+  option (controlplane.options.v1.go_struct) = "rebalance.Assignment";
   string member_id = 1 [(controlplane.options.v1.go_name) = "Member"];
   bytes assignment = 2 [(controlplane.options.v1.go_name) = "Bytes"];
 }
 
 // SyncGroupRequest is a SyncGroup call. Assignments is used by the leader only.
 message SyncGroupRequest {
-  option (controlplane.options.v1.go_struct) = "groups.SyncReq";
   string group = 1;
   string member_id = 2;
   int32 generation = 3;
   repeated GroupAssignment assignments = 4;
 }
 
+// SyncGroupResponse is the assignment of the member that synced.
 message SyncGroupResponse {
-  option (controlplane.options.v1.go_existing) = "groups.SyncResp";
+  option (controlplane.options.v1.go_struct) = "rebalance.SyncAnswer";
   bytes assignment = 1;
 }
 
 // HeartbeatRequest is a Heartbeat call.
 message HeartbeatRequest {
-  option (controlplane.options.v1.go_struct) = "groups.HeartbeatReq";
   string group = 1;
   string member_id = 2;
   int32 generation = 3;
@@ -247,14 +246,13 @@ message HeartbeatResponse {}
 
 // LeaveGroupRequest is a LeaveGroup call.
 message LeaveGroupRequest {
-  option (controlplane.options.v1.go_struct) = "groups.LeaveReq";
   string group = 1;
   repeated string members = 2;
 }
 
 // LeaveGroupResponse has one code per request member, in request order.
 message LeaveGroupResponse {
-  option (controlplane.options.v1.go_struct) = "groups.LeaveResp";
+  option (controlplane.options.v1.go_struct) = "rebalance.LeaveAnswer";
   repeated ErrCode errs = 1 [(controlplane.options.v1.go_type) = "runtime.ErrCode"];
 }
 
@@ -294,7 +292,6 @@ message OffsetFetchResponse {
 
 // DescribeGroupsRequest names the groups to describe.
 message DescribeGroupsRequest {
-  option (controlplane.options.v1.go_struct) = "groups.DescribeGroupsReq";
   repeated string groups = 1;
 }
 
@@ -336,14 +333,14 @@ message GroupDetails {
 
 // GroupDescription is one group of DescribeGroups: its name and its details.
 message GroupDescription {
-  option (controlplane.options.v1.go_existing) = "groups.GroupDescription";
+  option (controlplane.options.v1.go_struct) = "rebalance.GroupDescription";
   string name = 1;
   GroupDetails details = 2 [(controlplane.options.v1.go_embed) = true];
 }
 
 // DescribeGroupsResponse has one description per request group, in request order.
 message DescribeGroupsResponse {
-  option (controlplane.options.v1.go_struct) = "groups.DescribeGroupsResp";
+  option (controlplane.options.v1.go_struct) = "rebalance.DescribeAnswer";
   repeated GroupDescription groups = 1;
 }
 

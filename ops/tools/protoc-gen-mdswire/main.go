@@ -9,7 +9,7 @@
 // output directory internal/controlplane, and it writes:
 //
 //	contract/wire_types_gen.go   the structs of package contract (no wire import)
-//	groups/wire_types_gen.go     the structs of package groups (no wire import)
+//	domain/rebalance/wire_types_gen.go  the structs of package rebalance (no wire import)
 //	wire/wire_gen.go             <Message>ToCore and <Message>FromCore
 //
 // The value types stay plain: they are compared, hashed and used as map keys by
@@ -41,16 +41,16 @@ const module = "github.com/manifesterio/mds-controlplane"
 
 // goPackages are the Go packages that the options may name, with their import paths.
 var goPackages = map[string]string{
-	"contract": module + "/internal/controlplane/contract",
-	"groups":   module + "/internal/controlplane/groups",
-	"runtime":  module + "/internal/runtime",
+	"contract":  module + "/internal/controlplane/contract",
+	"rebalance": module + "/internal/controlplane/domain/rebalance",
+	"runtime":   module + "/internal/runtime",
 }
 
 // structFiles are the files that hold the structs of each package, under the
 // output directory.
 var structFiles = map[string]string{
-	"contract": "contract/wire_types_gen.go",
-	"groups":   "groups/wire_types_gen.go",
+	"contract":  "contract/wire_types_gen.go",
+	"rebalance": "domain/rebalance/wire_types_gen.go",
 }
 
 const wireFile = "wire/wire_gen.go"
@@ -137,7 +137,7 @@ func readMessages(gen *protogen.Plugin, opts *options) ([]*message, error) {
 			if msg == nil {
 				continue
 			}
-			msg.converters = !opts.flag(fileOpts, "no_converters") && !inGroups(msg.goType)
+			msg.converters = !opts.flag(fileOpts, "no_converters")
 			msgs = append(msgs, msg)
 			byName[m.Desc.FullName()] = msg
 		}
@@ -218,16 +218,6 @@ func readField(opts *options, f *protogen.Field, byName map[protoreflect.FullNam
 	return fd, nil
 }
 
-// inGroups reports whether a Go type is in package groups, the old group
-// coordinator. Its types get a struct but no converters: the gRPC handlers turn
-// the group messages into the inputs of domain/rebalance (wire/rebalance.go),
-// so package wire, and the server with it, does not import groups. T6.6 deletes
-// groups and moves these types to domain/rebalance.
-func inGroups(goType string) bool {
-	pkg, _, _ := strings.Cut(goType, ".")
-	return pkg == "groups"
-}
-
 // checkType checks that a Go type of an option names a package the plugin
 // knows. A struct the plugin writes must be in a package with a struct file.
 func checkType(t string, write bool) error {
@@ -236,7 +226,7 @@ func checkType(t string, write bool) error {
 		return fmt.Errorf("the Go type %q has no package", t)
 	}
 	if _, ok := structFiles[pkg]; write && !ok {
-		return fmt.Errorf("go_struct %q: the plugin writes structs only in contract and groups", t)
+		return fmt.Errorf("go_struct %q: the plugin writes structs only in contract and rebalance", t)
 	}
 	if _, ok := goPackages[pkg]; !ok {
 		return fmt.Errorf("the Go type %q: unknown package %s", t, pkg)
