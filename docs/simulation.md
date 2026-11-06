@@ -10,7 +10,7 @@ and again until it is understood.
 ## Run it
 
     make sim                                   # the tests of the simulator
-    make sim-campaign                          # 300 seeds for each scenario, about 10 s
+    make sim-campaign                          # 300 seeds for each scenario, about 15 s
     make sim-campaign SIM_SEEDS=5000           # a long campaign
     go run ./cmd/cpsim -scenario chaos -seed 17          # one seed, with a trace of every step
     go run ./cmd/cpsim -scenario chaos -seeds 1000 -first 5000
@@ -59,7 +59,8 @@ What the report holds:
 
 An assertion that is never evaluated leaves no trace in the counts. That is why
 the hand-kept `expectedReachable` list stays: only a list can name a path that
-no seed reached. When a path is added or removed in the replica, change the list.
+no seed reached. When a path is added or removed in the replica or in the group
+host (`groups.go`), change the list.
 
 ## What a run does
 
@@ -69,15 +70,21 @@ no seed reached. When a path is added or removed in the replica, change the list
    takeover after 1.5 s, checkpoint every 1 s, log trim 8 slots behind it) so a
    run is short in virtual time.
 2. Fault phase: 3 clients send random operations (create topic, commit segment,
-   find segments, describe topics, and the group operations: install, assign,
-   remove, offset commit, offset fetch, describe group, list groups). Each
-   operation goes to a random node. On `ErrUnavailable`, a timeout or an IO
-   error the client retries the same operation with a new request id, up to 8
-   times, then gives up. Faults of the scenario are on.
+   find segments, describe topics, and the group storage operations: install,
+   assign, remove, offset commit, offset fetch, describe group, list groups, on
+   the groups `g0` and `g1`). Each operation goes to a random node. On
+   `ErrUnavailable`, a timeout or an IO error the client retries the same
+   operation with a new request id, up to 8 times, then gives up. At the same
+   time the consumers use the consumer groups `cg0` to `cg2` through the
+   rebalance machine of each node (see "Consumer groups"). Faults of the
+   scenario are on.
 3. Quiet tail: all faults stop, partitions are healed, paused nodes resume, dead
    nodes boot. The run waits until every node is ready and has applied every
-   slot that changes state (at least 3 s, at most 40 s of virtual time).
-4. Final reads: one client per node reads all the state from that node.
+   slot that changes state, and the consumer groups have settled (at least 3 s,
+   at most 40 s of virtual time).
+4. Final reads: the consumers stop and the rebalance machines are frozen, so
+   that the log no longer changes. Then one client per node reads all the state
+   from that node.
 5. Judgement: the oracle checks everything (next section) and the run returns
    its result with the trace hash.
 
@@ -98,6 +105,8 @@ stream through `runtime.Environment`.
 | Executor error mapping | `executor.Classify` for errors, and the same completions as `Executor.logIO`. |
 | Timers | `SetTimer` and `CancelTimer` on the virtual clock, matched by token, like the run loop. |
 | gRPC server | Not used. The client sends `runtime.ControlPlaneDeliver` and gets `ControlPlaneReply`, the simulator bridge path of the replica. |
+| Rebalance loop of `server.Node` | A second dst process per node (`rb-0` beside `cp-0`, `groups.go`) that hosts `rebalance.Machine` as `server.Node` does. |
+| gRPC group handlers | The group host in `groups.go`: a call id per call, the wait for the reply, `CallAbandoned` at the deadline, and `OffsetFetch` behind the role bit. |
 
 Faults:
 
@@ -119,6 +128,10 @@ Faults:
   returns the first part of the page, at least one entry; the replica reads again
   from its applied slot). The object store has no short page site: `ObjectList`
   has no page limit or continuation, so a short list would not be legal.
+  The rebalance machine has five sites of its own (`domain/rebalance/sites.go`),
+  and gets the fault injector of the run, so they fire and are counted too:
+  `rebalance.timer.late`, `rebalance.timer.stale`, `rebalance.reply.duplicate`,
+  `rebalance.queue.late-drain` and `rebalance.load.retry`.
 
 The log has no epoch check on append. Fencing in this design is a conditional
 put (a slot can be written once) plus the writer epoch stored in every entry,
@@ -140,20 +153,107 @@ property name.
 | live replicas converge | At the end of the quiet tail every node is ready and misses no slot that changes state, and answers the final reads. |
 | log has no hole, log entries decode | The history of the log is contiguous. |
 | assertions of the replica | The `Always` calls inside the replica (for example "a Put never wins a slot below the trim floor") are recorded as failures too. |
+| the consumer groups | See "Consumer groups" below. |
 
 Because the log is the truth about the order of writes, an operation whose
 answer was lost ("maybe applied") needs no special case: it is in the log or it
 is not. The model (`internal/spec`) lives behind a one-method interface (`spec.Model`).
 `spec.go` in the simulator is the only file that imports it.
 
-Coverage: a campaign prints which replica paths no seed reached (claims,
-take-over, fencing, restore from checkpoint, trimmed log, lost slot, bad
-checkpoint CRC, replica crash and stall). It is a hint, not a failure.
+Coverage: a campaign prints which replica and rebalance paths no seed reached
+(claims, take-over, fencing, restore from checkpoint, trimmed log, lost slot,
+bad checkpoint CRC, replica crash and stall, and the rebalance paths below). It
+is a hint, not a failure.
+
+## Consumer groups
+
+The rebalance machine (`domain/rebalance`, docs/rebalance.md) runs in the
+simulator beside each replica, and a few consumers use it.
+
+The rebalance process. Each node gets a second dst process, `rb-N`, that
+crashes, pauses and restarts with the replica `cp-N`. A restart takes a new
+machine, so it starts with no memory, in Standby. The host (`groups.go`) does
+what `server.Node` does in production, and nothing else:
+
+- `SubmitCommand` goes to the replica as a `ControlPlaneDeliver` from
+  `rebalance`; `SubmitRead` as a `LocalRead`, or as a `ControlPlaneDeliver`
+  when it is Fresh.
+- A `ControlPlaneReply` to `rebalance` comes back to the machine as a
+  `ReplicaReply`. The node looks at `To` first, as `Node.reply` does.
+- After each step of the replica, a change of "active appender and Ready" is
+  sent to the machine as `RoleChanged` (only the edge), after the other outputs
+  of the step, as the `AfterStep` hook does.
+- A group call gets an id and waits for its `Reply`. If its deadline passes
+  first, the call is forgotten, `CallAbandoned` goes to the machine, and a later
+  reply is dropped. When the node goes down, every waiting call gets
+  `ErrUnavailable`, as a closed connection.
+- `OffsetFetch` is not a machine call: behind the role bit it is a `LocalRead`
+  of the replica, and the answer is judged against the spec like any read.
+- The machine gets the fault injector of the run, so its buggify sites fire.
+
+A real inbox keeps the order in which values were put in it, but the dst
+scheduler breaks ties of the same instant at random. So the host keeps a queue
+for the machine and one for the replica, and sends a wake token for each value:
+a token takes the value at the head of its queue, whatever token comes first.
+The times are scaled down like the replica config: initial delay 300 ms, write
+timeout 2 s, new member timeout 4 s.
+
+The consumers (`consumers.go`). Each scenario runs 5 or 6 consumers over three
+groups. A consumer joins (session 1.5 to 2.5 s, rebalance timeout 2 to 3 s),
+syncs (the leader gives each member bytes that name the group, the generation
+and its place), then heartbeats about four times per session, commits offsets
+(each offset is new in the run), fetches them, describes and lists groups. It
+follows the answers as a Kafka client does: an unknown member joins again as a
+new member, a rebalance in progress or another generation makes it join again.
+Each call goes to the node that answered it last; on `ErrUnavailable` or a
+timeout it tries the next node, up to 8 times. In the fault phase a consumer
+also leaves now and then, abandons a call on purpose (a short deadline), or goes
+silent for good, sometimes right after its join and before its sync. A new
+consumer takes the place of a silent one a few seconds later. In the quiet tail
+the consumers do not leave, abandon or go silent, and a watcher reads all the
+groups again and again. The quiet tail ends only when that read shows the groups
+settled.
+
+What is checked, with the property names:
+
+| Property | How |
+|---|---|
+| no two leaders of one generation | Two join answers for one group and generation name the same leader. |
+| a generation never goes down | The join answers of one member never go down in generation. A known member keeps its id (`a known member keeps its id`). |
+| an answered generation is in the log | After the run, every join answer matches the logged `GroupInstall` of its generation: the same leader, and the member is in it. |
+| a sync answer is the logged assignment | The bytes a member got are the ones a logged `GroupAssign` of its generation gave it. |
+| an acked offset commit is in the log, and survives | Every offset acked OK applied in the log, and the final state has an offset for the partition from a commit at the same slot or later. A commit answer has one code per offset. |
+| a silent member is removed, consumer groups settle | The last read of the watcher, at the end of the quiet tail: no member of a silent consumer is left, and every group is Stable with exactly its live consumers as members. |
+| every call gets an answer, and one answer | A call sent in the quiet tail is answered before its deadline. A reply to a call that does not wait (a second reply) is a failure; a reply to an abandoned call is dropped. |
+| request ids never repeat | A machine never uses a request id twice in one run (`Node.reply` depends on it). |
+| a machine answers only with the role | No call is answered OK after the machine was told that it lost the role, until it is told that it has it again. |
+
+The log may get a write that the machine gave up (its term ended first) after
+the machine read the log again (docs/rebalance.md section 8). Such a write gives
+no answer, so the checks of answers need no special case. But it can leave the
+log with other members than the memory of the machine: the host marks the group
+"late" when a given-up write is answered OK, and the members of a late group are
+not compared when the groups settle (its state still is).
+
+The rebalance paths in the coverage list (the machine has no assertions of its
+own, so the host marks what it sees in the inputs and outputs): a join round
+completes, a round completes with many members, a member gets its assignment,
+an offset commit is acked, a leave removes a member, a heartbeat is told to join
+again, a silent member is removed, a member that never synced is removed, a
+takeover loads a group with members, a failed write ends the term, the write
+timer ends the term, groups are read again from a fresh tail, a refused load
+read is sent again, the role is lost while calls wait, a call is abandoned, and
+a late reply to an abandoned call is dropped.
+
+`Config.noGroups` (tests only) leaves out the rebalance processes and the
+consumers. A run is then the run of before they were added, step for step:
+`TestGoldenWithoutGroups` checks the old trace hashes.
 
 ## Trace hash
 
 After every step the run folds the virtual time, the node, the replica's
-`StateHash()` and the number of actions into one hash. The hash is in the
+`StateHash()` and the number of actions into one hash (and the same for each
+step of a rebalance machine, with its own `StateHash()`). The hash is in the
 report and the campaign line. `TestSameSeedSameHash` runs each seed twice (and
 once on 8 goroutines) and requires the same hash. Running `make sim-campaign`
 twice prints the same hash for each scenario; this also holds across processes,
@@ -192,10 +292,29 @@ A simulator that cannot find a planted bug cannot be trusted. `-bug` plants one:
 `TestPlantedBugsAreFound` requires that each is found within 300 seeds, and
 `TestCleanRunHasNoFalseAlarm` that the same seeds pass without the bug.
 
+Three bugs of the rebalance machine are text mutants in `ops/mutants.txt`, run
+by `make mutants`, and `TestScenariosPass` kills each. They show only under
+faults (the basic scenario passes with each of them):
+
+- `rebalance-request-ids-repeat`: request ids start again at each load (found
+  by "request ids never repeat").
+- `rebalance-role-loss-ignored-while-loading`: a role loss while the machine
+  loads is ignored, and it serves without the role (found by "a machine answers
+  only with the role").
+- `rebalance-refused-write-applied`: a group write refused with
+  `ErrUnavailable` is taken as applied (found by "an answered generation is in
+  the log", "a sync answer is the logged assignment" and "no two leaders of one
+  generation").
+
+The unit tests of the machine find none of them, and the conformance target
+(`TestRebalanceMachine`) only the third: it answers every write and read at
+once, so a late answer or a role change during a load never happens there.
+
 ## Add a scenario
 
-1. Add a `Scenario{Name, Detail, Faults}` in `allScenarios` (`scenario.go`).
-   `Faults` has per-call probabilities and the mean gap of each node fault.
+1. Add a `Scenario{Name, Detail, Faults, Consumers}` in `allScenarios`
+   (`scenario.go`). `Faults` has per-call probabilities and the mean gap of each
+   node fault; `Consumers` is how many consumers use the consumer groups.
 2. If you need a new kind of fault, add a field to `Faults`, act on it in
    `services.go` (calls) or `scenario.go` (nodes), and add a counter to `Stats`.
 3. Add its name to `TestFaultsAreInjected` so it cannot go silent.
@@ -207,10 +326,16 @@ run) or `oracle.checkRead` (during the run).
 
 ## Not covered yet
 
-- The group coordinator (join, sync and heartbeat with timers and channels) and
-  the gRPC server are not run. Only the replicated group storage operations are.
-- Reads go through the simulator bridge path (`ControlPlaneDeliver`: wait for a
-  fresh tail), not through the server path that reads the fold directly.
+- The gRPC server is not run. The group host in `groups.go` plays its part for
+  the group calls, and `TestGRPCRebalance` (test/conformance) checks the real
+  one.
+- The reads of the plain clients go through the simulator bridge path
+  (`ControlPlaneDeliver`: wait for a fresh tail). The reads of the rebalance
+  machine and the `OffsetFetch` of the consumers are `LocalRead`s, as in the
+  server.
+- A call sent in the fault phase may hit its deadline without a failure: under
+  faults the time a correct machine takes to answer has no simple bound, so only
+  calls sent in the quiet tail must be answered in time.
 - The idempotency window is off (`WindowSlots` 0), so forgetting old commit
   keys is not tested. Clients retry quickly, so it would not be hit anyway.
 - Committed group offsets may legitimately go down (a late retry of an old
