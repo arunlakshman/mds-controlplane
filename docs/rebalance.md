@@ -248,6 +248,8 @@ could not get back to 559 without dropping one of these rules.
 
 ## 13. Left for later
 
+Every difference from Kafka, with its status, is listed in `docs/kafka-differences.md`.
+
 - T6.2: skip the `GroupRemove` write when none of the removed members is in the log (new members
   only); Kafka writes nothing for them. The model writes it and the log ignores unknown members.
 - T6.2: Describe of many names: one LocalRead per name, one Reply when all are back.

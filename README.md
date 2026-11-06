@@ -29,7 +29,7 @@ Run: `go run ./cmd/mdscontrolplane`. Docker and Helm: see `deploy/README.md`.
 
 ## Layout
 
-See `internal/controlplane/doc.go` for the package map and the mental model, and `docs/glossary.md` for the terms.
+See `internal/controlplane/doc.go` for the package map and the mental model, and `docs/glossary.md` for the terms. `docs/rebalance.md` is the group protocol design; `docs/kafka-differences.md` lists where it differs from Apache Kafka.
 
 - `cmd/mdscontrolplane` - the binary
 - `cmd/cpsim` - the simulation campaign runner
