@@ -1,6 +1,9 @@
 # Simple English names
 
 This table is for maintainers who read English as a second language.
+Note: this is a record of a rename pass. Most package names in the tables are old
+(`applier`, `memstore`, `controlplanetest`, `kv` and others); the tree today is in
+`internal/controlplane/doc.go`. Use the table for the style of names, not for paths.
 Note: the deleted-marker rows below are historical (decision 62 removed the marker; trim now deletes rows).
 
 Left column: the name in the code today. Right column: a plainer name.

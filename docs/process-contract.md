@@ -1,5 +1,11 @@
 # One machine contract: dst sim.Process
 
+Note (after the greenfield refactor): this file is history. The migration it
+plans is done. Since then `controlplaneclient`, `controlplanetest`, `runloop` and
+`system/run.go` are deleted, and the packages `kv`, `metadata`, `groups` and
+`topics` became `metadb/engine`, `metadb`, `domain/rebalance` and `domain/topic`
+and `domain/group`. See `internal/controlplane/doc.go` for the tree as it is.
+
 Status (updated after the build): the table below is what was built, with these
 differences from the first proposal.
 

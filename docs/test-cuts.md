@@ -2,6 +2,11 @@
 
 Note: docs/greenfield-refactor-plan.md replaces this file's later steps.
 
+Note: most packages named below are gone. `controlplanetest` (and `fakedynamodb`, `memorystore`,
+`metadatastore` under it) was replaced by `test/conformance` and the mutants of `ops/mutants.txt`;
+`kv`, `metadata`, `topics` and `membership` became `metadb/engine`, `metadb`, `domain/topic` and
+`domain/group`.
+
 Note: the `groups` package named below was deleted in T6.6. Its tests live on in `domain/rebalance`
 (same test names). The paths below are history.
 

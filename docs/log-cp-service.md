@@ -1,5 +1,11 @@
 # Log-backed control-plane service (stage 2)
 
+Note: this is a historical design record. Package names in it are old (`controlplanetest`,
+`logcp`, the Pebble `Store.CommitBatch`, the HTTP handler), and some files it names
+(`docs/sim-log-engine.md`, `docs/design-a-prototype.md`, `docs/applier-bakeoff.md`) are not in
+this repo. The log, slot, epoch and takeover ideas still hold. For the code as it is, read
+`internal/controlplane/doc.go`, `docs/glossary.md` and `docs/simulation.md`.
+
 Status: production path is `internal/controlplane/replica` + `internal/system/live` + gRPC (`mdscontrolplane -store dynamolog`,
 decision 55-58). Sim `kafka-log` uses the same state machine as CP processes plus `logstore` (CP-DSM-8,
 `docs/sim-log-engine.md`). The goroutine `internal/controlplane/logcp` twin is deleted; DynamoLog/table helpers
