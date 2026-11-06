@@ -134,3 +134,73 @@ run go test ./test/conformance -run ^TestMetadataMemory$ -count=1
 @@ new
 		if !found {
 @@ end
+
+# The rebalance mutants run TestRebalanceMachine: the machine of domain/rebalance
+# against the rebalance model, with a fake log, timers and failed writes.
+
+# A done round does not raise the generation in memory: the answers name the old one.
+mutant rebalance-generation-not-raised
+file internal/controlplane/domain/rebalance/join.go
+run go test ./test/conformance -run ^TestRebalanceMachine$ -count=1
+@@ old
+	g.generation, g.protocol, g.leader = op.Generation, op.Protocol, op.Leader
+@@ new
+	g.protocol, g.leader = op.Protocol, op.Leader
+@@ end
+
+# The leader's sync answers each parked follower before its assignment is logged.
+mutant rebalance-follower-answered-before-logged
+file internal/controlplane/domain/rebalance/sync.go
+run go test ./test/conformance -run ^TestRebalanceMachine$ -count=1
+@@ old
+	m.startWrite(s, g, op, assignWrite{call: in.Call, op: op})
+@@ new
+	sy := g.phase.(*syncing)
+	for _, mm := range g.members {
+		if call, ok := sy.syncs[mm.id]; ok {
+			delete(sy.syncs, mm.id)
+			var b []byte
+			if i := slices.IndexFunc(list, func(a contract.GroupAssignment) bool { return a.Member == mm.id }); i >= 0 {
+				b = clone(list[i].Bytes)
+			}
+			m.reply(call, runtime.OK, SyncAnswer{Assignment: b})
+			m.touch(mm)
+		}
+	}
+	m.startWrite(s, g, op, assignWrite{call: in.Call, op: op})
+@@ end
+
+# A member whose session ends is not removed: its session starts again.
+mutant rebalance-expired-member-kept
+file internal/controlplane/domain/rebalance/timers.go
+run go test ./test/conformance -run ^TestRebalanceMachine$ -count=1
+@@ old
+	m.remove(s, g, []string{mm.id}, removeWrite{cause: causeSession})
+@@ new
+	m.touch(mm)
+@@ end
+
+# When the term ends, a parked join or sync gets no answer.
+mutant rebalance-parked-call-not-answered
+file internal/controlplane/domain/rebalance/write.go
+run go test ./test/conformance -run ^TestRebalanceMachine$ -count=1
+@@ old
+		if call, ok := g.parked(mm); ok {
+			m.reply(call, runtime.ErrUnavailable, nil)
+		}
+@@ new
+		if _, ok := g.parked(mm); ok {
+			continue
+		}
+@@ end
+
+# After the role is lost the machine keeps its memory and goes on serving.
+mutant rebalance-state-kept-after-role-loss
+file internal/controlplane/domain/rebalance/machine.go
+run go test ./test/conformance -run ^TestRebalanceMachine$ -count=1
+@@ old
+			m.dropMemory(s, nil)
+			m.state = &standby{}
+@@ new
+			m.dropMemory(s, nil)
+@@ end
