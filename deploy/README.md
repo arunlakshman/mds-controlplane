@@ -51,6 +51,37 @@ helm v4.1.0 and kubectl client v1.30.2. The commands above ran as written.
   `--tmpfs /tmp` the same command got past that point (it then retried the unreachable
   Dynamo endpoint, as expected).
 
+## Using podman instead of docker
+
+Checked on 2026-11-07 with podman 6.1.4 (machine: rootless, 2 CPUs, 2 GiB), kind v0.31.0
+and helm v4.1.0. The same Dockerfile and chart work. Three things differ from the docker
+steps above:
+
+1. Use `podman` directly in scripts. A `docker` alias in `~/.zshrc` is not seen by
+   non-interactive shells. Build with the full image name, so it matches what the chart
+   asks for (`mdscontrolplane:dev` means `docker.io/library/mdscontrolplane:dev`):
+
+        podman build -f deploy/docker/mdscontrolplane.Dockerfile \
+          -t docker.io/library/mdscontrolplane:dev .
+
+2. Tell kind to use podman, and load the image from an archive. `kind load docker-image`
+   fails under podman with "not present locally".
+
+        export KIND_EXPERIMENTAL_PROVIDER=podman
+        kind create cluster --name mds
+        podman save docker.io/library/mdscontrolplane:dev -o mds-image.tar
+        kind load image-archive mds-image.tar --name mds
+
+3. Install and check as before (`helm upgrade --install cp deploy/helm/mdscontrolplane
+   --kube-context kind-mds --wait`). If `kubectl` is missing, run it inside the node:
+   `podman exec mds-control-plane kubectl --kubeconfig /etc/kubernetes/admin.conf get pods`.
+
+What ran: a cold image build (about 3.5 minutes, 36 MB image), the standalone container
+(serves, `/metrics` answers), a kind cluster (ready in 16 s), the helm install with
+`--wait` (pod 1/1 Ready, 0 restarts, gRPC probe passed), `/metrics` from inside the node
+(138 lines), then helm uninstall and `kind delete cluster`. The real gRPC calls were not
+repeated under podman; they were checked with docker above.
+
 ## What was NOT verified
 
 - The dynamolog and postgres stores in the cluster. No DynamoDB, S3 or PostgreSQL was
